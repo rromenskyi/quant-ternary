@@ -20,17 +20,25 @@ from __future__ import annotations
 
 import torch
 
-from gptq import gptq_binary, gptq_ternary
+from gptq import gptq_binary, gptq_ternary, hessian_diag
 from quantize import binary_bpw, residual_bpw_overhead, ternary_bpw
 from rotation import rotate, unrotate
 
 
-def _select_salient_mask(W: torch.Tensor, X: torch.Tensor, fraction: float, criterion: str) -> torch.Tensor:
+def _select_salient_mask(
+    W: torch.Tensor, X: torch.Tensor, fraction: float, criterion: str, percdamp: float = 0.01
+) -> torch.Tensor:
     if criterion == "magnitude":
         score = W.abs()
     elif criterion == "activation_weighted":
         col_scale = X.abs().mean(dim=0)
         score = W.abs() * col_scale.unsqueeze(0)
+    elif criterion == "hessian":
+        # BiLLM/PB-LLM/OBD-style sensitivity: H_ii * w_ij^2 — the same Hessian
+        # GPTQ's error compensation uses, rather than a raw activation-magnitude
+        # proxy. Reference: bonsai-1bit-repro's billm_1bit.py.
+        h_diag = hessian_diag(X, W.shape[1], percdamp)
+        score = (W.float() ** 2) * h_diag.unsqueeze(0)
     else:
         raise ValueError(f"unknown salient criterion: {criterion}")
     k = max(1, int(fraction * W.numel()))
@@ -51,7 +59,7 @@ def rot_gptq_salient(
     in_features = W.shape[1]
     W_rot = rotate(W, group_size)
     X_rot = rotate(X, group_size)
-    salient_mask = _select_salient_mask(W_rot, X_rot, salient_fraction, criterion)
+    salient_mask = _select_salient_mask(W_rot, X_rot, salient_fraction, criterion, percdamp)
 
     if method == "binary":
         result = gptq_binary(

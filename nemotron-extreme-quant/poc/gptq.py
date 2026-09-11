@@ -21,8 +21,10 @@ import torch.nn.functional as F
 from quantize import binary_bpw, ternary_bpw
 
 
-def _compute_hinv(X: torch.Tensor, in_features: int, percdamp: float) -> torch.Tensor:
-    """Upper-triangular Cholesky factor of (X^T X + damping)^-1, float32."""
+def _raw_hessian(X: torch.Tensor, in_features: int, percdamp: float) -> torch.Tensor:
+    """2 * X^T X + damping, float32. Shared by _compute_hinv and hessian_diag
+    so the salience metric and the GPTQ error-compensation math agree on
+    what "the Hessian" means for this layer."""
     X = X.float()
     H = 2.0 * (X.t() @ X)
     diag = torch.diagonal(H)
@@ -31,6 +33,21 @@ def _compute_hinv(X: torch.Tensor, in_features: int, percdamp: float) -> torch.T
         diag[dead] = 1.0  # padded / never-activated columns: treat as identity
     damp = percdamp * diag.mean().clamp_min(1e-8)
     diag += damp
+    return H
+
+
+def hessian_diag(X: torch.Tensor, in_features: int, percdamp: float = 0.01) -> torch.Tensor:
+    """diag(H) per input column — the Optimal-Brain-Damage-style sensitivity
+    weight used by BiLLM/PB-LLM salience (H_ii * w_ij^2), exposed so
+    methods.py can select salient weights with the same Hessian GPTQ uses,
+    instead of the cruder activation-magnitude heuristic.
+    """
+    return torch.diagonal(_raw_hessian(X, in_features, percdamp)).clone()
+
+
+def _compute_hinv(X: torch.Tensor, in_features: int, percdamp: float) -> torch.Tensor:
+    """Upper-triangular Cholesky factor of (X^T X + damping)^-1, float32."""
+    H = _raw_hessian(X, in_features, percdamp)
     L = torch.linalg.cholesky(H)
     Hinv = torch.cholesky_inverse(L)
     Hinv = torch.linalg.cholesky(Hinv, upper=True)
