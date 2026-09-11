@@ -99,7 +99,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--original", required=True)
     parser.add_argument("--quantized", required=True)
-    parser.add_argument("--device", default="cpu", choices=["cpu", "mps"])
+    parser.add_argument("--device", default="cpu", choices=["cpu", "mps", "cuda"])
     parser.add_argument(
         "--quick", action="store_true", help="skip perplexity, only generate 10 tokens for 1 prompt per model"
     )

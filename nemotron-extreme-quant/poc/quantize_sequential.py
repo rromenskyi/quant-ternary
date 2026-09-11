@@ -92,10 +92,21 @@ def main():
     parser.add_argument("--model", required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--num-blocks", type=int, default=5)
-    parser.add_argument("--device", default="cpu", choices=["cpu", "mps"])
+    parser.add_argument(
+        "--device", default="cpu", choices=["cpu", "mps", "cuda"], help="device for the model forward pass"
+    )
+    parser.add_argument(
+        "--gptq-device",
+        default=None,
+        choices=["cpu", "mps", "cuda"],
+        help="device for the GPTQ Hessian/Cholesky math (defaults to --device); the per-column "
+        "loop is many small ops, which on GPU can be *slower* than CPU due to kernel-launch "
+        "overhead — pass --gptq-device cpu to keep the model forward pass on GPU without that cost",
+    )
     parser.add_argument("--salient-fraction", type=float, default=0.03)
     parser.add_argument("--salient-criterion", default="activation_weighted")
     args = parser.parse_args()
+    gptq_device = args.gptq_device or args.device
 
     print(f"Loading {args.model} ...")
     tokenizer = AutoTokenizer.from_pretrained(args.model, trust_remote_code=False)
@@ -122,7 +133,7 @@ def main():
                 GROUP_SIZE,
                 salient_fraction=args.salient_fraction,
                 criterion=args.salient_criterion,
-                device=args.device,
+                device=gptq_device,
             )
             module.weight.data.copy_(result["W_hat"].to(module.weight.dtype).to(args.device))
             print(

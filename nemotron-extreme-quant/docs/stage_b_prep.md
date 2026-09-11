@@ -4,6 +4,27 @@ Written while Stage A's full 42-block run was still crunching locally, so this
 is prep/planning, not yet executed. Nothing here has been run — verify prices
 and package availability again before actually renting anything.
 
+**Update 2026-09-11:** a RunPod RTX A6000 pod (US-KS-2, $0.53/hr) was actually
+rented to validate the setup checklist below. `mamba-ssm`/`causal-conv1d`
+installed and ran real CUDA kernels — measured **25.2 tok/s generating on
+Nano-4B once warm** (first call pays a one-time Triton JIT-compile cost, ~40s;
+exclude it when timing). Stage A's CPU numbers on the same model were roughly
+0.4 tok/s. That's a **~60x** generation speedup, which reframes the whole
+Stage A timing model: what took hours locally (the 42-block sequential run)
+should take minutes on a GPU with working Mamba kernels. Re-estimate Stage B's
+30B-A3B wall-clock/cost from this number, not from Stage A's CPU-bound one.
+
+Gotcha hit installing `mamba-ssm`: pip's dependency resolver silently
+upgraded `torch` (2.8.0+cu128 → 2.14.0+cu130) to satisfy some transitive
+requirement, which broke CUDA entirely (driver 570.133.20 only supports
+CUDA 12.8, not 13.0) and left `triton` at a version torch didn't want either.
+Fix: install `causal-conv1d`/`mamba-ssm` with `--no-build-isolation --no-deps`
+(after exporting `CUDA_HOME=/usr/local/cuda` and adding it to `PATH`, since
+`nvcc` isn't on `PATH` by default even on the "devel" template) — `--no-deps`
+is the important one, it's what stops the resolver from touching torch/triton
+at all. Verify with `python3 -c "import torch; print(torch.cuda.is_available())"`
+after every mamba-ssm-related pip install, not just once.
+
 ## Cloud: RunPod
 
 Checked 2026-09-10. RunPod, not CoreWeave/Lambda, per current preference —
