@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Environments
+.venv/
+venv/
+
+# Generated data — never commit model weights, caches, or run artifacts
+cache/
+output/
+artifacts/
+poc/calib_cache/
+poc/calib_cache_full/
+poc/*.safetensors
+poc/*.pt
+poc/baseline_original.json
+poc/quality_report*.md
+*.gguf
+*.mlxmodel
+
+# OS
+.DS_Store

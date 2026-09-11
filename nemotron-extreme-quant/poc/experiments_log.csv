@@ -1,0 +1,5 @@
+quantized_model,original_perplexity,quantized_perplexity,ratio
+Nemotron-3-Nano-4B-BF16-quantized-poc,3.853,2317.615,601.558
+Nemotron-3-Nano-4B-BF16-sequential-poc,3.853,11.409,2.961
+Nemotron-3-Nano-4B-BF16-sequential-poc-10,3.853,52.056,13.510
+Nemotron-3-Nano-4B-BF16-sequential-salient-5,3.853,6.823,1.771

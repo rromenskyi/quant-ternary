@@ -5,8 +5,9 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "nemotron-quant"
 version = "0.1.0"
-description = "Extreme post-training quantization for Nemotron 3.5 Lightning"
+description = "Extreme post-training quantization for NVIDIA Nemotron hybrid (Mamba + Attention + MoE) models"
 readme = "README.md"
+license = "Apache-2.0"
 requires-python = ">=3.10"
 dependencies = [
     "torch>=2.3.0",
@@ -32,7 +33,7 @@ cuda = [
 ]
 
 [tool.setuptools.packages.find]
-where = ["."]
+where = ["src"]
 include = ["nemotron_quant*"]
 
 [tool.ruff]

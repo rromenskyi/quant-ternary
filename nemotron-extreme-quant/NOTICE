@@ -1,0 +1,29 @@
+nemotron-extreme-quant
+Copyright 2026 the nemotron-extreme-quant contributors
+
+Licensed under the Apache License, Version 2.0. See LICENSE for the full
+text. This NOTICE covers the code in this repository only; it does not
+apply to any model weights.
+
+--------------------------------------------------------------------------
+
+This project develops and evaluates quantization techniques against models
+published by NVIDIA under the NVIDIA Nemotron Open Model License:
+https://www.nvidia.com/en-us/agreements/enterprise-software/nvidia-nemotron-open-model-license/
+
+Models used during development, none of which are redistributed from this
+repository:
+  - nvidia/NVIDIA-Nemotron-3-Nano-4B-BF16
+  - nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16
+  - nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16 (eventual target)
+
+If and when this project distributes a quantized derivative of any Nemotron
+checkpoint, that distribution is a Derivative Work under the NVIDIA Nemotron
+Open Model License and will ship with its own copy of that license plus the
+following required notice:
+
+  "Licensed by NVIDIA Corporation under the NVIDIA Nemotron Model License."
+
+Reference implementation studied (public techniques only, no proprietary
+code reproduced):
+  - https://github.com/ThakiCloud/bonsai-1bit-repro

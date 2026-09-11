@@ -1,45 +1,60 @@
 # Nemotron Extreme Quantization
 
-Research pipeline for extreme post-training quantization of NVIDIA Nemotron 3.5 Lightning (30B-A3B) to 1.1–2.0 effective bpw.
+Research pipeline for post-training compression of NVIDIA's Nemotron hybrid
+(Mamba + Attention + MoE) models down to **1.1–2.0 effective bits per
+weight**, while keeping reasoning, coding, and agentic behavior intact.
 
-## Project Structure
+Status: **pre-alpha, PoC in progress.** Nothing here should be treated as a
+finished result yet — see [`docs/poc.md`](docs/poc.md) for the current
+go/no-go gate.
+
+## Why
+
+Standard 4-bit/8-bit quantization is well understood. This project explores
+whether *binary and ternary* weight representations — optionally corrected
+with a small sparse residual — can go far past that, using ideas from Bonsai,
+GPTQ/OBQ, QuIP-style incoherence processing, and activation-aware scaling.
+Only publicly documented techniques are used; see
+[`docs/spec.md`](docs/spec.md#research-philosophy) for the constraint this
+places on the design.
+
+## Layout
 
 ```
 nemotron-extreme-quant/
-├── configs/           # YAML configurations
-├── nemotron_quant/    # Core library
-├── scripts/           # CLI entry points
-├── tests/             # Unit tests
-├── cache/             # Calibration/cache data
-├── output/            # Quantized models
-└── artifacts/         # Reports, metrics, logs
+├── src/nemotron_quant/   # library: backends, model inspection, quantizers
+├── scripts/              # CLI entry points
+├── configs/              # quantization policy YAMLs
+├── tests/                # unit tests
+├── docs/                 # spec, roadmap, PoC results
+├── cache/                # downloaded models & calibration data (gitignored)
+├── output/               # quantized checkpoints (gitignored)
+└── artifacts/            # reports, metrics, logs (gitignored)
 ```
 
-## Quick Start
+## Quick start
 
 ```bash
-# Install dependencies
-pip install -r requirements.txt
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"
 
-# Phase 0: Backend capability detection
+# Phase 0 — what does this machine actually support?
 python scripts/benchmark_backend.py --device cpu
 
-# Phase 1: Model inspection (requires HF access)
-python scripts/inspect_model.py --model nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16
-
-# Phase 3-6: Binary quantization test on single expert
-python scripts/quantize_tensor.py --model ... --tensor <expert_tensor_name>
+# Phase 1 — inspect a checkpoint without loading its weights
+python scripts/inspect_model.py --model nvidia/NVIDIA-Nemotron-3-Nano-4B-BF16
 ```
 
-## Phases
+## Docs
 
-See [SPEC.md](SPEC.md) for full specification.
+- [`docs/spec.md`](docs/spec.md) — goals, target architecture, hardware/backend constraints, deployment requirements
+- [`docs/roadmap.md`](docs/roadmap.md) — phased implementation plan
+- [`docs/poc.md`](docs/poc.md) — the proof-of-concept gate this project has to clear before the full pipeline is worth building
 
-- Phase 0: Backend discovery
-- Phase 1: Model inspection & tensor inventory
-- Phase 2: Quantization policy system
-- Phase 3: Naive binary quantization
-- Phase 4: Ternary baseline
-- Phase 5: Single tensor validation
-- Phase 6: Single MoE expert
-- Phase 7+: Full model (later)
+## License
+
+Code in this repository is licensed under [Apache 2.0](LICENSE). It does not
+include any NVIDIA model weights. Any Nemotron checkpoint you download or
+quantize with these tools remains subject to the
+[NVIDIA Nemotron Open Model License](https://www.nvidia.com/en-us/agreements/enterprise-software/nvidia-nemotron-open-model-license/) —
+see [`NOTICE`](NOTICE).
