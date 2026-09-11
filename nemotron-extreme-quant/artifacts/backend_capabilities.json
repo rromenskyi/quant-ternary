@@ -1,0 +1,108 @@
+{
+  "system": {
+    "python_version": "3.14.7",
+    "pytorch_version": "2.14.0",
+    "platform": "macOS-27.0-arm64-arm-64bit-Mach-O",
+    "processor": "arm",
+    "cpu_count": 4,
+    "transformers_version": "5.17.0",
+    "safetensors_version": "0.8.0",
+    "ram_total_gb": "unknown (psutil not installed)"
+  },
+  "backends": {
+    "cpu": {
+      "device_info": {
+        "device": "cpu"
+      },
+      "results": {
+        "capabilities": {
+          "matmul": true,
+          "bmm": true,
+          "cholesky": true,
+          "qr": true,
+          "eig": true,
+          "inv": true,
+          "triangular_solve": true,
+          "hadamard_transform": true,
+          "topk": true,
+          "scatter": true,
+          "gather": true
+        },
+        "benchmarks": {
+          "matmul": {
+            "operation": "matmul",
+            "supported": true,
+            "success": true,
+            "error": null,
+            "latency_ms": 0.27,
+            "latency_std_ms": 0.02
+          },
+          "bmm": {
+            "operation": "bmm",
+            "supported": true,
+            "success": true,
+            "error": null,
+            "latency_ms": 0.9,
+            "latency_std_ms": 0.05
+          },
+          "cholesky": {
+            "operation": "cholesky",
+            "supported": true,
+            "success": true,
+            "error": null,
+            "latency_ms": 0.42,
+            "latency_std_ms": 0.01
+          },
+          "qr": {
+            "operation": "qr",
+            "supported": true,
+            "success": true,
+            "error": null,
+            "latency_ms": 3.72,
+            "latency_std_ms": 0.17
+          },
+          "eig": {
+            "operation": "eig",
+            "supported": true,
+            "success": true,
+            "error": null,
+            "latency_ms": 57.34,
+            "latency_std_ms": 0.39
+          },
+          "inv": {
+            "operation": "inv",
+            "supported": true,
+            "success": true,
+            "error": null,
+            "latency_ms": 0.78,
+            "latency_std_ms": 0.01
+          },
+          "triangular_solve": {
+            "operation": "triangular_solve",
+            "supported": true,
+            "success": true,
+            "error": null,
+            "latency_ms": 0.02,
+            "latency_std_ms": 0.0
+          },
+          "hadamard_transform": {
+            "operation": "hadamard_transform",
+            "supported": true,
+            "success": true,
+            "error": null,
+            "latency_ms": 3.54,
+            "latency_std_ms": 0.06
+          },
+          "topk": {
+            "operation": "topk",
+            "supported": true,
+            "success": true,
+            "error": null,
+            "latency_ms": 0.0,
+            "latency_std_ms": 0.0
+          }
+        }
+      }
+    }
+  }
+}

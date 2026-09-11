@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nemotron-quant"
+version = "0.1.0"
+description = "Extreme post-training quantization for Nemotron 3.5 Lightning"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "torch>=2.3.0",
+    "transformers>=4.40.0",
+    "safetensors>=0.4.0",
+    "numpy>=1.24.0",
+    "pyyaml>=6.0",
+    "tqdm>=4.66.0",
+    "huggingface-hub>=0.22.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "ruff>=0.4.0",
+]
+xpu = [
+    "intel-extension-for-pytorch>=2.3.0",
+]
+cuda = [
+    # torch with CUDA installed separately
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["nemotron_quant*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
