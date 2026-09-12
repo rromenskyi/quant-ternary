@@ -41,6 +41,8 @@ LOCAL_MODELS_DIR="${LOCAL_MODELS_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../mo
 
 # --- defaults for run-specific parameters ---
 BITS=3
+QUANT_RECIPE=""
+QUANT_RECIPE_MODE="positional"
 GROUP_SIZE=64
 CALIB_CHUNKS=24
 CALIB_CHUNK_TOKENS=512
@@ -49,10 +51,17 @@ SEQUENTIAL=""
 RUN_NAME=""
 DO_UPLOAD=1
 DO_DOWNLOAD=1
+CHECKPOINT_EVERY=0
+CHECKPOINT_HF_REPO=""
+RESUME_FROM_CHECKPOINT=""
+CPU_THREADS=32
+SKIP_SANITY_CHECK=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --bits) BITS="$2"; shift 2 ;;
+    --quant-recipe) QUANT_RECIPE="$2"; shift 2 ;;
+    --quant-recipe-mode) QUANT_RECIPE_MODE="$2"; shift 2 ;;
     --group-size) GROUP_SIZE="$2"; shift 2 ;;
     --calib-chunks) CALIB_CHUNKS="$2"; shift 2 ;;
     --calib-chunk-tokens) CALIB_CHUNK_TOKENS="$2"; shift 2 ;;
@@ -61,12 +70,31 @@ while [[ $# -gt 0 ]]; do
     --run-name) RUN_NAME="$2"; shift 2 ;;
     --no-upload) DO_UPLOAD=0; shift 1 ;;
     --no-download) DO_DOWNLOAD=0; shift 1 ;;
+    --checkpoint-every) CHECKPOINT_EVERY="$2"; shift 2 ;;
+    --checkpoint-hf-repo) CHECKPOINT_HF_REPO="$2"; shift 2 ;;
+    --resume-from-checkpoint) RESUME_FROM_CHECKPOINT="$2"; shift 2 ;;
+    --cpu-threads) CPU_THREADS="$2"; shift 2 ;;
+    --skip-sanity-check) SKIP_SANITY_CHECK=1; shift 1 ;;
     *) echo "unknown flag: $1" >&2; exit 1 ;;
   esac
 done
 
 if [[ -z "$RUN_NAME" ]]; then
-  RUN_NAME="gptq${BITS}bit-g${GROUP_SIZE}$( [[ -n "$SEQUENTIAL" ]] && echo -seq )"
+  SEQ_SUFFIX=""
+  if [[ -n "$SEQUENTIAL" ]]; then
+    SEQ_SUFFIX="-seq"
+  fi
+  if [[ -n "$QUANT_RECIPE" ]]; then
+    MODE_TAG=""
+    [[ "$QUANT_RECIPE_MODE" == "sensitivity" ]] && MODE_TAG="-smart"
+    RUN_NAME="gptq-${QUANT_RECIPE}${MODE_TAG}-g${GROUP_SIZE}${SEQ_SUFFIX}"
+  else
+    RUN_NAME="gptq${BITS}bit-g${GROUP_SIZE}${SEQ_SUFFIX}"
+  fi
+fi
+
+if [[ "$CHECKPOINT_EVERY" -gt 0 && -z "$CHECKPOINT_HF_REPO" ]]; then
+  CHECKPOINT_HF_REPO="${HF_USER}/nemotron-30b-a3b-${RUN_NAME}-checkpoint"
 fi
 
 SSH="ssh -i $POD_SSH_KEY -p $POD_PORT root@$POD_HOST"
@@ -82,23 +110,63 @@ echo "=== pod: ${POD_HOST}:${POD_PORT} ==="
 echo "--- syncing poc/ to pod ---"
 $SCP "$(dirname "${BASH_SOURCE[0]}")"/*.py "root@${POD_HOST}:${POD_POC_DIR}/"
 
-echo "--- launching GPTQ calibration (tmux session: pipeline-${RUN_NAME}) ---"
-$SSH "tmux kill-session -t pipeline-${RUN_NAME} 2>/dev/null; rm -rf ${HF_STAGE_DIR}; cd ${POD_POC_DIR} && tmux new-session -d -s pipeline-${RUN_NAME} '
-  python3 gptq_stock_convert.py \
+CHECKPOINT_ARGS=""
+if [[ "$CHECKPOINT_EVERY" -gt 0 ]]; then
+  CHECKPOINT_ARGS="--checkpoint-every ${CHECKPOINT_EVERY} --checkpoint-hf-repo ${CHECKPOINT_HF_REPO}"
+fi
+RESUME_ARGS=""
+if [[ -n "$RESUME_FROM_CHECKPOINT" ]]; then
+  RESUME_ARGS="--resume-from-checkpoint ${RESUME_FROM_CHECKPOINT}"
+fi
+SANITY_CHECK_STEP=""
+if [[ -z "$SKIP_SANITY_CHECK" ]]; then
+  SANITY_CHECK_STEP="&& python3 -u sanity_check_hf.py --model ${HF_STAGE_DIR}"
+fi
+GPTQ_BITS_ARGS="--bits ${BITS}"
+MLX_CONVERT_CMD="mlx_lm.convert --hf-path ${HF_STAGE_DIR} --mlx-path ${HF_MLX_DIR} -q --q-bits ${BITS} --q-group-size ${GROUP_SIZE}"
+if [[ -n "$QUANT_RECIPE" ]]; then
+  GPTQ_BITS_ARGS="--quant-recipe ${QUANT_RECIPE} --quant-recipe-mode ${QUANT_RECIPE_MODE}"
+  if [[ "$QUANT_RECIPE_MODE" == "sensitivity" ]]; then
+    # stock mlx_lm.convert --quant-predicate only knows the POSITIONAL
+    # formula -- it would silently re-pick different layers than the ones
+    # GPTQ actually calibrated at high_bits, corrupting the result the same
+    # way an unmatched affine formula did earlier this session (see
+    # docs/session_findings_2026-09-11.md section 7p). Use the custom
+    # converter that reads this run's sensitivity_manifest.json instead.
+    MLX_CONVERT_CMD="python3 -u mlx_convert_sensitivity.py --hf-path ${HF_STAGE_DIR} --mlx-path ${HF_MLX_DIR} --group-size ${GROUP_SIZE}"
+  else
+    MLX_CONVERT_CMD="mlx_lm.convert --hf-path ${HF_STAGE_DIR} --mlx-path ${HF_MLX_DIR} -q --quant-predicate ${QUANT_RECIPE} --q-group-size ${GROUP_SIZE}"
+  fi
+fi
+
+echo "--- launching GPTQ calibration (nohup, log: ${LOG_FILE}) ---"
+[[ -n "$CHECKPOINT_HF_REPO" ]] && echo "--- checkpointing every ${CHECKPOINT_EVERY} blocks to https://huggingface.co/${CHECKPOINT_HF_REPO} ---"
+# nohup+disown, not tmux: tmux sessions on this pod image were observed to
+# vanish silently (no error, empty log) moments after launch for unclear
+# reasons -- nohup survives the launching ssh connection closing just as
+# well and has been reliable in practice.
+CLEAN_STAGE_DIR="rm -rf ${HF_STAGE_DIR};"
+if [[ "$RESUME_FROM_CHECKPOINT" == "$HF_STAGE_DIR" ]]; then
+  CLEAN_STAGE_DIR=""
+  echo "--- resuming in place from ${HF_STAGE_DIR}, not wiping it ---"
+fi
+$SSH "${CLEAN_STAGE_DIR} cd ${POD_POC_DIR} && nohup bash -c '
+  python3 -u gptq_stock_convert.py \
     --model ${MODEL_SRC_DIR} --output ${HF_STAGE_DIR} \
     --wikitext ${WIKITEXT_PATH} \
-    --bits ${BITS} --group-size ${GROUP_SIZE} \
+    ${GPTQ_BITS_ARGS} --group-size ${GROUP_SIZE} \
     --calib-chunks ${CALIB_CHUNKS} --calib-chunk-tokens ${CALIB_CHUNK_TOKENS} \
-    --moe-subbatch ${MOE_SUBBATCH} ${SEQUENTIAL} \
+    --moe-subbatch ${MOE_SUBBATCH} --cpu-threads ${CPU_THREADS} ${SEQUENTIAL} ${CHECKPOINT_ARGS} ${RESUME_ARGS} \
   && echo GPTQ_STAGE_DONE \
-  && mlx_lm.convert --hf-path ${HF_STAGE_DIR} --mlx-path ${HF_MLX_DIR} -q --q-bits ${BITS} --q-group-size ${GROUP_SIZE} \
+  ${SANITY_CHECK_STEP} \
+  && ${MLX_CONVERT_CMD} \
   && echo MLX_CONVERT_DONE \
-' > ${LOG_FILE} 2>&1"
+' > ${LOG_FILE} 2>&1 < /dev/null & disown"
 
-echo "--- tmux session launched; tail with: ${SSH} 'tail -f ${LOG_FILE}' ---"
+echo "--- job launched; tail with: ${SSH} 'tail -f ${LOG_FILE}' ---"
 echo "--- waiting for MLX_CONVERT_DONE (this can take a while; Ctrl-C is safe, the pod job keeps running) ---"
 
-$SSH "tail -f -n +1 ${LOG_FILE}" | grep -m1 -E "MLX_CONVERT_DONE|Traceback|Error"
+$SSH "tail -f -n +1 ${LOG_FILE}" | grep -m1 -E "MLX_CONVERT_DONE|SANITY_CHECK_FAILED|Traceback|Error"
 
 if $SSH "tail -50 ${LOG_FILE} | grep -q MLX_CONVERT_DONE"; then
   echo "=== conversion succeeded: ${HF_MLX_DIR} ==="

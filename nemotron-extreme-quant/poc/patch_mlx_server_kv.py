@@ -1,11 +1,20 @@
-"""Patch a pip-installed mlx_lm's server.py to add --kv-bits/--kv-group-size/
---quantized-kv-start flags, threading them into the stream_generate(...) call
-used to serve each request. Upstream mlx_lm.generate already supports KV-cache
-quantization end to end (mlx_lm/generate.py's stream_generate accepts these
-params directly) -- server.py just never exposed them as CLI flags.
+"""Patch a pip-installed mlx_lm's server.py with independently-idempotent
+additions (each safe to re-run after a fresh `pip install mlx-lm` wipes it):
 
-Idempotent: safe to run against an already-patched server.py, or after a
-fresh `pip install mlx-lm` that wiped out a previous patch (re-applies).
+1. --kv-bits/--kv-group-size/--quantized-kv-start flags, threaded into the
+   stream_generate(...) call used to serve each request. Upstream
+   mlx_lm.generate already supports KV-cache quantization end to end
+   (mlx_lm/generate.py's stream_generate accepts these params directly) --
+   server.py just never exposed them as CLI flags.
+
+2. --model-alias NAME (repeatable) -- registers extra name(s) in
+   ServerModelProvider's existing _model_map/_adapter_map/_draft_model_map
+   (the same mechanism it already uses for "default_model") so a client that
+   requests an arbitrary/unconfigured model name still gets routed to
+   --model instead of mlx_lm trying to download it from the HF Hub.
+
+Each patch is anchored on its own stable, untouched-by-the-other-patch
+location in the file, so they can be applied in either order/combination.
 
 Usage:
     python poc/patch_mlx_server_kv.py [path-to-server.py]
@@ -17,15 +26,13 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-MARKER = "--kv-bits"
-
-IMPORT_OLD = """from ._version import __version__
+KV_IMPORT_OLD = """from ._version import __version__
 from .generate import (
     BatchGenerator,
     SequenceStateMachine,
     stream_generate,
 )"""
-IMPORT_NEW = """from ._version import __version__
+KV_IMPORT_NEW = """from ._version import __version__
 from .generate import (
     DEFAULT_QUANTIZED_KV_START,
     BatchGenerator,
@@ -33,22 +40,22 @@ from .generate import (
     stream_generate,
 )"""
 
-CALL_OLD = """                prompt_progress_callback=progress,
+KV_CALL_OLD = """                prompt_progress_callback=progress,
                 prefill_step_size=self.cli_args.prefill_step_size,
             ):"""
-CALL_NEW = """                prompt_progress_callback=progress,
+KV_CALL_NEW = """                prompt_progress_callback=progress,
                 prefill_step_size=self.cli_args.prefill_step_size,
                 kv_bits=self.cli_args.kv_bits,
                 kv_group_size=self.cli_args.kv_group_size,
                 quantized_kv_start=self.cli_args.quantized_kv_start,
             ):"""
 
-ARGS_OLD = """    parser.add_argument(
+KV_ARGS_OLD = """    parser.add_argument(
         "--use-default-chat-template",
         action="store_true",
         help="Use the default chat template",
     )"""
-ARGS_NEW = """    parser.add_argument(
+KV_ARGS_NEW = """    parser.add_argument(
         "--use-default-chat-template",
         action="store_true",
         help="Use the default chat template",
@@ -73,6 +80,37 @@ ARGS_NEW = """    parser.add_argument(
         default=DEFAULT_QUANTIZED_KV_START,
     )"""
 
+# Anchored on --trust-remote-code, which neither this nor the KV patch touch,
+# so this applies cleanly whether or not the KV patch has already run.
+ALIAS_ARGS_OLD = """    parser.add_argument(
+        "--trust-remote-code",
+        action="store_true",
+        help="Enable trusting remote code for tokenizer",
+    )"""
+ALIAS_ARGS_NEW = """    parser.add_argument(
+        "--trust-remote-code",
+        action="store_true",
+        help="Enable trusting remote code for tokenizer",
+    )
+    parser.add_argument(
+        "--model-alias",
+        action="append",
+        default=None,
+        help="Extra model name a client may request that should route to --model "
+        "instead of mlx_lm trying to fetch it from the HF Hub. Repeatable.",
+    )"""
+
+ALIAS_MAP_OLD = """        self._model_map["default_model"] = self.cli_args.model
+        self._adapter_map["default_model"] = self.cli_args.adapter_path
+        self._draft_model_map["default_model"] = self.cli_args.draft_model"""
+ALIAS_MAP_NEW = """        self._model_map["default_model"] = self.cli_args.model
+        self._adapter_map["default_model"] = self.cli_args.adapter_path
+        self._draft_model_map["default_model"] = self.cli_args.draft_model
+        for _alias in (self.cli_args.model_alias or []):
+            self._model_map[_alias] = self.cli_args.model
+            self._adapter_map[_alias] = self.cli_args.adapter_path
+            self._draft_model_map[_alias] = self.cli_args.draft_model"""
+
 
 def find_server_py() -> Path:
     import mlx_lm
@@ -80,28 +118,44 @@ def find_server_py() -> Path:
     return Path(mlx_lm.__file__).parent / "server.py"
 
 
+def apply_patch(text: str, old: str, new: str, label: str, target: Path) -> tuple[str, bool]:
+    if new in text:
+        print(f"{target}: '{label}' already present")
+        return text, False
+    if old not in text:
+        raise SystemExit(
+            f"{target}: expected snippet for '{label}' not found -- "
+            f"mlx_lm's server.py has likely changed shape upstream, patch needs updating"
+        )
+    print(f"{target}: applying '{label}'")
+    return text.replace(old, new, 1), True
+
+
 def main() -> None:
     target = Path(sys.argv[1]) if len(sys.argv) > 1 else find_server_py()
     text = target.read_text()
+    changed = False
 
-    if MARKER in text:
-        print(f"{target}: already patched, nothing to do")
-        return
+    if "--kv-bits" in text:
+        print(f"{target}: kv-cache flags already present")
+    else:
+        for old, new, label in (
+            (KV_IMPORT_OLD, KV_IMPORT_NEW, "kv-cache import"),
+            (KV_CALL_OLD, KV_CALL_NEW, "kv-cache stream_generate call"),
+            (KV_ARGS_OLD, KV_ARGS_NEW, "kv-cache argparse flags"),
+        ):
+            text, did = apply_patch(text, old, new, label, target)
+            changed = changed or did
 
-    for old, new, label in (
-        (IMPORT_OLD, IMPORT_NEW, "import"),
-        (CALL_OLD, CALL_NEW, "stream_generate call"),
-        (ARGS_OLD, ARGS_NEW, "argparse flags"),
-    ):
-        if old not in text:
-            raise SystemExit(
-                f"{target}: expected snippet for '{label}' not found -- "
-                f"mlx_lm's server.py has likely changed shape upstream, patch needs updating"
-            )
-        text = text.replace(old, new, 1)
+    text, did = apply_patch(text, ALIAS_ARGS_OLD, ALIAS_ARGS_NEW, "--model-alias argparse flag", target)
+    changed = changed or did
+    text, did = apply_patch(text, ALIAS_MAP_OLD, ALIAS_MAP_NEW, "--model-alias map wiring", target)
+    changed = changed or did
 
-    target.write_text(text)
-    print(f"{target}: patched (added --kv-bits/--kv-group-size/--quantized-kv-start)")
+    if changed:
+        target.write_text(text)
+    else:
+        print(f"{target}: already fully patched, nothing to do")
 
 
 if __name__ == "__main__":

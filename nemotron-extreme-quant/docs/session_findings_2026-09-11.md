@@ -935,6 +935,84 @@ additional/comparison path, not a replacement) — `poc/pack_mlx.py` and
 the custom Metal kernel remain in the repo and documented in the runbook
 as "Path B".
 
+### 7p. The real MLX affine formula, found the hard way, and the first honest GPTQ-beats-RTN result at 3-bit
+
+Picking up from §7o's plan (plain GPTQ, no rotation/salient, packed by *stock*
+`mlx_lm.convert`): the very first real run exposed that `_gptq_run`'s
+`scale_mode="affine"` path had never actually been verified against what
+`mlx_lm.convert -q` derives on its own. This matters because the pipeline is
+two independent quantization passes: GPTQ writes Hessian-corrected weights
+already snapped to *some* grid into a plain bf16 HF checkpoint, then stock
+`mlx_lm.convert -q` re-derives its *own* per-group scale/bias from those same
+bf16 values and re-quantizes from scratch. If the two grids don't match
+bit-for-bit, the second pass silently discards GPTQ's error compensation and
+picks different codes than the ones actually calibrated against.
+
+Three successive wrong formulas were tried and measured before the real one
+was found:
+
+1. A symmetric-style formula (levels from `2^bits-1`, no independent min/max)
+   → **PPL 27.68** (worse than naive RTN's 6.54).
+2. Independent min/max but with a bug in the step calculation (forgot to
+   subtract the bias term) → caught by a synthetic PyTorch unit test *before*
+   spending a pod run on it.
+3. Independent min/max with the step bug fixed → sanity-check text was
+   genuine gibberish, but the `unique_token_ratio` heuristic gave a **false
+   positive PASS** (gibberish has high lexical diversity too — this
+   heuristic's real limitation, not fixed, just now known). Real PPL:
+   **6,074,737**. A further-refined version of this formula gave **PPL
+   17.82** (coherent text, but still worse than 6.54).
+
+None of these matched MLX's actual behavior because the real kernel isn't
+simple symmetric-absmax *or* simple independent-min/max — it's a specific
+hybrid, found by reading `mlx/backend/metal/kernels/quantized.h`'s
+`affine_quantize` function directly rather than continuing to guess:
+
+```
+n_bins = 2^bits - 1
+scale = max((w_max - w_min) / n_bins, eps=1e-7)
+side = |w_min| > |w_max|            # whichever extreme has larger magnitude
+scale = side ? scale : -scale        # sign follows the dominant extreme
+edge = side ? w_min : w_max
+q0 = round(edge / scale)
+if q0 != 0: scale = edge / q0         # rescale so `edge` lands exactly on an integer code
+bias = (q0 == 0) ? 0 : edge
+code = clamp(round((w - bias) / scale), 0, n_bins)
+dequant = code * scale + bias
+```
+
+Implemented as `_affine_scale_bias()` in `poc/gptq.py`, verified **100%
+bit-exact** against real `mx.quantize(mode="affine")` across 5 random test
+cases (shapes/seeds/scales varied; max diff ~1e-6, float32 noise floor) —
+the first fix this session confirmed correct *before* committing to another
+full pod run, rather than after.
+
+**Result, uniform 3-bit, group-size 64, one-shot calibration (24 chunks ×
+512 tokens), on the full 52-block model — the first pipeline run with this
+verified formula:**
+
+| model | PPL (wikitext-2, 20×512-token chunks, quarter-in offset) |
+|---|---|
+| bf16 (full precision, reference ceiling) | **5.11** |
+| JANG_2L-CRACK (third-party, mixed-precision) | 5.43 |
+| **This project's GPTQ, uniform 3-bit** | **6.24** |
+| Naive RTN, uniform 3-bit (`mlx_lm.convert -q` with no calibration) | 6.54 |
+
+This is the first time this session GPTQ's Hessian correction produced a
+*measurably* better result than blind round-to-nearest at the same bit-width
+(6.24 vs 6.54) — modest, but real, and now resting on a formula proven
+bit-exact rather than "probably right." Still short of JANG's mixed-precision
+result, which is the expected next lever to pull (`--quant-recipe mixed_3_6`,
+already implemented in `gptq_stock_convert.py`/`mlx_lm.convert`'s own
+`quant_predicate`, not yet tested as of this writing).
+
+Sanity-check output for this run (`sanity_check_hf.py`) was genuinely
+coherent (real step-by-step reasoning text, not just high lexical diversity)
+— the manual-read mitigation for the heuristic's known false-positive gap
+(point 3 above) confirmed this run didn't hit it.
+
+Uploaded to `https://huggingface.co/roman220220/nemotron-30b-a3b-gptq3bit-g64`.
+
 ## 6. Files touched this session (for reference)
 
 - `poc/gptq.py` — cholesky fix, batched-across-experts functions, `gptq_nbit`

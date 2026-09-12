@@ -57,6 +57,36 @@ def _compute_hinv(X: torch.Tensor, in_features: int, percdamp: float) -> torch.T
     return Hinv
 
 
+def _affine_scale_bias(W_groups: torch.Tensor, bits: int) -> tuple[torch.Tensor, torch.Tensor]:
+    """Exact reimplementation of mlx's affine_quantize Metal kernel's scale/
+    bias derivation (mlx/backend/metal/kernels/quantized.h) -- verified to
+    reproduce mx.quantize's actual output bit-for-bit via direct probing (its
+    docstring's alpha=max/beta=min/(2^bits-1) description does NOT match the
+    real kernel). The real formula:
+      1. scale = max((w_max - w_min) / (2^bits - 1), eps)  -- range-based, not absmax-based
+      2. side = |w_min| > |w_max|; flip scale's sign to match whichever side "wins"
+      3. edge = the winning (larger-magnitude) extreme
+      4. q0 = round(edge / scale); if q0 != 0, rescale so scale = edge / q0 --
+         this makes `edge` land exactly on an integer code with zero rounding
+         error, at the cost of `scale` no longer being exactly (max-min)/n_bins.
+      5. bias = edge (or 0 in the degenerate q0==0 case)
+    W_groups: [..., group_size]. Returns (scale, bias), each [...] (last dim reduced).
+    """
+    eps = 1e-7
+    n_bins = float(2**bits - 1)
+    w_min = W_groups.amin(dim=-1)
+    w_max = W_groups.amax(dim=-1)
+    scale = ((w_max - w_min) / n_bins).clamp_min(eps)
+    side = w_min.abs() > w_max.abs()
+    scale = torch.where(side, scale, -scale)
+    edge = torch.where(side, w_min, w_max)
+    q0 = torch.round(edge / scale)
+    at_zero = q0 == 0
+    scale = torch.where(at_zero, scale, edge / q0)
+    bias = torch.where(at_zero, torch.zeros_like(edge), edge)
+    return scale, bias
+
+
 def _gptq_run(
     W: torch.Tensor,
     X: torch.Tensor,
@@ -67,6 +97,7 @@ def _gptq_run(
     salient_mask: torch.Tensor | None = None,
     scale_mode: str = "mean_abs",
     return_scale: bool = False,
+    affine_bits: int | None = None,
 ):
     """decide(w_col, scale_col, salient_col) -> q_col, all [out_features].
 
@@ -76,9 +107,12 @@ def _gptq_run(
     makes that entry's error exactly zero — it consumes none of the block's
     error-compensation budget and propagates nothing onto later columns.
 
-    scale_mode: "mean_abs" (binary/ternary's magnitude-heuristic scale) or
-    "max_abs" (standard symmetric-uniform-quant convention, e.g. Q8_0-style
-    N-bit quantization, where scale = absmax / (2^(bits-1) - 1)).
+    scale_mode: "mean_abs" (binary/ternary's magnitude-heuristic scale),
+    "max_abs" (symmetric-uniform-quant convention, e.g. Q8_0-style N-bit
+    quantization, where scale = absmax / (2^(bits-1) - 1)), or "affine"
+    (matches MLX's mx.quantize exactly -- see _affine_scale_bias and
+    gptq_nbit's docstring for why this specific match matters; requires
+    affine_bits to be set).
     """
     W, X = W.to(device), X.to(device)
     out_features, in_features = W.shape
@@ -97,10 +131,14 @@ def _gptq_run(
     Hinv = _compute_hinv(X, padded_in, percdamp)
 
     W_groups = W.reshape(out_features, num_groups, group_size)
-    if scale_mode == "max_abs":
+    if scale_mode == "affine":
+        scale, bias = _affine_scale_bias(W_groups, affine_bits)  # [out, num_groups] each
+    elif scale_mode == "max_abs":
         scale = W_groups.abs().amax(dim=-1)  # [out, num_groups]
+        bias = torch.zeros_like(scale)
     else:
         scale = W_groups.abs().mean(dim=-1)  # [out, num_groups]
+        bias = torch.zeros_like(scale)
     Q = torch.zeros_like(W)
 
     for g in range(num_groups):
@@ -109,12 +147,13 @@ def _gptq_run(
         Hinv_block = Hinv[start:end, start:end]
         Err_block = torch.zeros_like(W_block)
         s = scale[:, g]
+        b = bias[:, g]
 
         for i in range(group_size):
             w = W_block[:, i]
             d = Hinv_block[i, i].clamp_min(1e-8)
             col_mask = salient_mask[:, start + i] if salient_mask is not None else None
-            q = decide(w, s, col_mask)
+            q = decide(w, s, b, col_mask)
             Q[:, start + i] = q
             err = (w - q) / d
             Err_block[:, i] = err
@@ -126,7 +165,7 @@ def _gptq_run(
 
     Q = Q[:, :in_features].to("cpu")
     if return_scale:
-        return Q, scale.to("cpu")  # [out_features, num_groups], the *original* per-group scale
+        return Q, scale.to("cpu"), bias.to("cpu")  # [out_features, num_groups] each
     return Q
 
 
@@ -138,7 +177,7 @@ def gptq_binary(
     device: str = "cpu",
     salient_mask: torch.Tensor | None = None,
 ) -> dict:
-    def decide(w, s, col_mask):
+    def decide(w, s, bias, col_mask):
         b = torch.sign(w)
         b[b == 0] = 1.0
         q = s * b
@@ -157,7 +196,7 @@ def gptq_ternary(
     device: str = "cpu",
     salient_mask: torch.Tensor | None = None,
 ) -> dict:
-    def decide(w, s, col_mask):
+    def decide(w, s, bias, col_mask):
         threshold = threshold_factor * s
         mask = w.abs() > threshold
         b = torch.sign(w)
@@ -176,28 +215,62 @@ def gptq_nbit(
     percdamp: float = 0.01,
     device: str = "cpu",
     salient_mask: torch.Tensor | None = None,
+    scheme: str = "symmetric",
 ) -> dict:
-    """Standard symmetric uniform quantization (Q8_0/Q4_0-style: scale =
-    absmax / (2^(bits-1) - 1), 2^bits evenly-spaced levels) with GPTQ's
-    Hessian-based error compensation, instead of binary/ternary's sign-only
-    decision — for exploring whether a structurally-critical tensor (e.g.
-    Mamba's SSM projections) needs more than 1-2 bits to stay stable, without
-    the salient-pinning mechanism that a fixed-format GGUF export can't use.
+    """N-bit uniform quantization with GPTQ's Hessian-based error
+    compensation, instead of binary/ternary's sign-only decision.
+
+    scheme="symmetric" (default, preserves this function's original
+    behavior for callers that pack the result themselves, e.g. pack_mlx.py's
+    custom ternary+rotation+salient MLX export): Q8_0/Q4_0-style, scale =
+    absmax / (2^(bits-1) - 1), signed codes in [-levels, levels].
+
+    scheme="affine": matches MLX's mx.quantize(mode="affine") exactly --
+    see _affine_scale_bias's docstring for the (non-obvious, empirically
+    reverse-engineered from mlx's actual Metal kernel source) formula.
+    Use this when the caller will hand these already-on-grid bf16 weights to
+    STOCK mlx_lm.convert for a second quantization pass (this project's
+    gptq_stock_convert.py) -- if that pass's grid doesn't match the one GPTQ
+    actually calibrated against, it silently re-derives different codes,
+    discarding the calibration (confirmed empirically: PPL 27.7 with a
+    subtly-wrong grid formula, vs a 6.5 naive-RTN baseline). With matching
+    grids, mlx_lm.convert's own re-derived per-group scale/bias exactly
+    reproduces this function's, so it re-derives the SAME codes instead of
+    silently re-quantizing -- no second-pass distortion.
     """
-    levels = 2 ** (bits - 1) - 1
+    if scheme not in ("symmetric", "affine"):
+        raise ValueError(f"scheme must be 'symmetric' or 'affine', got {scheme!r}")
 
-    def decide(w, s, col_mask):
-        step = (s / levels).clamp_min(1e-12)
-        code = torch.clamp(torch.round(w / step), -levels, levels)
-        q = code * step
-        return torch.where(col_mask, w, q) if col_mask is not None else q
+    if scheme == "affine":
+        n_bins = 2**bits - 1
 
-    W_hat, scale = _gptq_run(
-        W, X, group_size, percdamp, decide, device, salient_mask, scale_mode="max_abs", return_scale=True
+        def decide(w, s, bias, col_mask):
+            # s here IS the final per-code step (see _affine_scale_bias) --
+            # no further division needed, unlike the symmetric branch below.
+            code = torch.clamp(torch.round((w - bias) / s), 0, n_bins)
+            q = code * s + bias
+            return torch.where(col_mask, w, q) if col_mask is not None else q
+
+        scale_mode = "affine"
+    else:
+        levels = 2 ** (bits - 1) - 1
+
+        def decide(w, s, bias, col_mask):
+            step = (s / levels).clamp_min(1e-12)
+            code = torch.clamp(torch.round(w / step), -levels, levels)
+            q = code * step
+            return torch.where(col_mask, w, q) if col_mask is not None else q
+
+        scale_mode = "max_abs"
+
+    W_hat, scale, bias = _gptq_run(
+        W, X, group_size, percdamp, decide, device, salient_mask, scale_mode=scale_mode,
+        return_scale=True, affine_bits=bits if scheme == "affine" else None,
     )
     return {
         "W_hat": W_hat,
-        "scale": scale,  # [out_features, num_groups]; step = scale / (2**(bits-1) - 1), code = round(W_hat / step)
+        "scale": scale,  # [out_features, num_groups]; absmax (symmetric) or the final per-code step (affine)
+        "bias": bias,  # [out_features, num_groups]; zeros (symmetric) or the affine bias (see _affine_scale_bias)
         "bits_per_weight": bits + 16.0 / group_size,
         "method": f"gptq_{bits}bit_g{group_size}",
     }
@@ -249,10 +322,11 @@ def _gptq_run_batched(
     progress_label: str | None = None,
     scale_mode: str = "mean_abs",
     return_scale: bool = False,
+    affine_bits: int | None = None,
 ):
     """Batched analogue of _gptq_run. W: [E, out_features, in_features],
-    Xp: [E, n_max, in_features] zero-padded. decide(w, s, col_mask) operates
-    on [E, out_features] tensors. Returns Q: [E, out_features, in_features].
+    Xp: [E, n_max, in_features] zero-padded. decide(w, s, bias, col_mask)
+    operates on [E, out_features] tensors. Returns Q: [E, out_features, in_features].
     """
     import time
 
@@ -273,11 +347,16 @@ def _gptq_run_batched(
     Hinv = _compute_hinv_batched(Xp, percdamp)  # [E, padded_in, padded_in]
 
     W_groups_init = W.reshape(E, out_features, num_groups, group_size)
-    if scale_mode == "max_abs":
+    if scale_mode == "affine":
+        scale, bias = _affine_scale_bias(W_groups_init, affine_bits)  # [E, out, num_groups] each
+    elif scale_mode == "max_abs":
         scale = W_groups_init.abs().amax(dim=-1)  # [E, out, num_groups]
+        bias = torch.zeros_like(scale)
     else:
         scale = W_groups_init.abs().mean(dim=-1)  # [E, out, num_groups]
+        bias = torch.zeros_like(scale)
     scale_orig = scale.clone()
+    bias_orig = bias.clone()
     Q = torch.zeros_like(W)
 
     t0 = time.time()
@@ -287,12 +366,13 @@ def _gptq_run_batched(
         Hinv_block = Hinv[:, start:end, start:end]  # [E, gs, gs]
         Err_block = torch.zeros_like(W_block)
         s = scale[:, :, g]  # [E, out]
+        b = bias[:, :, g]  # [E, out]
 
         for i in range(group_size):
             w = W_block[:, :, i]  # [E, out]
             d = Hinv_block[:, i, i].clamp_min(1e-8)  # [E]
             col_mask = salient_mask[:, :, start + i] if salient_mask is not None else None
-            q = decide(w, s, col_mask)
+            q = decide(w, s, b, col_mask)
             Q[:, :, start + i] = q
             err = (w - q) / d.unsqueeze(-1)  # [E, out]
             Err_block[:, :, i] = err
@@ -311,7 +391,7 @@ def _gptq_run_batched(
 
     Q = Q[:, :, :in_features].to("cpu")
     if return_scale:
-        return Q, scale_orig.to("cpu")  # [E, out_features, num_groups], the *original* per-group scale
+        return Q, scale_orig.to("cpu"), bias_orig.to("cpu")  # [E, out_features, num_groups] each
     return Q
 
 
@@ -324,7 +404,7 @@ def gptq_binary_batched(
     salient_mask: torch.Tensor | None = None,
     progress_label: str | None = None,
 ) -> dict:
-    def decide(w, s, col_mask):
+    def decide(w, s, bias, col_mask):
         b = torch.sign(w)
         b[b == 0] = 1.0
         q = s * b
@@ -344,7 +424,7 @@ def gptq_ternary_batched(
     salient_mask: torch.Tensor | None = None,
     progress_label: str | None = None,
 ) -> dict:
-    def decide(w, s, col_mask):
+    def decide(w, s, bias, col_mask):
         threshold = threshold_factor * s
         mask = w.abs() > threshold
         b = torch.sign(w)
@@ -368,30 +448,50 @@ def gptq_nbit_batched(
     device: str = "cpu",
     salient_mask: torch.Tensor | None = None,
     progress_label: str | None = None,
+    scheme: str = "symmetric",
 ) -> dict:
-    """Batched analogue of gptq_nbit -- see that function's docstring.
-    W: [E, out_features, in_features], Xp: [E, n_max, in_features]
-    zero-padded per expert. Used for this project's routed MoE experts
-    (128 same-shaped experts per block), where the single-expert path's
-    Python column loop would otherwise launch group_size iterations *per
-    expert* -- batching collapses that to one loop of group_size iterations
-    where each iteration's kernel processes all E experts at once.
+    """Batched analogue of gptq_nbit -- see that function's docstring for the
+    symmetric vs affine scheme choice. W: [E, out_features, in_features],
+    Xp: [E, n_max, in_features] zero-padded per expert. Used for this
+    project's routed MoE experts (128 same-shaped experts per block), where
+    the single-expert path's Python column loop would otherwise launch
+    group_size iterations *per expert* -- batching collapses that to one
+    loop of group_size iterations where each iteration's kernel processes
+    all E experts at once.
     """
-    levels = 2 ** (bits - 1) - 1
+    if scheme not in ("symmetric", "affine"):
+        raise ValueError(f"scheme must be 'symmetric' or 'affine', got {scheme!r}")
 
-    def decide(w, s, col_mask):
-        step = (s / levels).clamp_min(1e-12)
-        code = torch.clamp(torch.round(w / step), -levels, levels)
-        q = code * step
-        return torch.where(col_mask, w, q) if col_mask is not None else q
+    if scheme == "affine":
+        n_bins = 2**bits - 1
 
-    W_hat, scale = _gptq_run_batched(
+        def decide(w, s, bias, col_mask):
+            # s here IS the final per-code step (see _affine_scale_bias) --
+            # no further division needed, unlike the symmetric branch below.
+            code = torch.clamp(torch.round((w - bias) / s), 0, n_bins)
+            q = code * s + bias
+            return torch.where(col_mask, w, q) if col_mask is not None else q
+
+        scale_mode = "affine"
+    else:
+        levels = 2 ** (bits - 1) - 1
+
+        def decide(w, s, bias, col_mask):
+            step = (s / levels).clamp_min(1e-12)
+            code = torch.clamp(torch.round(w / step), -levels, levels)
+            q = code * step
+            return torch.where(col_mask, w, q) if col_mask is not None else q
+
+        scale_mode = "max_abs"
+
+    W_hat, scale, bias = _gptq_run_batched(
         W, Xp, group_size, percdamp, decide, device, salient_mask, progress_label,
-        scale_mode="max_abs", return_scale=True,
+        scale_mode=scale_mode, return_scale=True, affine_bits=bits if scheme == "affine" else None,
     )
     return {
         "W_hat": W_hat,
-        "scale": scale,  # [E, out_features, num_groups]; step = scale / (2**(bits-1) - 1)
+        "scale": scale,  # [E, out_features, num_groups]; absmax (symmetric) or the final per-code step (affine)
+        "bias": bias,  # [E, out_features, num_groups]; zeros (symmetric) or the affine bias (see _affine_scale_bias)
         "bits_per_weight": bits + 16.0 / group_size,
         "method": f"gptq_{bits}bit_g{group_size}_batched",
     }
