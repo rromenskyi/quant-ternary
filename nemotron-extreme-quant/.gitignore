@@ -8,11 +8,13 @@ __pycache__/
 # Environments
 .venv/
 venv/
+poc/.mlx_server_venv/
 
 # Generated data — never commit model weights, caches, or run artifacts
 cache/
 output/
 artifacts/
+models/
 poc/calib_cache/
 poc/calib_cache_full/
 poc/*.safetensors

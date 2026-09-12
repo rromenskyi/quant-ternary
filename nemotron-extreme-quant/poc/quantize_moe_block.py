@@ -33,7 +33,7 @@ import torch.nn.functional as F
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from collect_acts import CALIBRATION_PROMPTS
-from methods import rot_gptq_salient
+from methods import rot_gptq_salient, rot_gptq_salient_batched
 
 GROUP_SIZE = 128
 
@@ -105,13 +105,32 @@ def main():
     parser.add_argument("--block-index", type=int, required=True)
     parser.add_argument("--min-expert-tokens", type=int, default=8, help="skip (leave BF16) experts with fewer")
     parser.add_argument("--device", default="cpu", choices=["cpu", "cuda", "mps"])
+    parser.add_argument(
+        "--gptq-device",
+        default=None,
+        choices=["cpu", "cuda", "mps"],
+        help="device for the GPTQ Hessian/Cholesky/column-loop math (defaults to --device). With the "
+        "cholesky_inverse fix in gptq.py, GPU is ~36x faster than CPU per expert on this workload's "
+        "matrix sizes (measured: 10.4s vs 378s for a 2688-dim Hessian) — pass --gptq-device cuda.",
+    )
     parser.add_argument("--salient-fraction", type=float, default=0.03)
+    parser.add_argument(
+        "--batched",
+        action="store_true",
+        help="quantize all eligible routed experts' up_proj (then down_proj) in one batched GPTQ "
+        "call instead of a 128-iteration Python loop of single-expert calls — see gptq.py's "
+        "batched section for why this cuts kernel-launch overhead ~128x on GPU.",
+    )
     args = parser.parse_args()
+    gptq_device = args.gptq_device or args.device
 
     print(f"Loading {args.model} ...")
     tokenizer = AutoTokenizer.from_pretrained(args.model, trust_remote_code=False)
-    model = AutoModelForCausalLM.from_pretrained(args.model, dtype=torch.bfloat16, trust_remote_code=False)
-    model = model.to(args.device)
+    # device_map streams shards directly to the target device; from_pretrained(...).to(device)
+    # instead fully materializes on CPU first, which for a 60GB checkpoint is dramatically slower.
+    model = AutoModelForCausalLM.from_pretrained(
+        args.model, dtype=torch.bfloat16, trust_remote_code=False, device_map=args.device
+    )
     model.eval()
 
     block = model.model.layers[args.block_index]
@@ -129,36 +148,82 @@ def main():
         print(f"  token counts per hit expert: min={counts[0]} median={counts[len(counts)//2]} max={counts[-1]}")
 
     act_fn = block.mixer.experts.act_fn
-    quantized, skipped_no_data, skipped_too_few = 0, 0, 0
-    for expert_idx in range(num_experts):
-        X = expert_inputs.get(expert_idx)
-        if X is None:
-            skipped_no_data += 1
-            continue
-        if X.shape[0] < args.min_expert_tokens:
-            skipped_too_few += 1
-            continue
+    import time
 
-        # down_proj's real input is act_fn(up_proj(x)), computed here with the
-        # *original* (not-yet-quantized) up_proj weight, before up_proj itself
-        # is overwritten below.
+    valid_experts = [
+        i for i in range(num_experts)
+        if expert_inputs.get(i) is not None and expert_inputs[i].shape[0] >= args.min_expert_tokens
+    ]
+    skipped_no_data = sum(1 for i in range(num_experts) if expert_inputs.get(i) is None)
+    skipped_too_few = num_experts - len(valid_experts) - skipped_no_data
+    quantized = len(valid_experts)
+
+    if args.batched:
+        print(f"Batched mode: quantizing {quantized} eligible experts in 2 calls (up_proj, down_proj) ...")
         up_param = block.mixer.experts.up_proj
-        W_up = up_param.data[expert_idx].detach().to(torch.float32).cpu()
-        with torch.no_grad():
-            X_down = act_fn(F.linear(X, W_up))
-
-        result_up = rot_gptq_salient(
-            W_up, X, GROUP_SIZE, salient_fraction=args.salient_fraction, criterion="activation_weighted"
-        )
-        up_param.data[expert_idx] = result_up["W_hat"].to(up_param.dtype)
-
         down_param = block.mixer.experts.down_proj
-        W_down = down_param.data[expert_idx].detach().to(torch.float32).cpu()
-        result_down = rot_gptq_salient(
-            W_down, X_down, GROUP_SIZE, salient_fraction=args.salient_fraction, criterion="activation_weighted"
+
+        t0 = time.time()
+        W_up_batch = up_param.data[valid_experts].detach().to(torch.float32).cpu()  # [Nv, out, in]
+        X_up_list = [expert_inputs[i] for i in valid_experts]
+        with torch.no_grad():
+            # down_proj's real input, computed per-expert against the *original*
+            # (not-yet-quantized) up_proj weight, before up_proj is overwritten.
+            X_down_list = [
+                act_fn(F.linear(X_up_list[j], W_up_batch[j])) for j in range(quantized)
+            ]
+
+        result_up = rot_gptq_salient_batched(
+            W_up_batch, X_up_list, GROUP_SIZE, salient_fraction=args.salient_fraction,
+            criterion="activation_weighted", device=gptq_device, progress_label="up_proj",
         )
-        down_param.data[expert_idx] = result_down["W_hat"].to(down_param.dtype)
-        quantized += 1
+        up_param.data[valid_experts] = result_up["W_hat"].to(up_param.dtype).to(up_param.device)
+        print(f"  up_proj batch done in {time.time() - t0:.1f}s", flush=True)
+
+        t1 = time.time()
+        W_down_batch = down_param.data[valid_experts].detach().to(torch.float32).cpu()
+        result_down = rot_gptq_salient_batched(
+            W_down_batch, X_down_list, GROUP_SIZE, salient_fraction=args.salient_fraction,
+            criterion="activation_weighted", device=gptq_device, progress_label="down_proj",
+        )
+        down_param.data[valid_experts] = result_down["W_hat"].to(down_param.dtype).to(down_param.device)
+        print(f"  down_proj batch done in {time.time() - t1:.1f}s", flush=True)
+        print(f"Batched total: {time.time() - t0:.1f}s for {quantized} experts", flush=True)
+    else:
+        t_start = time.time()
+        for n, expert_idx in enumerate(valid_experts):
+            X = expert_inputs[expert_idx]
+            t0 = time.time()
+            # down_proj's real input is act_fn(up_proj(x)), computed here with the
+            # *original* (not-yet-quantized) up_proj weight, before up_proj itself
+            # is overwritten below.
+            up_param = block.mixer.experts.up_proj
+            W_up = up_param.data[expert_idx].detach().to(torch.float32).cpu()
+            with torch.no_grad():
+                X_down = act_fn(F.linear(X, W_up))
+
+            result_up = rot_gptq_salient(
+                W_up, X, GROUP_SIZE, salient_fraction=args.salient_fraction, criterion="activation_weighted",
+                device=gptq_device,
+            )
+            up_param.data[expert_idx] = result_up["W_hat"].to(up_param.dtype)
+
+            down_param = block.mixer.experts.down_proj
+            W_down = down_param.data[expert_idx].detach().to(torch.float32).cpu()
+            result_down = rot_gptq_salient(
+                W_down, X_down, GROUP_SIZE, salient_fraction=args.salient_fraction, criterion="activation_weighted",
+                device=gptq_device,
+            )
+            down_param.data[expert_idx] = result_down["W_hat"].to(down_param.dtype)
+
+            elapsed = time.time() - t0
+            total_elapsed = time.time() - t_start
+            eta = (total_elapsed / (n + 1)) * (len(valid_experts) - n - 1)
+            print(
+                f"[expert {expert_idx}/{num_experts - 1}] done in {elapsed:.1f}s "
+                f"({X.shape[0]} tokens), total {total_elapsed:.0f}s, ETA {eta:.0f}s",
+                flush=True,
+            )
 
     print(
         f"\nExperts quantized (up_proj + down_proj): {quantized}, "
@@ -171,7 +236,10 @@ def main():
         module = getattr(block.mixer.shared_experts, proj_name)
         W = module.weight.detach().to(torch.float32).cpu()
         X = shared_inputs[proj_name]
-        result = rot_gptq_salient(W, X, GROUP_SIZE, salient_fraction=args.salient_fraction, criterion="activation_weighted")
+        result = rot_gptq_salient(
+            W, X, GROUP_SIZE, salient_fraction=args.salient_fraction, criterion="activation_weighted",
+            device=gptq_device,
+        )
         module.weight.data.copy_(result["W_hat"].to(module.weight.dtype))
         print(f"  shared_experts.{proj_name}: {tuple(W.shape)} X{tuple(X.shape)} bpw={result['bits_per_weight']:.3f}")
 

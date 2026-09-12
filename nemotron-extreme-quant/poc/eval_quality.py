@@ -73,8 +73,9 @@ def generate(model, tokenizer, prompt: str, device: str, max_new_tokens: int = 4
 
 def evaluate_one(label: str, model_path: str, tokenizer, device: str, quick: bool) -> tuple[float | None, list[str]]:
     print(f"[{label}] loading {model_path} (device={device}) ...", flush=True)
-    model = AutoModelForCausalLM.from_pretrained(model_path, dtype=torch.bfloat16, trust_remote_code=False)
-    model = model.to(device)
+    model = AutoModelForCausalLM.from_pretrained(
+        model_path, dtype=torch.bfloat16, trust_remote_code=False, device_map=device
+    )
     model.eval()
 
     ppl = None

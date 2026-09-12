@@ -1,0 +1,124 @@
+#!/usr/bin/env bash
+# Reproducible end-to-end pipeline: GPTQ-calibrate a NemotronH model at a
+# single uniform bit-width (no rotation, no salient overlay -- see
+# gptq_stock_convert.py's docstring for why that's the right trade-off at
+# 3+ bits), then pack it with STOCK mlx_lm.convert (no custom kernel, no
+# custom loader), then push the result to HF and pull it to this Mac.
+#
+# Every run-specific parameter is a flag, not a hardcoded constant -- run
+# names/output paths are derived from the parameters so different
+# bits/group-size/calibration settings never collide or get confused with
+# each other on disk or on HF.
+#
+# Usage:
+#   ./run_pipeline.sh --bits 3 --group-size 64 \
+#       --calib-chunks 24 --calib-chunk-tokens 512 --moe-subbatch 12
+#
+#   # Sequential calibration, custom run name, skip the HF upload:
+#   ./run_pipeline.sh --bits 4 --group-size 64 --sequential \
+#       --run-name my-4bit-test --no-upload
+#
+# Requires (set as environment variables, or edit the defaults below):
+#   POD_HOST, POD_PORT, POD_SSH_KEY  -- this project's RunPod GPU pod.
+#     RunPod reassigns host/port on every pod start; check the current
+#     values with `runpodctl pod list` / the RunPod dashboard and export
+#     them before running this script if they've changed:
+#       export POD_HOST=1.2.3.4 POD_PORT=12345
+#   HF_USER  -- your Hugging Face username/org, for the upload step.
+#   MODEL_SRC_DIR  -- path to the source bf16 HF checkpoint *on the pod*
+#     (see docs/RUNBOOK.md for how to get this there in the first place).
+#   WIKITEXT_PATH  -- path to wikitext-2-raw/wiki.train.raw *on the pod*.
+set -euo pipefail
+
+POD_HOST="${POD_HOST:-185.216.21.214}"
+POD_PORT="${POD_PORT:-43615}"
+POD_SSH_KEY="${POD_SSH_KEY:-$HOME/.runpod/ssh/runpodctl-ssh-key}"
+HF_USER="${HF_USER:-roman220220}"
+MODEL_SRC_DIR="${MODEL_SRC_DIR:-/root/nemotron30b-bf16-src}"
+WIKITEXT_PATH="${WIKITEXT_PATH:-/root/llama.cpp/wikitext-2-raw/wiki.train.raw}"
+POD_POC_DIR="${POD_POC_DIR:-/root/poc}"
+LOCAL_MODELS_DIR="${LOCAL_MODELS_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../models" && pwd)}"
+
+# --- defaults for run-specific parameters ---
+BITS=3
+GROUP_SIZE=64
+CALIB_CHUNKS=24
+CALIB_CHUNK_TOKENS=512
+MOE_SUBBATCH=12
+SEQUENTIAL=""
+RUN_NAME=""
+DO_UPLOAD=1
+DO_DOWNLOAD=1
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --bits) BITS="$2"; shift 2 ;;
+    --group-size) GROUP_SIZE="$2"; shift 2 ;;
+    --calib-chunks) CALIB_CHUNKS="$2"; shift 2 ;;
+    --calib-chunk-tokens) CALIB_CHUNK_TOKENS="$2"; shift 2 ;;
+    --moe-subbatch) MOE_SUBBATCH="$2"; shift 2 ;;
+    --sequential) SEQUENTIAL="--sequential"; shift 1 ;;
+    --run-name) RUN_NAME="$2"; shift 2 ;;
+    --no-upload) DO_UPLOAD=0; shift 1 ;;
+    --no-download) DO_DOWNLOAD=0; shift 1 ;;
+    *) echo "unknown flag: $1" >&2; exit 1 ;;
+  esac
+done
+
+if [[ -z "$RUN_NAME" ]]; then
+  RUN_NAME="gptq${BITS}bit-g${GROUP_SIZE}$( [[ -n "$SEQUENTIAL" ]] && echo -seq )"
+fi
+
+SSH="ssh -i $POD_SSH_KEY -p $POD_PORT root@$POD_HOST"
+SCP="scp -i $POD_SSH_KEY -P $POD_PORT"
+HF_STAGE_DIR="/root/lightning30b-${RUN_NAME}-src"
+HF_MLX_DIR="/root/lightning30b-${RUN_NAME}-mlx"
+HF_REPO="${HF_USER}/nemotron-30b-a3b-${RUN_NAME}"
+LOG_FILE="/root/pipeline-${RUN_NAME}.log"
+
+echo "=== run: ${RUN_NAME} (bits=${BITS} group_size=${GROUP_SIZE} calib=${CALIB_CHUNKS}x${CALIB_CHUNK_TOKENS} moe_subbatch=${MOE_SUBBATCH} sequential=${SEQUENTIAL:-no}) ==="
+echo "=== pod: ${POD_HOST}:${POD_PORT} ==="
+
+echo "--- syncing poc/ to pod ---"
+$SCP "$(dirname "${BASH_SOURCE[0]}")"/*.py "root@${POD_HOST}:${POD_POC_DIR}/"
+
+echo "--- launching GPTQ calibration (tmux session: pipeline-${RUN_NAME}) ---"
+$SSH "tmux kill-session -t pipeline-${RUN_NAME} 2>/dev/null; rm -rf ${HF_STAGE_DIR}; cd ${POD_POC_DIR} && tmux new-session -d -s pipeline-${RUN_NAME} '
+  python3 gptq_stock_convert.py \
+    --model ${MODEL_SRC_DIR} --output ${HF_STAGE_DIR} \
+    --wikitext ${WIKITEXT_PATH} \
+    --bits ${BITS} --group-size ${GROUP_SIZE} \
+    --calib-chunks ${CALIB_CHUNKS} --calib-chunk-tokens ${CALIB_CHUNK_TOKENS} \
+    --moe-subbatch ${MOE_SUBBATCH} ${SEQUENTIAL} \
+  && echo GPTQ_STAGE_DONE \
+  && mlx_lm.convert --hf-path ${HF_STAGE_DIR} --mlx-path ${HF_MLX_DIR} -q --q-bits ${BITS} --q-group-size ${GROUP_SIZE} \
+  && echo MLX_CONVERT_DONE \
+' > ${LOG_FILE} 2>&1"
+
+echo "--- tmux session launched; tail with: ${SSH} 'tail -f ${LOG_FILE}' ---"
+echo "--- waiting for MLX_CONVERT_DONE (this can take a while; Ctrl-C is safe, the pod job keeps running) ---"
+
+$SSH "tail -f -n +1 ${LOG_FILE}" | grep -m1 -E "MLX_CONVERT_DONE|Traceback|Error"
+
+if $SSH "tail -50 ${LOG_FILE} | grep -q MLX_CONVERT_DONE"; then
+  echo "=== conversion succeeded: ${HF_MLX_DIR} ==="
+else
+  echo "=== conversion FAILED -- check ${LOG_FILE} on the pod ==="
+  exit 1
+fi
+
+if [[ "$DO_UPLOAD" == "1" ]]; then
+  echo "--- uploading to HF: ${HF_REPO} ---"
+  $SSH "cd /root && hf upload ${HF_REPO} ${HF_MLX_DIR} . --repo-type model"
+fi
+
+if [[ "$DO_DOWNLOAD" == "1" ]]; then
+  echo "--- downloading to ${LOCAL_MODELS_DIR}/${RUN_NAME} ---"
+  mkdir -p "${LOCAL_MODELS_DIR}/${RUN_NAME}"
+  rsync -avz --partial --progress -e "ssh -i ${POD_SSH_KEY} -p ${POD_PORT}" \
+    "root@${POD_HOST}:${HF_MLX_DIR}/" "${LOCAL_MODELS_DIR}/${RUN_NAME}/"
+fi
+
+echo "=== done: ${RUN_NAME} ==="
+echo "Local model: ${LOCAL_MODELS_DIR}/${RUN_NAME}"
+[[ "$DO_UPLOAD" == "1" ]] && echo "HF: https://huggingface.co/${HF_REPO}"
