@@ -72,6 +72,22 @@ from rotation import unrotate
 
 ATTN_PROJECTIONS = ["q_proj", "k_proj", "v_proj", "o_proj"]
 MAMBA_PROJECTIONS = ["in_proj", "out_proj"]
+MLP_PROJECTIONS = ["up_proj", "down_proj"]  # dense (non-MoE) MLP block, e.g. Nemotron-3-Nano-4B
+DENSE_PROJECTIONS_BY_KIND = {"mamba": MAMBA_PROJECTIONS, "attention": ATTN_PROJECTIONS, "mlp": MLP_PROJECTIONS}
+
+
+def dense_projection_names(kind: str, mixer: nn.Module) -> list[str]:
+    """Projection attribute names to quantize for a non-MoE ("dense") block.
+
+    Known kinds use their validated name list; any OTHER kind (a future or
+    unrecognized dense block type this project hasn't seen yet) falls back
+    to every nn.Linear directly on the mixer, so a new architecture still
+    gets fully quantized instead of silently skipped -- this is what a
+    hardcoded mamba/attention-only check used to do to Nemotron-3-Nano-4B's
+    "mlp" blocks (17 of 42 layers, ~40% of the model) before this fix."""
+    if kind in DENSE_PROJECTIONS_BY_KIND:
+        return DENSE_PROJECTIONS_BY_KIND[kind]
+    return [name for name, m in mixer.named_children() if isinstance(m, nn.Linear)]
 MOE_GROUP_SIZE = 64  # matches mlx-lm's default --q-group-size, so the eventual
 # MLX packer can lift {scale, code} straight out of each 64-wide group
 # without needing to reconcile a different quantization group size.
@@ -106,8 +122,8 @@ def capture_all_activations(model, block_types: list[str], calib_ids: list[torch
 
     for i, kind in enumerate(block_types):
         block = model.model.layers[i]
-        if kind in ("mamba", "attention"):
-            proj_names = MAMBA_PROJECTIONS if kind == "mamba" else ATTN_PROJECTIONS
+        if kind != "moe":
+            proj_names = dense_projection_names(kind, block.mixer)
             targets = {
                 name: getattr(block.mixer, name)
                 for name in proj_names
@@ -206,8 +222,8 @@ def capture_single_block_activations(model, block, kind: str, calib_ids: list[to
     """
     handles = []
 
-    if kind in ("mamba", "attention"):
-        proj_names = MAMBA_PROJECTIONS if kind == "mamba" else ATTN_PROJECTIONS
+    if kind != "moe":
+        proj_names = dense_projection_names(kind, block.mixer)
         targets = {
             name: getattr(block.mixer, name)
             for name in proj_names
@@ -277,7 +293,7 @@ def capture_single_block_activations(model, block, kind: str, calib_ids: list[to
     for h in handles:
         h.remove()
 
-    if kind in ("mamba", "attention"):
+    if kind != "moe":
         return {name: torch.cat(v, dim=0) for name, v in captured.items() if v}
     expert_inputs_out = {e: torch.cat(v, dim=0) for e, v in expert_inputs.items() if v}
     shared_inputs_out = {k: torch.cat(v, dim=0) for k, v in shared_inputs.items()}
@@ -292,7 +308,7 @@ def quantize_dense_block(block, kind: str, activations: dict[str, torch.Tensor])
     # quantize_sequential.py's --gptq-device docstring, and reproduced here:
     # a mamba block that finishes in ~20s on CPU instead spun for 70+ CPU-
     # minutes at 0% GPU utilization when routed to CUDA).
-    proj_names = MAMBA_PROJECTIONS if kind == "mamba" else ATTN_PROJECTIONS
+    proj_names = dense_projection_names(kind, block.mixer)
     quantized = []
     for proj_name in proj_names:
         module = getattr(block.mixer, proj_name, None)

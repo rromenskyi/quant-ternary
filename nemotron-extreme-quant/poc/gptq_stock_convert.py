@@ -50,6 +50,7 @@ from quantize_full_moe_model import (
     MAMBA_PROJECTIONS,
     capture_all_activations,
     capture_single_block_activations,
+    dense_projection_names,
     load_calibration_chunks,
 )
 
@@ -86,6 +87,22 @@ COMPONENT_BIT_RECIPES = {
         "moe_shared": 8,       # shared_experts up_proj + down_proj (1 expert/block)
         "moe_routed_up": 4,    # routed up_proj / switch_mlp.fc1 (128 experts/block)
         "moe_routed_down": 3,  # routed down_proj / switch_mlp.fc2 (128 experts/block)
+        "lm_head": 8,
+        "embeddings": 6,
+    },
+    # For DENSE NemotronH variants with no MoE at all (e.g.
+    # nvidia/NVIDIA-Nemotron-3-Nano-4B-BF16: 42 layers, {mamba: 21,
+    # mlp: 17, attention: 4}, no layers_block_type "moe" entries). Unlike
+    # the 30B MoE model, nothing here is sparsely-activated -- every
+    # component runs on every token, so there's no size-vs-decode-speed
+    # tension (see docs/session_findings_2026-09-11.md section 7r): bits
+    # can be allocated purely by how large each component is. attention
+    # is cheap (only 4/42 blocks) -> generous bits; mlp is the bulk of
+    # the model's parameters -> lowest bits, for the minimal-footprint goal.
+    "jang-dense": {
+        "attention": 8,
+        "mamba": 6,
+        "mlp": 3,
         "lm_head": 8,
         "embeddings": 6,
     },
@@ -260,14 +277,21 @@ def quantize_dense_block(
     recipe: str | None = None, layer_idx: int = 0, num_layers: int = 1,
     upgrade_set: set[tuple[int, str]] | None = None, component_recipe: str | None = None,
 ) -> list[str]:
-    proj_names = MAMBA_PROJECTIONS if kind == "mamba" else ATTN_PROJECTIONS
+    proj_names = dense_projection_names(kind, block.mixer)
     quantized = []
     for proj_name in proj_names:
         module = getattr(block.mixer, proj_name, None)
         if module is None or proj_name not in activations:
             continue
         if component_recipe:
-            proj_bits = COMPONENT_BIT_RECIPES[component_recipe]["mamba" if kind == "mamba" else "attention"]
+            component_bits = COMPONENT_BIT_RECIPES[component_recipe]
+            if kind not in component_bits:
+                raise SystemExit(
+                    f"--component-recipe {component_recipe!r} has no bit-width entry for "
+                    f"block kind {kind!r} (has: {sorted(component_bits)}) -- add one to "
+                    f"COMPONENT_BIT_RECIPES for this model's architecture."
+                )
+            proj_bits = component_bits[kind]
         elif recipe:
             proj_bits = recipe_bits_for(recipe, proj_name, layer_idx, num_layers, upgrade_set)
         else:
@@ -699,7 +723,7 @@ def main():
             captured = capture_single_block_activations(model, block, kind, calib_ids, device)
             if kind == "moe":
                 moe_acts[i] = captured
-            elif kind in ("mamba", "attention"):
+            else:
                 dense_acts[i] = captured
 
         if kind == "moe":
@@ -716,7 +740,7 @@ def main():
                 f"(up {stats['t_up']:.1f}s, down {stats['t_down']:.1f}s), "
                 f"total_elapsed={time.time() - run_start:.0f}s", flush=True,
             )
-        elif kind in ("mamba", "attention"):
+        else:
             activations = dense_acts.get(i, {})
             quantized = quantize_dense_block(
                 block, kind, activations, args.bits, args.group_size,
@@ -727,8 +751,6 @@ def main():
                 f"[block {i}/{end_block - 1}] {kind}: {quantized}, "
                 f"block_time={time.time() - t_block:.1f}s, total_elapsed={time.time() - run_start:.0f}s", flush=True,
             )
-        else:
-            print(f"[block {i}/{end_block - 1}] unknown kind {kind!r}, skipping", flush=True)
 
         if args.checkpoint_every and (i - args.start_block + 1) % args.checkpoint_every == 0:
             save_checkpoint(model, tokenizer, args.output, i, args)

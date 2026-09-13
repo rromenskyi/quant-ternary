@@ -64,6 +64,15 @@ COMPONENT_BIT_RECIPES = {
         "lm_head": 8,
         "embeddings": 6,
     },
+    # For dense NemotronH variants with no MoE at all (e.g. Nemotron-3-Nano-4B).
+    # See gptq_stock_convert.py's COMPONENT_BIT_RECIPES for the full rationale.
+    "jang-dense": {
+        "attention": 8,
+        "mamba": 6,
+        "mlp": 3,
+        "lm_head": 8,
+        "embeddings": 6,
+    },
 }
 
 # The actual fix: routed experts' down_proj-equivalent tensor is named
@@ -120,6 +129,12 @@ def main() -> None:
                 return {"group_size": args.group_size, "bits": cbits["attention"], "mode": "affine"}
             if "in_proj" in path or "out_proj" in path:
                 return {"group_size": args.group_size, "bits": cbits["mamba"], "mode": "affine"}
+            # Dense (non-MoE) MLP block, e.g. Nemotron-3-Nano-4B's "mlp" blocks --
+            # only reached here because the shared_experts/switch_mlp checks above
+            # (which require a more specific path prefix) already handled the MoE
+            # case, so a bare up_proj/down_proj at this point is unambiguous.
+            if ("up_proj" in path or "down_proj" in path) and "mlp" in cbits:
+                return {"group_size": args.group_size, "bits": cbits["mlp"], "mode": "affine"}
             if "lm_head" in path:
                 return {"group_size": args.group_size, "bits": cbits["lm_head"], "mode": "affine"}
             if "embeddings" in path:
