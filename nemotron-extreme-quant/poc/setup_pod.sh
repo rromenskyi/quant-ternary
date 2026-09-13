@@ -132,7 +132,7 @@ if [[ -n "$WITH_AXOLOTL" ]]; then
   echo "--- Axolotl venv for ipsupport-code LoRA fine-tuning (isolated from the base env" \
        "above so a broken/conflicting dependency there can't take down the GPTQ pipeline) ---"
   $SSH "
-if [ -x '${AXOLOTL_VENV}/bin/python3' ] && '${AXOLOTL_VENV}/bin/python3' -c 'import axolotl, flash_attn, cut_cross_entropy' 2>/dev/null; then
+if [ -x '${AXOLOTL_VENV}/bin/python3' ] && '${AXOLOTL_VENV}/bin/python3' -c 'import axolotl, flash_attn, cut_cross_entropy, causal_conv1d, mamba_ssm' 2>/dev/null; then
   echo 'axolotl venv already set up, skipping'
 else
   python3 -m venv '${AXOLOTL_VENV}'
@@ -163,6 +163,7 @@ else
   TORCH_CU_TAG=\"cu\$(echo \$CUDA_VER | tr -d '.')\"
   echo \"--- system CUDA toolkit: \$CUDA_VER (\$TORCH_CU_TAG) at \$CUDA_HOME ---\"
   '${AXOLOTL_VENV}/bin/pip' install --force-reinstall \"torch\" --index-url \"https://download.pytorch.org/whl/\$TORCH_CU_TAG\"
+  EXPECTED_TORCH_VERSION=\$('${AXOLOTL_VENV}/bin/python3' -c 'import torch; print(torch.__version__)')
 
   # TORCH_CUDA_ARCH_LIST is set (the standard torch-extension convention)
   # but this flash-attn release (2.8.3.post1) was observed to ignore it --
@@ -231,6 +232,32 @@ else
   # naming this exact install command.
   '${AXOLOTL_VENV}/bin/pip' uninstall -y cut-cross-entropy 2>/dev/null || true
   '${AXOLOTL_VENV}/bin/pip' install 'cut-cross-entropy[transformers] @ git+https://github.com/axolotl-ai-cloud/ml-cross-entropy.git@4dfa522'
+
+  # Without these, NemotronH's Mamba2 mixer falls back to a reference
+  # PyTorch chunk-scan implementation that OOM'd on a single 45GB
+  # allocation during LoRA training (confirmed live on Nemotron-3-Nano-4B)
+  # -- the fused CUDA kernels avoid materializing that huge intermediate
+  # tensor. Neither package exposes an arch-restriction env var (unlike
+  # flash-attn's FLASH_ATTN_CUDA_ARCHS -- checked causal-conv1d's setup.py
+  # directly, archs are unconditionally hardcoded by CUDA-toolkit-version
+  # thresholds), so this still builds for every arch that toolkit
+  # supports; not worth a custom setup.py patch for the few extra minutes
+  # it costs.
+  '${AXOLOTL_VENV}/bin/pip' install --no-build-isolation causal-conv1d
+  # --no-deps is the crucial part here: mamba_ssm's own dependency
+  # resolution was observed to silently force-upgrade torch (2.11.0+cu128
+  # -> 2.14.0, pulling in a completely different CUDA-13 stack), which
+  # then broke compatibility with the already-built flash-attn and
+  # axolotl's own declared torch version pin. Its setup.py only needs
+  # torch to be IMPORTABLE at build time (for arch/version detection),
+  # not any specific version -- so skip re-resolving its full dependency
+  # tree and keep whatever torch is already correctly installed.
+  '${AXOLOTL_VENV}/bin/pip' install --no-build-isolation --no-deps mamba_ssm
+  ACTUAL_TORCH_VERSION=\$('${AXOLOTL_VENV}/bin/python3' -c 'import torch; print(torch.__version__)')
+  if [[ \"\$ACTUAL_TORCH_VERSION\" != \"\$EXPECTED_TORCH_VERSION\" ]]; then
+    echo \"ERROR: torch changed from \$EXPECTED_TORCH_VERSION to \$ACTUAL_TORCH_VERSION during mamba_ssm install -- something pulled in a dependency upgrade despite --no-deps\" >&2
+    exit 1
+  fi
 fi
 "
 fi
