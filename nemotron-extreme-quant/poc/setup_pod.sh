@@ -116,13 +116,29 @@ else
   # always build all of sm_80/90/100/120 regardless -- harmless to still
   # set, in case a future flash-attn release respects it, but don't rely on
   # it. What DOES actually help: MAX_JOBS, setuptools' own parallel-build
-  # env var -- this pod has 128 cores / ~1.5TB free RAM, and the default
-  # (unset -> a conservative ~4) leaves almost all of that idle during the
-  # single slowest step of pod setup.
+  # env var -- but a fixed guess is dangerous: a RunPod container's cgroup
+  # memory LIMIT can be far below the host's total RAM (observed: host
+  # reports ~2TB via 'free -h', but the container's own cgroup capped it at
+  # ~232GB) and flash-attn's heaviest CUDA compile units (large-hdim
+  # backward/causal templates) can peak well into multi-GB RAM each --
+  # MAX_JOBS=32 on that 232GB container OOM-killed the build partway
+  # through (ninja reported 'FAILED [code=255]' + 'Killed' on several
+  # objects). Derive MAX_JOBS from THIS container's actual cgroup memory
+  # limit and CPU count instead of a hardcoded number, so it self-adapts to
+  # whatever pod size is rented.
   ARCH=\$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader | head -1)
   export TORCH_CUDA_ARCH_LIST=\"\$ARCH\"
-  export MAX_JOBS=32
-  echo \"--- building flash-attn (TORCH_CUDA_ARCH_LIST=\$ARCH, MAX_JOBS=\$MAX_JOBS) ---\"
+  MEM_LIMIT_BYTES=\$(cat /sys/fs/cgroup/memory.max 2>/dev/null)
+  if [[ -z \"\$MEM_LIMIT_BYTES\" || \"\$MEM_LIMIT_BYTES\" == \"max\" ]]; then
+    MEM_LIMIT_BYTES=\$(cat /sys/fs/cgroup/memory/memory.limit_in_bytes 2>/dev/null || free -b | awk '/^Mem:/{print \$2}')
+  fi
+  MEM_LIMIT_GB=\$(( MEM_LIMIT_BYTES / 1024 / 1024 / 1024 ))
+  CPU_COUNT=\$(nproc)
+  PER_JOB_GB=10
+  MAX_JOBS_BY_MEM=\$(( MEM_LIMIT_GB / PER_JOB_GB ))
+  export MAX_JOBS=\$(( CPU_COUNT < MAX_JOBS_BY_MEM ? CPU_COUNT : MAX_JOBS_BY_MEM ))
+  [[ \$MAX_JOBS -lt 1 ]] && export MAX_JOBS=1
+  echo \"--- building flash-attn (TORCH_CUDA_ARCH_LIST=\$ARCH, cgroup mem limit=\${MEM_LIMIT_GB}GB, cpu=\${CPU_COUNT}, MAX_JOBS=\$MAX_JOBS) ---\"
   export PATH=\"\$CUDA_HOME:\$PATH\"
   export LD_LIBRARY_PATH=\"\$CUDA_HOME/../lib64:\${LD_LIBRARY_PATH:-}\"
   '${AXOLOTL_VENV}/bin/pip' install flash-attn --no-build-isolation
