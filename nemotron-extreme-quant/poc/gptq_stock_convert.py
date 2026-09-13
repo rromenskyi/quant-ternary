@@ -630,17 +630,20 @@ def main():
     )
     model.eval()
 
-    with open(f"{model_path}/config.json") as f:
-        config = json.load(f)
-    # A model that's round-tripped through transformers' save_pretrained
-    # (e.g. an axolotl LoRA merge output) has its layers_block_type entries
-    # renamed to transformers' internal vocabulary ("linear_attention"/
-    # "full_attention" instead of "mamba"/"attention") -- see
-    # fixup_config_for_mlx's docstring above for the same issue on this
-    # script's OWN output. Normalize on read so every "mamba"/"attention"
-    # check downstream keeps working regardless of which naming the input
-    # checkpoint happens to use.
-    block_types = [BLOCK_TYPE_HF_TO_MLX.get(t, t) for t in config["layers_block_type"]]
+    # Read layers_block_type off the LOADED model's config, not the raw
+    # config.json -- some checkpoints (e.g. Nemotron-3-Nano-4B) don't
+    # serialize layers_block_type at all, only a compact
+    # hybrid_override_pattern string; transformers' NemotronHConfig
+    # derives the per-layer list from that pattern at load time, but only
+    # as a live attribute, never written back to the JSON file. A model
+    # that's round-tripped through save_pretrained (e.g. an axolotl LoRA
+    # merge output) hits a related issue instead: layers_block_type IS in
+    # the file, but renamed to transformers' internal vocabulary
+    # ("linear_attention"/"full_attention" instead of "mamba"/"attention",
+    # see fixup_config_for_mlx's docstring above for the same issue on
+    # this script's OWN output). Reading via model.config after load and
+    # normalizing through BLOCK_TYPE_HF_TO_MLX handles both cases at once.
+    block_types = [BLOCK_TYPE_HF_TO_MLX.get(t, t) for t in model.config.layers_block_type]
     end_block = args.end_block if args.end_block is not None else len(block_types)
     active_types = ["_"] * args.start_block + block_types[args.start_block : end_block]
     active_types += ["_"] * (len(block_types) - end_block)
