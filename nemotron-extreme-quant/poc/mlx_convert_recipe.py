@@ -143,8 +143,10 @@ def main() -> None:
             return False
 
         # convert() requires q_bits even though our predicate always overrides
-        # it per-path -- pick any valid value (unused).
-        low_bits = cbits["moe_routed_down"]
+        # it per-path -- any valid bit-width works (unused), so just take
+        # the smallest one in THIS recipe rather than a hardcoded key that
+        # only exists in the "jang" (MoE) recipe's schema.
+        low_bits = min(cbits.values())
 
     elif args.mode == "positional":
         if not args.recipe or not args.num_layers:
