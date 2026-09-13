@@ -50,24 +50,42 @@ STATE = {
 BLOCK_RE = re.compile(r"\[block (\d+)/(\d+)\] (\w+):(.*?), .*?total_elapsed=(\d+)s")
 CALIB_RE = re.compile(r"calibration pass (\d+)/(\d+) done")
 AXOLOTL_STEP_RE = re.compile(r"(\d+)/(\d+) \[")
+AXOLOTL_TOTAL_STEPS_RE = re.compile(r"Maximum number of steps set at (\d+)")
 AXOLOTL_METRICS_RE = re.compile(r"\{'(?:loss|eval_loss)':.*?\}")
 
 
-def parse_axolotl_log(text: str) -> dict | None:
+def parse_axolotl_log(text: str, known_total: int | None = None) -> dict | None:
     """axolotl/transformers' Trainer prints tqdm step bars (`N/M [...]`)
     interleaved with Python-dict-repr metrics lines (`{'loss': ..., 'ppl':
     ...}` for train steps, `{'eval_loss': ..., 'eval_ppl': ...}` after each
     eval pass) -- a completely different log shape from the GPTQ pipeline's
     own [block N/M] lines above, so this is a separate small parser rather
     than trying to force it through parse_log.
+
+    The periodic EVAL loop prints its OWN `N/M [...]` progress bar (M =
+    number of eval batches, e.g. 15) interleaved with the real training
+    step bar (M = total_steps, e.g. 83) -- just taking the last `N/M`
+    match in the tail grabbed eval's bar whenever a poll happened to land
+    right after an eval pass finished, showing a false "15/15 100% DONE"
+    mid-training. Anchor on the log's own "Maximum number of steps set at
+    N" line and only match step bars whose total equals that -- passed in
+    as known_total since that line is printed once near the very start of
+    the log and scrolls out of any bounded tail window well before a long
+    run finishes (grepped from the full file separately, see poll_pod).
     """
     if not text:
         return None
     out = {"step": None, "total_steps": None, "train": None, "eval": None, "stage": "unknown"}
+    total_matches = AXOLOTL_TOTAL_STEPS_RE.findall(text)
+    known_total = int(total_matches[-1]) if total_matches else known_total
     steps = AXOLOTL_STEP_RE.findall(text)
+    if known_total is not None:
+        steps = [(s, t) for s, t in steps if int(t) == known_total]
     if steps:
         step, total = steps[-1]
         out["step"], out["total_steps"] = int(step), int(total)
+    elif known_total is not None:
+        out["total_steps"] = known_total
     for m in AXOLOTL_METRICS_RE.finditer(text):
         try:
             d = ast.literal_eval(m.group(0))
@@ -146,6 +164,7 @@ echo "===LOG_TAIL==="; [ -n "$LOG" ] && tail -c 24000 "$LOG"
 echo "===DRYRUN==="; [ -f /root/sensitivity_dryrun.log ] && tail -c 20000 /root/sensitivity_dryrun.log
 echo "===PPL_SUMMARY==="; [ -f /root/ppl_summary.json ] && cat /root/ppl_summary.json
 echo "===AXOLOTL==="; [ -f /root/axolotl_train.log ] && tail -c 12000 /root/axolotl_train.log
+echo "===AXOLOTL_TOTAL==="; [ -f /root/axolotl_train.log ] && grep -o 'Maximum number of steps set at [0-9]*' /root/axolotl_train.log | tail -1
 echo "===GPU==="; nvidia-smi --query-gpu=memory.used,memory.total,utilization.gpu --format=csv,noheader 2>/dev/null
 echo "===DISK==="; df -h / | tail -1
 """
@@ -203,7 +222,10 @@ echo "===DISK==="; df -h / | tail -1
         STATE["disk"] = parts.get("DISK", "").strip() or None
         STATE["ppl_summary"] = ppl_summary if ppl_summary is not None else STATE["ppl_summary"]
         STATE["sensitivity"] = sensitivity if sensitivity is not None else STATE["sensitivity"]
-        STATE["axolotl"] = parse_axolotl_log(parts.get("AXOLOTL", ""))
+        axolotl_total_text = parts.get("AXOLOTL_TOTAL", "")
+        axolotl_total_match = AXOLOTL_TOTAL_STEPS_RE.search(axolotl_total_text)
+        known_total = int(axolotl_total_match.group(1)) if axolotl_total_match else None
+        STATE["axolotl"] = parse_axolotl_log(parts.get("AXOLOTL", ""), known_total=known_total)
         STATE["log_age_s"] = log_age_s
         STATE["raw_tail"] = log_tail[-4000:]
         STATE["last_poll"] = time.time()
