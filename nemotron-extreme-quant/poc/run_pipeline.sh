@@ -126,16 +126,19 @@ GPTQ_BITS_ARGS="--bits ${BITS}"
 MLX_CONVERT_CMD="mlx_lm.convert --hf-path ${HF_STAGE_DIR} --mlx-path ${HF_MLX_DIR} -q --q-bits ${BITS} --q-group-size ${GROUP_SIZE}"
 if [[ -n "$QUANT_RECIPE" ]]; then
   GPTQ_BITS_ARGS="--quant-recipe ${QUANT_RECIPE} --quant-recipe-mode ${QUANT_RECIPE_MODE}"
+  # Neither stock mlx_lm.convert --quant-predicate NOR this project's own
+  # custom converter can be trusted here without the switch_mlp naming fix
+  # (see poc/mlx_convert_recipe.py's docstring and docs/session_findings_
+  # 2026-09-11.md section 7q) -- routed MoE experts are named switch_mlp.fc1/
+  # fc2 in this architecture's MLX port, not up_proj/down_proj, so any
+  # predicate matching only the literal substring "down_proj" silently never
+  # upgrades ~99% of a MoE block's parameters regardless of recipe. Always
+  # use the fixed custom converter for both recipe modes.
+  NUM_LAYERS_EXPR="\$(python3 -c \"import json; print(len(json.load(open('${HF_STAGE_DIR}/config.json'))['layers_block_type']))\")"
   if [[ "$QUANT_RECIPE_MODE" == "sensitivity" ]]; then
-    # stock mlx_lm.convert --quant-predicate only knows the POSITIONAL
-    # formula -- it would silently re-pick different layers than the ones
-    # GPTQ actually calibrated at high_bits, corrupting the result the same
-    # way an unmatched affine formula did earlier this session (see
-    # docs/session_findings_2026-09-11.md section 7p). Use the custom
-    # converter that reads this run's sensitivity_manifest.json instead.
-    MLX_CONVERT_CMD="python3 -u mlx_convert_sensitivity.py --hf-path ${HF_STAGE_DIR} --mlx-path ${HF_MLX_DIR} --group-size ${GROUP_SIZE}"
+    MLX_CONVERT_CMD="python3 -u mlx_convert_recipe.py --hf-path ${HF_STAGE_DIR} --mlx-path ${HF_MLX_DIR} --group-size ${GROUP_SIZE} --mode sensitivity"
   else
-    MLX_CONVERT_CMD="mlx_lm.convert --hf-path ${HF_STAGE_DIR} --mlx-path ${HF_MLX_DIR} -q --quant-predicate ${QUANT_RECIPE} --q-group-size ${GROUP_SIZE}"
+    MLX_CONVERT_CMD="python3 -u mlx_convert_recipe.py --hf-path ${HF_STAGE_DIR} --mlx-path ${HF_MLX_DIR} --group-size ${GROUP_SIZE} --mode positional --recipe ${QUANT_RECIPE} --num-layers ${NUM_LAYERS_EXPR}"
   fi
 fi
 
