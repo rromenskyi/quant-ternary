@@ -38,11 +38,21 @@ echo "--- checking HF auth ---"
 # stays invisible until the very first upload deep into the pipeline (this
 # bit us once: a RunPod disk-resize wiped the token along with everything
 # else, and it wasn't discovered until an hf upload failed after a long run).
+HF_TOKEN_LOCAL_FILE="${HF_TOKEN_LOCAL_FILE:-$HOME/.runpod/hf_token}"
 if $SSH "test -s ~/.cache/huggingface/token"; then
   echo "HF token file present"
+elif [[ -s "$HF_TOKEN_LOCAL_FILE" ]]; then
+  # Push straight over stdin -- never as a CLI arg, never echoed to this
+  # script's own output, so it can't end up in shell history or a log.
+  echo "no token on pod, pushing from local $HF_TOKEN_LOCAL_FILE"
+  $SSH "mkdir -p ~/.cache/huggingface && cat > ~/.cache/huggingface/token" < "$HF_TOKEN_LOCAL_FILE"
+  echo "HF token pushed to pod"
 else
-  echo "ERROR: no HF token found at ~/.cache/huggingface/token on the pod." >&2
-  echo "Log in first (paste the token via stdin, never as a CLI arg):" >&2
+  echo "ERROR: no HF token found at ~/.cache/huggingface/token on the pod," >&2
+  echo "and no local fallback at $HF_TOKEN_LOCAL_FILE either." >&2
+  echo "Either save one locally (chmod 600 recommended):" >&2
+  echo "  cat > $HF_TOKEN_LOCAL_FILE <<< 'hf_your_token_here' && chmod 600 $HF_TOKEN_LOCAL_FILE" >&2
+  echo "or log in on the pod directly (paste the token via stdin, never as a CLI arg):" >&2
   echo "  ssh -i $POD_SSH_KEY -p $POD_PORT root@$POD_HOST \"mkdir -p ~/.cache/huggingface && cat > ~/.cache/huggingface/token\" <<< 'hf_your_token_here'" >&2
   exit 1
 fi
