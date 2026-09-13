@@ -65,6 +65,9 @@ echo "--- ensuring mlx-lm is installed ---"
 echo "--- applying KV-cache-quant patch to server.py (idempotent) ---"
 "$VENV_DIR/bin/python" "$SCRIPT_DIR/patch_mlx_server_kv.py"
 
+echo "--- applying tool-call-parser crash-safety patch (idempotent) ---"
+"$VENV_DIR/bin/python" "$SCRIPT_DIR/patch_mlx_tool_parser.py"
+
 CMD=("$VENV_DIR/bin/mlx_lm.server" --model "$MODEL" --port "$PORT" --prefill-step-size "$PREFILL_STEP_SIZE")
 if [[ -n "$KV_BITS" ]]; then
   CMD+=(--kv-bits "$KV_BITS" --kv-group-size "$KV_GROUP_SIZE" --quantized-kv-start "$QUANTIZED_KV_START")
