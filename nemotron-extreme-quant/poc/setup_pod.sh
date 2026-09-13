@@ -73,6 +73,25 @@ $SSH "pip install --quiet --break-system-packages \
     torch transformers accelerate huggingface_hub[hf_xet] \
     'mlx[cuda]' mlx-lm pandas pyarrow"
 
+# The base install above can still land on a CPU-only mlx: this image's
+# preinstalled torch pins nvidia-cublas-cu12/nvidia-cuda-nvrtc-cu12/
+# nvidia-cufft-cu12 to exact 12.8.x builds, while mlx-cuda-12 wants exact
+# 12.9.x -- pip's resolver then silently downgrades mlx itself to an old
+# version that doesn't pull mlx-cuda-12 at all, rather than erroring
+# (confirmed live: import succeeds, but mx.default_device() reports
+# Device(cpu, 0), not gpu). Force mlx[cuda] to the newest release (which
+# upgrades those nvidia-cu12 packages past torch's pin) -- CUDA 12.x
+# libraries are ABI-compatible across minor versions in practice, and
+# this was verified not to break torch's own .cuda() ops on the same pod
+# earlier this session.
+$SSH "pip install --quiet --break-system-packages --upgrade --force-reinstall 'mlx[cuda]'"
+if ! $SSH "python3 -c \"import mlx.core as mx; import sys; sys.exit(0 if mx.default_device().type == mx.DeviceType.gpu else 1)\""; then
+  echo "ERROR: mlx did not get a GPU device after the upgrade -- inspect manually:" >&2
+  echo "  ssh -i $POD_SSH_KEY -p $POD_PORT root@$POD_HOST \"python3 -c 'import mlx.core as mx; print(mx.default_device())'\"" >&2
+  exit 1
+fi
+echo "mlx confirmed on GPU"
+
 echo "--- source model ${MODEL_REPO_ID} (skipped if already present) ---"
 $SSH "
 if [ -f '${MODEL_SRC_DIR}/config.json' ]; then
