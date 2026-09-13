@@ -120,9 +120,19 @@ if [[ -z "$NO_DASHBOARD" ]]; then
   # a (possibly new) pod, since RunPod reassigns host/port on every pod
   # restart and a stale tunnel just silently connects to nothing.
   echo "--- (re)starting dashboard on pod + local SSH tunnel on :${DASHBOARD_PORT} ---"
-  $SSH "pkill -f 'pipeline_dashboard.py --local' 2>/dev/null || true; sleep 1; \
-    nohup python3 ${POD_POC_DIR}/pipeline_dashboard.py --local --port ${DASHBOARD_PORT} \
-    > /root/pipeline_dashboard.log 2>&1 < /dev/null & disown"
+  # 'nohup cmd & disown' inside a single non-interactive SSH command was
+  # observed to NOT reliably survive the SSH session closing (the process
+  # would vanish minutes later with no crash in its own log -- nohup only
+  # blocks SIGHUP, it doesn't detach the process from the session's
+  # process group). 'setsid' makes the process its own session leader
+  # (confirmed via `ps -o pid,sid,pgid` all matching), which is immune to
+  # ANY signal the closing SSH session might propagate. Two separate SSH
+  # calls (kill, then launch) instead of one chained command, since that
+  # combined form was also observed to intermittently fail outright.
+  $SSH "pkill -f 'pipeline_dashboard.py --local' 2>/dev/null || true" || true
+  sleep 1
+  $SSH "setsid nohup python3 ${POD_POC_DIR}/pipeline_dashboard.py --local --port ${DASHBOARD_PORT} \
+    > /root/pipeline_dashboard.log 2>&1 < /dev/null &"
   pkill -f "ssh.*-L ${DASHBOARD_PORT}:localhost:${DASHBOARD_PORT}.*${POD_HOST}" 2>/dev/null || true
   sleep 1
   nohup ssh -i "$POD_SSH_KEY" -p "$POD_PORT" -o StrictHostKeyChecking=no -N \
