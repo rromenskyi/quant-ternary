@@ -270,6 +270,8 @@ PAGE = """<!doctype html>
   .cell.current { outline: 2px solid #fff; opacity: 1; animation: pulse 1.2s infinite; }
   @keyframes pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(255,255,255,0.5); } 50% { box-shadow: 0 0 0 4px rgba(255,255,255,0); } }
   .mamba { background: #4a7fd6; } .moe { background: #4ad691; } .attention { background: #d64ac2; }
+  .mlp { background: #e0a030; } /* dense (non-MoE) MLP block, e.g. Nemotron-3-Nano-4B */
+  .unknown-kind { background: #888; } /* any future block kind this dashboard hasn't seen yet */
   .cell.upgraded { border: 2px solid gold; }
   .legend { font-size: 0.8rem; opacity: 0.7; margin-bottom: 1.5rem; }
   .legend span { margin-right: 1rem; }
@@ -296,6 +298,7 @@ PAGE = """<!doctype html>
     <span><b style="color:#4a7fd6">■</b> mamba</span>
     <span><b style="color:#d64ac2">■</b> attention</span>
     <span><b style="color:#4ad691">■</b> moe</span>
+    <span><b style="color:#e0a030">■</b> mlp</span>
     <span><b style="border:2px solid gold; padding:0 3px">■</b> upgraded (high-bits)</span>
   </div>
   <div id="ppl-section"></div>
@@ -318,6 +321,7 @@ function render(s) {
   const isLiveError = (s.stage === 'error' || s.stage === 'sanity_failed') && !logStale;
   stageEl.className = 'stage' + (s.stage === 'done' && !logStale ? ' done' : (isLiveError ? ' error' : ''));
 
+  const KNOWN_BLOCK_KINDS = ['mamba', 'attention', 'moe', 'mlp'];
   const grid = document.getElementById('grid');
   grid.innerHTML = '';
   if (s.blocks && s.blocks.length) {
@@ -326,8 +330,9 @@ function render(s) {
     s.blocks.forEach(b => byIdx[b.idx] = b);
     for (let i = 0; i < total; i++) {
       const b = byIdx[i];
+      const kindClass = b ? (KNOWN_BLOCK_KINDS.includes(b.kind) ? b.kind : 'unknown-kind') : '';
       const div = document.createElement('div');
-      div.className = 'cell' + (b ? ' done ' + b.kind + (b.upgraded ? ' upgraded' : '') : '');
+      div.className = 'cell' + (b ? ' done ' + kindClass + (b.upgraded ? ' upgraded' : '') : '');
       if (i === s.block_idx) div.className += ' current';
       div.title = b ? `block ${b.idx}: ${b.kind} (${b.detail})` : `block ${i}: pending`;
       grid.appendChild(div);
