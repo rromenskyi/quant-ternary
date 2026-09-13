@@ -155,7 +155,11 @@ def parse_log(text: str) -> dict:
     return out
 
 
-def poll_pod(pod_host: str, pod_port: str, pod_ssh_key: str, log_glob: str) -> None:
+def poll_pod(pod_host: str, pod_port: str, pod_ssh_key: str, log_glob: str, local: bool = False) -> None:
+    # This is plain POSIX shell reading absolute paths -- identical whether
+    # it runs over SSH against a remote pod or via a local shell when the
+    # dashboard itself runs ON the pod (--local mode, reached through an SSH
+    # tunnel instead of polling over SSH every interval).
     remote_cmd = f"""
 LOG=$(ls -t {log_glob} 2>/dev/null | head -1)
 echo "===RUN_NAME==="; basename "$LOG" 2>/dev/null
@@ -168,13 +172,16 @@ echo "===AXOLOTL_TOTAL==="; [ -f /root/axolotl_train.log ] && grep -o 'Maximum n
 echo "===GPU==="; nvidia-smi --query-gpu=memory.used,memory.total,utilization.gpu --format=csv,noheader 2>/dev/null
 echo "===DISK==="; df -h / | tail -1
 """
-    ssh_cmd = [
-        "ssh", "-i", pod_ssh_key, "-p", str(pod_port),
-        "-o", "ConnectTimeout=8", "-o", "StrictHostKeyChecking=no",
-        f"root@{pod_host}", remote_cmd,
-    ]
+    if local:
+        cmd = ["bash", "-c", remote_cmd]
+    else:
+        cmd = [
+            "ssh", "-i", pod_ssh_key, "-p", str(pod_port),
+            "-o", "ConnectTimeout=8", "-o", "StrictHostKeyChecking=no",
+            f"root@{pod_host}", remote_cmd,
+        ]
     try:
-        result = subprocess.run(ssh_cmd, capture_output=True, text=True, timeout=20)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
         raw = result.stdout
     except Exception as e:
         with STATE_LOCK:
@@ -234,9 +241,9 @@ echo "===DISK==="; df -h / | tail -1
             STATE["error"] = None
 
 
-def poll_loop(pod_host, pod_port, pod_ssh_key, log_glob, interval):
+def poll_loop(pod_host, pod_port, pod_ssh_key, log_glob, interval, local=False):
     while True:
-        poll_pod(pod_host, pod_port, pod_ssh_key, log_glob)
+        poll_pod(pod_host, pod_port, pod_ssh_key, log_glob, local=local)
         time.sleep(interval)
 
 
@@ -399,21 +406,33 @@ class Handler(BaseHTTPRequestHandler):
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--pod-host", required=True)
-    parser.add_argument("--pod-port", required=True)
-    parser.add_argument("--pod-ssh-key", required=True)
+    parser.add_argument(
+        "--local", action="store_true",
+        help="run ON the pod itself, reading log files directly (no SSH round-trip per "
+        "poll) -- pair with an SSH -L tunnel from the local machine to this --port.",
+    )
+    parser.add_argument("--pod-host", required=False, help="required unless --local")
+    parser.add_argument("--pod-port", required=False, help="required unless --local")
+    parser.add_argument("--pod-ssh-key", required=False, help="required unless --local")
     parser.add_argument("--log-glob", default="/root/pipeline-*.log")
     parser.add_argument("--poll-interval", type=float, default=5.0)
     parser.add_argument("--port", type=int, default=8420)
     args = parser.parse_args()
 
+    if not args.local and not (args.pod_host and args.pod_port and args.pod_ssh_key):
+        raise SystemExit("--pod-host/--pod-port/--pod-ssh-key are required unless --local is set")
+
     t = threading.Thread(
         target=poll_loop,
         args=(args.pod_host, args.pod_port, args.pod_ssh_key, args.log_glob, args.poll_interval),
+        kwargs={"local": args.local},
         daemon=True,
     )
     t.start()
 
+    # 127.0.0.1 either way: even in --local mode (running on the pod), an
+    # SSH -L tunnel's remote end connects to localhost on the pod's own
+    # side, so there's no need (and no reason) to bind wider than loopback.
     server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
     print(f"Dashboard: http://localhost:{args.port}", flush=True)
     server.serve_forever()

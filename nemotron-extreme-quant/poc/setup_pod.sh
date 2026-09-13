@@ -15,9 +15,11 @@
 set -euo pipefail
 
 WITH_AXOLOTL=""
+NO_DASHBOARD=""
 for arg in "$@"; do
   case "$arg" in
     --with-axolotl) WITH_AXOLOTL=1 ;;
+    --no-dashboard) NO_DASHBOARD=1 ;;
     *) echo "unknown flag: $arg" >&2; exit 1 ;;
   esac
 done
@@ -30,6 +32,7 @@ MODEL_SRC_DIR="${MODEL_SRC_DIR:-/root/nemotron30b-bf16-src}"
 WIKITEXT_DIR="${WIKITEXT_DIR:-/root/llama.cpp/wikitext-2-raw}"
 POD_POC_DIR="${POD_POC_DIR:-/root/poc}"
 AXOLOTL_VENV="${AXOLOTL_VENV:-/root/axolotl_venv}"
+DASHBOARD_PORT="${DASHBOARD_PORT:-8420}"
 
 SSH="ssh -i $POD_SSH_KEY -p $POD_PORT -o StrictHostKeyChecking=no root@$POD_HOST"
 
@@ -234,3 +237,23 @@ fi
 
 echo "=== pod ready: model at ${MODEL_SRC_DIR}, wikitext at ${WIKITEXT_DIR}, poc/ synced ==="
 [[ -n "$WITH_AXOLOTL" ]] && echo "=== axolotl venv ready at ${AXOLOTL_VENV} ==="
+
+if [[ -z "$NO_DASHBOARD" ]]; then
+  # Dashboard runs ON the pod itself (reads log files directly, no SSH
+  # round-trip per poll -- see pipeline_dashboard.py's --local mode) and
+  # is reached through a local SSH -L tunnel. Both the pod-side process
+  # and the local tunnel need a fresh (re)start every time this script
+  # runs against a pod, since RunPod reassigns host/port on every pod
+  # restart and a stale tunnel just silently connects to nothing.
+  echo "--- (re)starting dashboard on pod + local SSH tunnel on :${DASHBOARD_PORT} ---"
+  $SSH "pkill -f 'pipeline_dashboard.py --local' 2>/dev/null || true; sleep 1; \
+    nohup python3 ${POD_POC_DIR}/pipeline_dashboard.py --local --port ${DASHBOARD_PORT} \
+    > /root/pipeline_dashboard.log 2>&1 < /dev/null & disown"
+  pkill -f "ssh.*-L ${DASHBOARD_PORT}:localhost:${DASHBOARD_PORT}.*${POD_HOST}" 2>/dev/null || true
+  sleep 1
+  nohup ssh -i "$POD_SSH_KEY" -p "$POD_PORT" -o StrictHostKeyChecking=no -N \
+    -L "${DASHBOARD_PORT}:localhost:${DASHBOARD_PORT}" "root@${POD_HOST}" \
+    > /tmp/pipeline_dashboard_tunnel.log 2>&1 &
+  disown
+  echo "=== dashboard: http://localhost:${DASHBOARD_PORT} ==="
+fi

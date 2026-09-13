@@ -114,16 +114,20 @@ echo "--- syncing poc/ to pod ---"
 $SCP "$(dirname "${BASH_SOURCE[0]}")"/*.py "root@${POD_HOST}:${POD_POC_DIR}/"
 
 if [[ -z "$NO_DASHBOARD" ]]; then
-  # (Re)start the local live dashboard pointed at THIS run's pod host/port --
-  # RunPod reassigns host/port on every pod restart, so a dashboard left
-  # running against a stale target silently shows nothing new. Idempotent:
-  # kill any previous instance (any host/port) before starting fresh.
-  echo "--- (re)starting local dashboard on :${DASHBOARD_PORT} for ${POD_HOST}:${POD_PORT} ---"
-  pkill -f "pipeline_dashboard.py" 2>/dev/null || true
+  # Dashboard runs ON the pod itself (--local mode: reads log files
+  # directly, no SSH round-trip per poll) and is reached through a local
+  # SSH -L tunnel -- both need a fresh (re)start every time this points at
+  # a (possibly new) pod, since RunPod reassigns host/port on every pod
+  # restart and a stale tunnel just silently connects to nothing.
+  echo "--- (re)starting dashboard on pod + local SSH tunnel on :${DASHBOARD_PORT} ---"
+  $SSH "pkill -f 'pipeline_dashboard.py --local' 2>/dev/null || true; sleep 1; \
+    nohup python3 ${POD_POC_DIR}/pipeline_dashboard.py --local --port ${DASHBOARD_PORT} \
+    > /root/pipeline_dashboard.log 2>&1 < /dev/null & disown"
+  pkill -f "ssh.*-L ${DASHBOARD_PORT}:localhost:${DASHBOARD_PORT}.*${POD_HOST}" 2>/dev/null || true
   sleep 1
-  nohup python3 "$(dirname "${BASH_SOURCE[0]}")/pipeline_dashboard.py" \
-    --pod-host "$POD_HOST" --pod-port "$POD_PORT" --pod-ssh-key "$POD_SSH_KEY" \
-    --port "$DASHBOARD_PORT" > /tmp/pipeline_dashboard.log 2>&1 < /dev/null &
+  nohup ssh -i "$POD_SSH_KEY" -p "$POD_PORT" -o StrictHostKeyChecking=no -N \
+    -L "${DASHBOARD_PORT}:localhost:${DASHBOARD_PORT}" "root@${POD_HOST}" \
+    > /tmp/pipeline_dashboard_tunnel.log 2>&1 &
   disown
   echo "--- dashboard: http://localhost:${DASHBOARD_PORT} ---"
 fi
