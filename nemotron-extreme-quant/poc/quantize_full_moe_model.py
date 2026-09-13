@@ -420,7 +420,16 @@ def main():
 
     with open(f"{args.model}/config.json") as f:
         config = json.load(f)
-    block_types = config["layers_block_type"]
+    # A model round-tripped through transformers' save_pretrained (e.g. an
+    # axolotl LoRA merge output) has layers_block_type renamed to
+    # transformers' internal vocabulary ("linear_attention"/"full_attention"
+    # instead of "mamba"/"attention") -- normalize on read so every
+    # "mamba"/"attention" check in this file keeps working regardless of
+    # which naming the input checkpoint happens to use (see
+    # gptq_stock_convert.py's BLOCK_TYPE_HF_TO_MLX / fixup_config_for_mlx
+    # for the same issue on that script's output side).
+    _block_type_aliases = {"linear_attention": "mamba", "full_attention": "attention"}
+    block_types = [_block_type_aliases.get(t, t) for t in config["layers_block_type"]]
     end_block = args.end_block if args.end_block is not None else len(block_types)
     active_types = ["_"] * args.start_block + block_types[args.start_block : end_block]
     active_types += ["_"] * (len(block_types) - end_block)

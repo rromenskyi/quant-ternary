@@ -490,6 +490,17 @@ def main():
     parser.add_argument("--output", required=True)
     parser.add_argument("--wikitext", required=True)
     parser.add_argument(
+        "--extra-calib-file", action="append", default=[],
+        help="additional plain-text file(s) to mix into the calibration corpus alongside --wikitext "
+        "(repeatable). Any text file works -- to use a chat/tool-call JSONL dataset, flatten it first "
+        "with poc/flatten_chat_jsonl_to_text.py. Chunks are drawn from each file the same way "
+        "--wikitext is (see --extra-calib-chunks), then concatenated into one calibration set.",
+    )
+    parser.add_argument(
+        "--extra-calib-chunks", type=int, default=None,
+        help="chunks to draw from EACH --extra-calib-file. Defaults to --calib-chunks (same weight as wikitext).",
+    )
+    parser.add_argument(
         "--bits", type=int, default=None,
         help="uniform bit-width for every linear layer. Required unless --quant-recipe is given "
         "(the recipe assigns bits per-layer instead).",
@@ -597,12 +608,25 @@ def main():
 
     with open(f"{model_path}/config.json") as f:
         config = json.load(f)
-    block_types = config["layers_block_type"]
+    # A model that's round-tripped through transformers' save_pretrained
+    # (e.g. an axolotl LoRA merge output) has its layers_block_type entries
+    # renamed to transformers' internal vocabulary ("linear_attention"/
+    # "full_attention" instead of "mamba"/"attention") -- see
+    # fixup_config_for_mlx's docstring above for the same issue on this
+    # script's OWN output. Normalize on read so every "mamba"/"attention"
+    # check downstream keeps working regardless of which naming the input
+    # checkpoint happens to use.
+    block_types = [BLOCK_TYPE_HF_TO_MLX.get(t, t) for t in config["layers_block_type"]]
     end_block = args.end_block if args.end_block is not None else len(block_types)
     active_types = ["_"] * args.start_block + block_types[args.start_block : end_block]
     active_types += ["_"] * (len(block_types) - end_block)
 
     calib_ids = load_calibration_chunks(args.wikitext, tokenizer, args.calib_chunks, args.calib_chunk_tokens)
+    extra_calib_chunks = args.extra_calib_chunks if args.extra_calib_chunks is not None else args.calib_chunks
+    for extra_file in args.extra_calib_file:
+        extra_ids = load_calibration_chunks(extra_file, tokenizer, extra_calib_chunks, args.calib_chunk_tokens)
+        print(f"Mixing in {len(extra_ids)} chunks from {extra_file}", flush=True)
+        calib_ids.extend(extra_ids)
     total_tokens = sum(ids.shape[1] for ids in calib_ids)
     if args.quant_recipe_mode == "component":
         bits_desc = f"component_recipe={args.component_recipe}"
