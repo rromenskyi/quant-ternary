@@ -56,6 +56,8 @@ CHECKPOINT_HF_REPO=""
 RESUME_FROM_CHECKPOINT=""
 CPU_THREADS=32
 SKIP_SANITY_CHECK=""
+NO_DASHBOARD=""
+DASHBOARD_PORT="${DASHBOARD_PORT:-8420}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -75,6 +77,7 @@ while [[ $# -gt 0 ]]; do
     --resume-from-checkpoint) RESUME_FROM_CHECKPOINT="$2"; shift 2 ;;
     --cpu-threads) CPU_THREADS="$2"; shift 2 ;;
     --skip-sanity-check) SKIP_SANITY_CHECK=1; shift 1 ;;
+    --no-dashboard) NO_DASHBOARD=1; shift 1 ;;
     *) echo "unknown flag: $1" >&2; exit 1 ;;
   esac
 done
@@ -109,6 +112,21 @@ echo "=== pod: ${POD_HOST}:${POD_PORT} ==="
 
 echo "--- syncing poc/ to pod ---"
 $SCP "$(dirname "${BASH_SOURCE[0]}")"/*.py "root@${POD_HOST}:${POD_POC_DIR}/"
+
+if [[ -z "$NO_DASHBOARD" ]]; then
+  # (Re)start the local live dashboard pointed at THIS run's pod host/port --
+  # RunPod reassigns host/port on every pod restart, so a dashboard left
+  # running against a stale target silently shows nothing new. Idempotent:
+  # kill any previous instance (any host/port) before starting fresh.
+  echo "--- (re)starting local dashboard on :${DASHBOARD_PORT} for ${POD_HOST}:${POD_PORT} ---"
+  pkill -f "pipeline_dashboard.py" 2>/dev/null || true
+  sleep 1
+  nohup python3 "$(dirname "${BASH_SOURCE[0]}")/pipeline_dashboard.py" \
+    --pod-host "$POD_HOST" --pod-port "$POD_PORT" --pod-ssh-key "$POD_SSH_KEY" \
+    --port "$DASHBOARD_PORT" > /tmp/pipeline_dashboard.log 2>&1 < /dev/null &
+  disown
+  echo "--- dashboard: http://localhost:${DASHBOARD_PORT} ---"
+fi
 
 CHECKPOINT_ARGS=""
 if [[ "$CHECKPOINT_EVERY" -gt 0 ]]; then

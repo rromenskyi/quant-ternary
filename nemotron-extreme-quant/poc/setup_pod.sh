@@ -40,7 +40,7 @@ scp -i "$POD_SSH_KEY" -P "$POD_PORT" -o StrictHostKeyChecking=no \
 echo "--- installing base Python deps (skips already-satisfied ones) ---"
 $SSH "pip install --quiet --break-system-packages \
     torch transformers accelerate huggingface_hub[hf_xet] \
-    'mlx[cuda12]' mlx-lm pandas"
+    'mlx[cuda12]' mlx-lm pandas pyarrow"
 
 echo "--- source model (~62GB, skipped if already present) ---"
 $SSH "

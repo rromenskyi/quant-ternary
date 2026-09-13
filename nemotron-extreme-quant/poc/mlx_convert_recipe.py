@@ -13,12 +13,17 @@ inspecting real packed tensor shapes on HF (switch_mlp.fc2's packed width
 matched 3-bit packing even for layers GPTQ had calibrated at 6-bit). See
 docs/session_findings_2026-09-11.md section 7q.
 
-Handles BOTH recipe modes so one verified-correct predicate covers either:
+Handles THREE recipe modes so one verified-correct predicate covers any:
   --mode positional: replicates mlx_lm's own mixed_quant_predicate_builder
     layer-position formula exactly (mirrors gptq_stock_convert.py's
     recipe_bits_for with recipe_mode=positional), with the naming fix.
   --mode sensitivity: reads a sensitivity_manifest.json (as the original
     mlx_convert_sensitivity.py did), with the naming fix.
+  --mode component: assigns bits purely by component TYPE (attention/
+    mamba/moe_shared/moe_routed_up/moe_routed_down/lm_head/embeddings),
+    uniform across every layer, no position or per-layer score involved --
+    reverse-engineered from JANG_2L-CRACK's published bit allocation (see
+    docs/session_findings_2026-09-11.md section 7q).
 
 Usage:
     python poc/mlx_convert_recipe.py --hf-path ... --mlx-path ... \
@@ -26,6 +31,9 @@ Usage:
 
     python poc/mlx_convert_recipe.py --hf-path ... --mlx-path ... \
         --group-size 64 --mode sensitivity
+
+    python poc/mlx_convert_recipe.py --hf-path ... --mlx-path ... \
+        --group-size 64 --mode component --component-recipe jang
 """
 
 from __future__ import annotations
@@ -40,6 +48,22 @@ QUANT_RECIPES = {
     "mixed_3_4": {"low_bits": 3, "high_bits": 4},
     "mixed_3_6": {"low_bits": 3, "high_bits": 6},
     "mixed_4_6": {"low_bits": 4, "high_bits": 6},
+}
+
+# Mirrors gptq_stock_convert.py's COMPONENT_BIT_RECIPES exactly (duplicated
+# rather than imported to avoid pulling in that module's heavy torch/
+# transformers imports just for this small dict -- same reasoning as
+# QUANT_RECIPES's existing duplication above).
+COMPONENT_BIT_RECIPES = {
+    "jang": {
+        "attention": 8,
+        "mamba": 6,
+        "moe_shared": 8,
+        "moe_routed_up": 4,
+        "moe_routed_down": 3,
+        "lm_head": 8,
+        "embeddings": 6,
+    },
 }
 
 # The actual fix: routed experts' down_proj-equivalent tensor is named
@@ -66,16 +90,48 @@ def main() -> None:
     parser.add_argument("--hf-path", required=True)
     parser.add_argument("--mlx-path", required=True)
     parser.add_argument("--group-size", type=int, required=True)
-    parser.add_argument("--mode", required=True, choices=["positional", "sensitivity"])
+    parser.add_argument("--mode", required=True, choices=["positional", "sensitivity", "component"])
     parser.add_argument("--recipe", choices=list(QUANT_RECIPES), help="required for --mode positional")
     parser.add_argument(
         "--num-layers", type=int,
         help="required for --mode positional; must match gptq_stock_convert.py's model "
         "(len(config['layers_block_type']))",
     )
+    parser.add_argument(
+        "--component-recipe", choices=list(COMPONENT_BIT_RECIPES), help="required for --mode component",
+    )
     args = parser.parse_args()
 
-    if args.mode == "positional":
+    if args.mode == "component":
+        if not args.component_recipe:
+            raise SystemExit("--mode component requires --component-recipe")
+        cbits = COMPONENT_BIT_RECIPES[args.component_recipe]
+        print(f"[INFO] component mode: component_recipe={args.component_recipe} {cbits}", flush=True)
+
+        def quant_predicate(path: str, module) -> dict | bool:
+            for alias in ("shared_experts.up_proj", "shared_experts.down_proj"):
+                if alias in path:
+                    return {"group_size": args.group_size, "bits": cbits["moe_shared"], "mode": "affine"}
+            if "switch_mlp.fc1" in path:
+                return {"group_size": args.group_size, "bits": cbits["moe_routed_up"], "mode": "affine"}
+            if "switch_mlp.fc2" in path:
+                return {"group_size": args.group_size, "bits": cbits["moe_routed_down"], "mode": "affine"}
+            if any(p in path for p in ("q_proj", "k_proj", "v_proj", "o_proj")):
+                return {"group_size": args.group_size, "bits": cbits["attention"], "mode": "affine"}
+            if "in_proj" in path or "out_proj" in path:
+                return {"group_size": args.group_size, "bits": cbits["mamba"], "mode": "affine"}
+            if "lm_head" in path:
+                return {"group_size": args.group_size, "bits": cbits["lm_head"], "mode": "affine"}
+            if "embeddings" in path:
+                return {"group_size": args.group_size, "bits": cbits["embeddings"], "mode": "affine"}
+            print(f"[WARN] unrecognized quantizable path {path!r} under component mode, leaving unquantized", flush=True)
+            return False
+
+        # convert() requires q_bits even though our predicate always overrides
+        # it per-path -- pick any valid value (unused).
+        low_bits = cbits["moe_routed_down"]
+
+    elif args.mode == "positional":
         if not args.recipe or not args.num_layers:
             raise SystemExit("--mode positional requires --recipe and --num-layers")
         low_bits, high_bits = QUANT_RECIPES[args.recipe]["low_bits"], QUANT_RECIPES[args.recipe]["high_bits"]

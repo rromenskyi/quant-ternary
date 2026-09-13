@@ -66,6 +66,31 @@ QUANT_RECIPES = {
     "mixed_4_6": {"low_bits": 4, "high_bits": 6},
 }
 
+# Reverse-engineered from JANG_2L-CRACK's (dealignai) published config.json
+# quantization dict (fully public metadata, no download needed -- see docs/
+# session_findings_2026-09-11.md section 7q) -- bits assigned purely by
+# COMPONENT TYPE, uniform across every layer, not by position or per-layer
+# score: generous precision where a component is cheap in total parameter
+# count (attention, shared experts), the least precision on the single
+# largest pool of parameters (routed MoE experts), with an asymmetric
+# up/down split there this project's own recipes never considered (both
+# always left up_proj at low_bits regardless of mode). JANG's own README
+# describes it only as "3.73-bit affine (MLX)" with no mention of GPTQ/
+# Hessian/calibration -- likely naive RTN with this hand-tuned allocation,
+# which is why replicating the allocation through THIS project's calibrated
+# pipeline is worth testing on its own merits, not just as a copy.
+COMPONENT_BIT_RECIPES = {
+    "jang": {
+        "attention": 8,        # q_proj, k_proj, v_proj, o_proj
+        "mamba": 6,            # in_proj, out_proj
+        "moe_shared": 8,       # shared_experts up_proj + down_proj (1 expert/block)
+        "moe_routed_up": 4,    # routed up_proj / switch_mlp.fc1 (128 experts/block)
+        "moe_routed_down": 3,  # routed down_proj / switch_mlp.fc2 (128 experts/block)
+        "lm_head": 8,
+        "embeddings": 6,
+    },
+}
+
 
 def recipe_bits_for(
     recipe: str, proj_name: str, layer_idx: int, num_layers: int,
@@ -233,7 +258,7 @@ def select_sensitivity_upgrades(
 def quantize_dense_block(
     block, kind: str, activations: dict[str, torch.Tensor], bits: int, group_size: int,
     recipe: str | None = None, layer_idx: int = 0, num_layers: int = 1,
-    upgrade_set: set[tuple[int, str]] | None = None,
+    upgrade_set: set[tuple[int, str]] | None = None, component_recipe: str | None = None,
 ) -> list[str]:
     proj_names = MAMBA_PROJECTIONS if kind == "mamba" else ATTN_PROJECTIONS
     quantized = []
@@ -241,7 +266,12 @@ def quantize_dense_block(
         module = getattr(block.mixer, proj_name, None)
         if module is None or proj_name not in activations:
             continue
-        proj_bits = recipe_bits_for(recipe, proj_name, layer_idx, num_layers, upgrade_set) if recipe else bits
+        if component_recipe:
+            proj_bits = COMPONENT_BIT_RECIPES[component_recipe]["mamba" if kind == "mamba" else "attention"]
+        elif recipe:
+            proj_bits = recipe_bits_for(recipe, proj_name, layer_idx, num_layers, upgrade_set)
+        else:
+            proj_bits = bits
         W = module.weight.detach().to(torch.float32).cpu()
         X = activations[proj_name]
         result = gptq_nbit(W, X, bits=proj_bits, group_size=group_size, device="cpu", scheme="affine")
@@ -254,14 +284,23 @@ def quantize_moe_block(
     block, expert_inputs: dict, shared_inputs: dict, min_expert_tokens: int, gptq_device: str,
     subbatch: int, bits: int, group_size: int,
     recipe: str | None = None, layer_idx: int = 0, num_layers: int = 1,
-    upgrade_set: set[tuple[int, str]] | None = None,
+    upgrade_set: set[tuple[int, str]] | None = None, component_recipe: str | None = None,
 ) -> dict:
     experts_module = block.mixer.experts
     num_experts = experts_module.num_experts
     act_fn = experts_module.act_fn
 
-    up_bits = recipe_bits_for(recipe, "up_proj", layer_idx, num_layers, upgrade_set) if recipe else bits
-    down_bits = recipe_bits_for(recipe, "down_proj", layer_idx, num_layers, upgrade_set) if recipe else bits
+    if component_recipe:
+        cbits = COMPONENT_BIT_RECIPES[component_recipe]
+        up_bits, down_bits = cbits["moe_routed_up"], cbits["moe_routed_down"]
+        shared_up_bits = shared_down_bits = cbits["moe_shared"]
+    elif recipe:
+        up_bits = recipe_bits_for(recipe, "up_proj", layer_idx, num_layers, upgrade_set)
+        down_bits = recipe_bits_for(recipe, "down_proj", layer_idx, num_layers, upgrade_set)
+        shared_up_bits = shared_down_bits = None  # set per-projection below
+    else:
+        up_bits = down_bits = bits
+        shared_up_bits = shared_down_bits = None
 
     valid_experts = [
         i for i in range(num_experts)
@@ -303,7 +342,12 @@ def quantize_moe_block(
 
     for proj_name in ("up_proj", "down_proj"):
         module = getattr(block.mixer.shared_experts, proj_name)
-        proj_bits = recipe_bits_for(recipe, proj_name, layer_idx, num_layers, upgrade_set) if recipe else bits
+        if component_recipe:
+            proj_bits = shared_up_bits if proj_name == "up_proj" else shared_down_bits
+        elif recipe:
+            proj_bits = recipe_bits_for(recipe, proj_name, layer_idx, num_layers, upgrade_set)
+        else:
+            proj_bits = bits
         W = module.weight.detach().to(torch.float32).cpu()
         X = shared_inputs[proj_name]
         result = gptq_nbit(W, X, bits=proj_bits, group_size=group_size, device="cpu", scheme="affine")
@@ -457,14 +501,20 @@ def main():
         "mlx_lm.convert run must use --quant-predicate <same recipe name> or the grids won't match.",
     )
     parser.add_argument(
-        "--quant-recipe-mode", default="positional", choices=["positional", "sensitivity"],
+        "--quant-recipe-mode", default="positional", choices=["positional", "sensitivity", "component"],
         help="positional (default): pick which layers get high_bits by the same llama.cpp-style "
         "position guess mlx_lm.convert's --quant-predicate uses. sensitivity: pick the SAME NUMBER "
         "of layers (equal-sized model) but choose WHICH ones by real per-layer GPTQ-Hessian saliency "
-        "instead of guessing by position -- requires one-shot calibration (no --sequential), and the "
-        "downstream conversion must use poc/mlx_convert_sensitivity.py (not stock mlx_lm.convert "
-        "--quant-predicate, which only knows the positional formula) reading the "
-        "sensitivity_manifest.json this run writes to --output.",
+        "instead of guessing by position -- requires one-shot calibration (no --sequential). component: "
+        "ignore --quant-recipe/--bits/layer position entirely and assign bits purely by COMPONENT TYPE "
+        "via --component-recipe (see COMPONENT_BIT_RECIPES) -- reverse-engineered from JANG_2L-CRACK's "
+        "published bit allocation, see docs/session_findings_2026-09-11.md section 7q. Both sensitivity "
+        "and component modes need the downstream conversion to use poc/mlx_convert_recipe.py (not stock "
+        "mlx_lm.convert --quant-predicate, which only knows the positional formula).",
+    )
+    parser.add_argument(
+        "--component-recipe", default=None, choices=list(COMPONENT_BIT_RECIPES),
+        help="required for --quant-recipe-mode component: which named component->bits map to use.",
     )
     parser.add_argument("--group-size", type=int, required=True, help="must match the group_size the downstream mlx_lm.convert -q run uses")
     parser.add_argument("--calib-chunks", type=int, default=24)
@@ -519,7 +569,10 @@ def main():
         "regardless of --gptq-device (that flag only controls the matmul device).",
     )
     args = parser.parse_args()
-    if args.quant_recipe is None and args.bits is None:
+    if args.quant_recipe_mode == "component":
+        if args.component_recipe is None:
+            raise SystemExit("--quant-recipe-mode component requires --component-recipe.")
+    elif args.quant_recipe is None and args.bits is None:
         raise SystemExit("Either --bits or --quant-recipe is required.")
     if args.quant_recipe_mode == "sensitivity":
         if args.quant_recipe is None:
@@ -551,7 +604,12 @@ def main():
 
     calib_ids = load_calibration_chunks(args.wikitext, tokenizer, args.calib_chunks, args.calib_chunk_tokens)
     total_tokens = sum(ids.shape[1] for ids in calib_ids)
-    bits_desc = f"quant_recipe={args.quant_recipe}" if args.quant_recipe else f"bits={args.bits}"
+    if args.quant_recipe_mode == "component":
+        bits_desc = f"component_recipe={args.component_recipe}"
+    elif args.quant_recipe:
+        bits_desc = f"quant_recipe={args.quant_recipe}"
+    else:
+        bits_desc = f"bits={args.bits}"
     print(f"Calibration: {len(calib_ids)} chunks, {total_tokens} tokens total, {bits_desc} group_size={args.group_size}", flush=True)
 
     dense_acts, moe_acts = {}, {}
@@ -626,6 +684,7 @@ def main():
                 block, expert_inputs, shared_inputs, args.min_expert_tokens, args.gptq_device,
                 args.moe_subbatch, args.bits, args.group_size,
                 recipe=args.quant_recipe, layer_idx=i, num_layers=len(block_types), upgrade_set=upgrade_set,
+                component_recipe=args.component_recipe if args.quant_recipe_mode == "component" else None,
             )
             print(
                 f"[block {i}/{end_block - 1}] moe: quantized={stats['quantized_experts']} "
@@ -638,6 +697,7 @@ def main():
             quantized = quantize_dense_block(
                 block, kind, activations, args.bits, args.group_size,
                 recipe=args.quant_recipe, layer_idx=i, num_layers=len(block_types), upgrade_set=upgrade_set,
+                component_recipe=args.component_recipe if args.quant_recipe_mode == "component" else None,
             )
             print(
                 f"[block {i}/{end_block - 1}] {kind}: {quantized}, "
@@ -655,12 +715,20 @@ def main():
     tokenizer.save_pretrained(args.output)
     fixup_config_for_mlx(args.output)
     print(f"\nSaved to {args.output}. Total quantization time: {time.time() - run_start:.0f}s", flush=True)
-    if args.quant_recipe_mode == "sensitivity":
+    if args.quant_recipe_mode == "component":
+        print(
+            f"Next step (CUSTOM converter -- stock mlx_lm.convert has no concept of component-type "
+            f"bit allocation): python poc/mlx_convert_recipe.py --hf-path {args.output} "
+            f"--mlx-path {args.output}-mlx --group-size {args.group_size} --mode component "
+            f"--component-recipe {args.component_recipe}",
+            flush=True,
+        )
+    elif args.quant_recipe_mode == "sensitivity":
         print(
             f"Next step (CUSTOM converter -- stock mlx_lm.convert --quant-predicate would re-derive "
             f"positional bits and corrupt this run's sensitivity-based choices): "
-            f"python poc/mlx_convert_sensitivity.py --hf-path {args.output} "
-            f"--mlx-path {args.output}-mlx --group-size {args.group_size}",
+            f"python poc/mlx_convert_recipe.py --hf-path {args.output} "
+            f"--mlx-path {args.output}-mlx --group-size {args.group_size} --mode sensitivity",
             flush=True,
         )
     elif args.quant_recipe:

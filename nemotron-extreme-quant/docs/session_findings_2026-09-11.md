@@ -1013,6 +1013,104 @@ coherent (real step-by-step reasoning text, not just high lexical diversity)
 
 Uploaded to `https://huggingface.co/roman220220/nemotron-30b-a3b-gptq3bit-g64`.
 
+### 7q. A second real bug in both mixed-precision releases: `switch_mlp.fc1`/`fc2` naming, and reverse-engineering JANG's actual bit allocation
+
+After §7p's `mixed_3_6` positional run (PPL 5.92) and a `--quant-recipe-mode
+sensitivity` variant (data-driven per-layer Hessian-saliency layer
+selection instead of positional guessing, PPL 5.95 at first measurement),
+inspecting the ACTUAL packed tensor shapes on HF (reading safetensors
+headers via an HTTP range request, no full download needed) found that
+neither release's "6-bit upgrade" ever touched the routed MoE experts at
+all: this architecture's MLX port names them `switch_mlp.fc1`/`fc2`, not
+`up_proj`/`down_proj`, and BOTH stock `mlx_lm.convert --quant-predicate`
+and this project's own `mlx_convert_sensitivity.py` matched paths against
+the literal substring `"down_proj"` — which `switch_mlp.fc2` never
+contains. Since routed experts are ~99% of a MoE block's parameters, this
+meant the "6-bit" layers were only ever getting `v_proj`/
+`shared_experts.down_proj`/`lm_head` upgraded, silently discarding the
+recipe's actual intent on the parameters that matter most.
+
+Confirmed directly: layer 3's `switch_mlp.fc2.weight` packed shape was
+`[128, 2688, 174]` in the positional release even though GPTQ had
+calibrated it at `down_bits=6` — `174 = 1856*3/32` (3-bit packing), not
+`348 = 1856*6/32` (6-bit). GPTQ's Hessian correction had computed the
+right 6-bit-calibrated values; the MLX repacking step then silently
+re-quantized them at 3-bit anyway.
+
+Fixed with a new unified converter, `poc/mlx_convert_recipe.py` (replacing
+`mlx_convert_sensitivity.py`), matching `down_proj` OR `switch_mlp.fc2` (and
+handling both `--mode positional`/`--mode sensitivity`). Investigated
+whether the MoE router (`gate`, a `NemotronHTopkRouter`/`MoEGate` module)
+needed a similar fix — it doesn't: it's a raw `mx.array` weight, not an
+`nn.Linear`-like module, so `quantize_model`'s own `hasattr(module,
+"to_quantized")` check already excludes it from quantization entirely,
+regardless of predicate. No action needed there.
+
+Re-running both releases with the fix (bf16 HF-stage checkpoint for
+`smart_3_6` was still on disk, so only its MLX conversion needed
+re-running; the positional release's HF-stage checkpoint had already been
+deleted after the earlier buggy upload, so it needed a full GPTQ redo):
+
+| model | PPL | size | bits/weight |
+|---|---|---|---|
+| bf16 (reference) | 5.11 | — | 16 |
+| **mixed_3_6, positional (fixed)** | **5.81** | 16GB | 4.215 |
+| mixed_3_6, sensitivity (fixed) | 5.90 | 16GB | 4.338 |
+| ~~mixed_3_6, positional (pre-fix)~~ | ~~5.92~~ | ~~14GB~~ | ~~3.548~~ |
+| ~~mixed_3_6, sensitivity (pre-fix)~~ | ~~5.95~~ | ~~14GB~~ | ~~3.549~~ |
+| uniform 3-bit GPTQ | 6.24 | 13.8GB | 3.5 |
+| naive RTN uniform 3-bit | 6.54 | 13GB | 3.5 |
+| JANG_2L-CRACK (3rd party) | 5.43 | 16GB | ~3.73 (their own label) |
+
+Fixing the bug improved both releases meaningfully (positional: 5.92→5.81,
+sensitivity: 5.95→5.90) and reversed which selection method wins —
+positional (llama.cpp Q4_K_M-style layer-position heuristic) beats this
+project's own data-driven sensitivity-based layer selection at a smaller
+size (4.215 vs 4.338 bits/weight). A well-tuned positional heuristic proved
+hard to beat with a simple per-layer local-saliency metric; see §7p's
+sensitivity-mode writeup for the normalization/anti-clustering work that
+went into that metric.
+
+**Reverse-engineering JANG_2L-CRACK's actual bit allocation** (its
+`config.json`'s embedded `quantization` dict is fully inspectable — no
+download needed, `hf_hub_download` on just that one file): it is NOT
+layer-position-based at all. It assigns bits purely by COMPONENT TYPE,
+uniformly across every layer:
+
+| component | bits | rough share of total params |
+|---|---|---|
+| attention q/k/v/o_proj | 8 | small (6/52 layers) |
+| mamba in_proj/out_proj | 6 | moderate (23/52 layers) |
+| MoE shared_experts (up+down) | 8 | small (1 expert/block, not 128) |
+| MoE routed `switch_mlp.fc1` (up-equivalent) | 4 | huge (128 experts × 23 blocks) |
+| MoE routed `switch_mlp.fc2` (down-equivalent) | 3 | huge (128 experts × 23 blocks) |
+| embeddings | 6 | — |
+| lm_head | 8 | — |
+| `mtp.layers.0.eh_proj` (unused draft head) | 2 | negligible |
+
+The strategy: give generous precision to whatever is CHEAP in total
+parameter count (attention, shared experts — 8-bit), moderate precision to
+a moderate-sized component (mamba — 6-bit), and reserve the lowest
+precision for the single largest pool of parameters (routed experts, ~93%
+of the model) — with an asymmetric up(4)/down(3) split within routed
+experts that neither of this project's own recipes considered (both
+always left `up_proj` at `low_bits` regardless of mode). Back-of-envelope
+weighted average ≈3.7-3.8 bits/weight — comparable to or smaller than this
+project's own 4.215-4.338 bpw fixed releases, yet JANG's PPL (5.43) is
+meaningfully better. Its README describes it only as "JANG 3.73-bit affine
+(MLX)" with no mention of GPTQ/Hessian/calibration anywhere — strong
+circumstantial evidence it's naive RTN with a hand-tuned bit-allocation
+map, not activation-aware quantization.
+
+**Hypothesis, not yet tested**: since this project's own GPTQ Hessian
+calibration already measurably beats naive RTN at a fixed bit-width
+(uniform 3-bit: 6.24 vs 6.54, §7p), applying JANG's exact component-type
+bit allocation THROUGH this project's calibrated pipeline (instead of
+JANG's presumed naive RTN) should beat 5.43, not just match it — bit
+allocation strategy and calibration method are independent levers, and
+this combines the better allocation with the better per-bit-width
+quantization already validated tonight. Next experiment.
+
 ## 6. Files touched this session (for reference)
 
 - `poc/gptq.py` — cholesky fix, batched-across-experts functions, `gptq_nbit`
