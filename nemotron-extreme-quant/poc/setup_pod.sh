@@ -25,6 +25,7 @@ done
 POD_HOST="${POD_HOST:?set POD_HOST}"
 POD_PORT="${POD_PORT:?set POD_PORT}"
 POD_SSH_KEY="${POD_SSH_KEY:-$HOME/.runpod/ssh/runpodctl-ssh-key}"
+MODEL_REPO_ID="${MODEL_REPO_ID:-nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16}"
 MODEL_SRC_DIR="${MODEL_SRC_DIR:-/root/nemotron30b-bf16-src}"
 WIKITEXT_DIR="${WIKITEXT_DIR:-/root/llama.cpp/wikitext-2-raw}"
 POD_POC_DIR="${POD_POC_DIR:-/root/poc}"
@@ -72,12 +73,12 @@ $SSH "pip install --quiet --break-system-packages \
     torch transformers accelerate huggingface_hub[hf_xet] \
     'mlx[cuda]' mlx-lm pandas pyarrow"
 
-echo "--- source model (~62GB, skipped if already present) ---"
+echo "--- source model ${MODEL_REPO_ID} (skipped if already present) ---"
 $SSH "
 if [ -f '${MODEL_SRC_DIR}/config.json' ]; then
   echo 'source model already present, skipping download'
 else
-  hf download nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16 --local-dir '${MODEL_SRC_DIR}'
+  hf download '${MODEL_REPO_ID}' --local-dir '${MODEL_SRC_DIR}'
 fi
 "
 
