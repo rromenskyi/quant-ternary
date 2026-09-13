@@ -101,13 +101,18 @@ else
   echo \"--- system CUDA toolkit: \$CUDA_VER (\$TORCH_CU_TAG) at \$CUDA_HOME ---\"
   '${AXOLOTL_VENV}/bin/pip' install --force-reinstall \"torch\" --index-url \"https://download.pytorch.org/whl/\$TORCH_CU_TAG\"
 
-  # Only compile flash-attn kernels for the GPU(s) actually attached to this
-  # pod -- the default build targets sm_80/90/100/120 (~4x more kernel
-  # variants than a single-GPU pod needs), which was observed to make this
-  # step the single slowest part of pod setup for no benefit.
+  # TORCH_CUDA_ARCH_LIST is set (the standard torch-extension convention)
+  # but this flash-attn release (2.8.3.post1) was observed to ignore it and
+  # always build all of sm_80/90/100/120 regardless -- harmless to still
+  # set, in case a future flash-attn release respects it, but don't rely on
+  # it. What DOES actually help: MAX_JOBS, setuptools' own parallel-build
+  # env var -- this pod has 128 cores / ~1.5TB free RAM, and the default
+  # (unset -> a conservative ~4) leaves almost all of that idle during the
+  # single slowest step of pod setup.
   ARCH=\$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader | head -1)
   export TORCH_CUDA_ARCH_LIST=\"\$ARCH\"
-  echo \"--- building flash-attn for TORCH_CUDA_ARCH_LIST=\$ARCH only ---\"
+  export MAX_JOBS=32
+  echo \"--- building flash-attn (TORCH_CUDA_ARCH_LIST=\$ARCH, MAX_JOBS=\$MAX_JOBS) ---\"
   export PATH=\"\$CUDA_HOME:\$PATH\"
   export LD_LIBRARY_PATH=\"\$CUDA_HOME/../lib64:\${LD_LIBRARY_PATH:-}\"
   '${AXOLOTL_VENV}/bin/pip' install flash-attn --no-build-isolation
