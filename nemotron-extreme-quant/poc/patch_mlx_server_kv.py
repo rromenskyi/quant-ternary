@@ -21,6 +21,16 @@ additions (each safe to re-run after a fresh `pip install mlx-lm` wipes it):
    actual richer schema) -- enough to stop the 404s and hand back a
    usable model list.
 
+4. Crash-safety for client-disconnect-mid-stream. handle_completion's
+   generation loop has a try/finally (ctx.stop() always runs) but no
+   except -- a client closing the connection mid-stream (Ctrl-C, timeout,
+   navigated away) raises BrokenPipeError/ConnectionResetError from
+   wfile.write, which propagates uncaught and crashes the request thread
+   with a traceback (found live: `BrokenPipeError: [Errno 32] Broken
+   pipe` from generate response streaming). The generation itself already
+   completed its useful work by that point (GPU already spent the
+   compute) -- just stop cleanly instead of crashing the thread.
+
 Each patch is anchored on its own stable, untouched-by-the-other-patch
 location in the file, so they can be applied in either order/combination.
 
@@ -126,6 +136,17 @@ LMSTUDIO_MODELS_NEW = """        if self.path.startswith("/v1/models") or self.p
             self.handle_models_request()
         elif self.path == "/health":"""
 
+DISCONNECT_SAFETY_OLD = """                self.wfile.write(response_json)
+                self.wfile.flush()
+        finally:
+            ctx.stop()"""
+DISCONNECT_SAFETY_NEW = """                self.wfile.write(response_json)
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError, OSError) as e:
+            logging.debug(f"Client disconnected mid-response, stopping generation: {e!r}")
+        finally:
+            ctx.stop()"""
+
 
 def find_server_py() -> Path:
     import mlx_lm
@@ -167,6 +188,8 @@ def main() -> None:
     text, did = apply_patch(text, ALIAS_MAP_OLD, ALIAS_MAP_NEW, "--model-alias map wiring", target)
     changed = changed or did
     text, did = apply_patch(text, LMSTUDIO_MODELS_OLD, LMSTUDIO_MODELS_NEW, "/api/v0/models alias", target)
+    changed = changed or did
+    text, did = apply_patch(text, DISCONNECT_SAFETY_OLD, DISCONNECT_SAFETY_NEW, "client-disconnect crash safety", target)
     changed = changed or did
 
     if changed:
