@@ -63,9 +63,14 @@ scp -i "$POD_SSH_KEY" -P "$POD_PORT" -o StrictHostKeyChecking=no \
     "$(dirname "${BASH_SOURCE[0]}")"/*.py "root@${POD_HOST}:${POD_POC_DIR}/"
 
 echo "--- installing base Python deps (skips already-satisfied ones) ---"
+# 'mlx[cuda12]' is NOT a real extra -- current mlx releases only expose
+# 'mlx[cuda]' (pulls in the separate mlx-cuda-12 package with the actual
+# libmlx.so runtime). The base 'mlx' wheel alone has no CUDA runtime on
+# Linux at all, so getting this wrong doesn't just warn, it silently
+# leaves MLX non-functional until someone notices at conversion time.
 $SSH "pip install --quiet --break-system-packages \
     torch transformers accelerate huggingface_hub[hf_xet] \
-    'mlx[cuda12]' mlx-lm pandas pyarrow"
+    'mlx[cuda]' mlx-lm pandas pyarrow"
 
 echo "--- source model (~62GB, skipped if already present) ---"
 $SSH "
