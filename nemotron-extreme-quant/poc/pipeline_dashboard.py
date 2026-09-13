@@ -40,6 +40,7 @@ STATE = {
     "ppl_summary": None,
     "sensitivity": None,
     "axolotl": None,
+    "log_age_s": None,
     "raw_tail": "",
     "error": None,
     "last_poll": None,
@@ -140,6 +141,7 @@ def poll_pod(pod_host: str, pod_port: str, pod_ssh_key: str, log_glob: str) -> N
     remote_cmd = f"""
 LOG=$(ls -t {log_glob} 2>/dev/null | head -1)
 echo "===RUN_NAME==="; basename "$LOG" 2>/dev/null
+echo "===LOG_MTIME==="; [ -n "$LOG" ] && stat -c %Y "$LOG" 2>/dev/null
 echo "===LOG_TAIL==="; [ -n "$LOG" ] && tail -c 24000 "$LOG"
 echo "===DRYRUN==="; [ -f /root/sensitivity_dryrun.log ] && tail -c 20000 /root/sensitivity_dryrun.log
 echo "===PPL_SUMMARY==="; [ -f /root/ppl_summary.json ] && cat /root/ppl_summary.json
@@ -170,6 +172,11 @@ echo "===DISK==="; df -h / | tail -1
     log_tail = parts.get("LOG_TAIL", "")
     parsed = parse_log(log_tail)
 
+    log_age_s = None
+    mtime_str = parts.get("LOG_MTIME", "").strip()
+    if mtime_str.isdigit():
+        log_age_s = time.time() - int(mtime_str)
+
     ppl_summary = None
     if parts.get("PPL_SUMMARY", "").strip():
         try:
@@ -197,6 +204,7 @@ echo "===DISK==="; df -h / | tail -1
         STATE["ppl_summary"] = ppl_summary if ppl_summary is not None else STATE["ppl_summary"]
         STATE["sensitivity"] = sensitivity if sensitivity is not None else STATE["sensitivity"]
         STATE["axolotl"] = parse_axolotl_log(parts.get("AXOLOTL", ""))
+        STATE["log_age_s"] = log_age_s
         STATE["raw_tail"] = log_tail[-4000:]
         STATE["last_poll"] = time.time()
         STATE["last_poll_ok"] = True
@@ -261,11 +269,18 @@ PAGE = """<!doctype html>
 
 <script>
 function render(s) {
+  const STALE_THRESHOLD_S = 300;  // GPTQ pipeline logs append at least every few min while actually running
+  const logStale = s.log_age_s !== null && s.log_age_s > STALE_THRESHOLD_S;
   document.getElementById('run-name').textContent = (s.run_name || 'no run detected') +
-    (s.last_poll ? ' -- last poll ' + Math.round((Date.now()/1000 - s.last_poll)) + 's ago' : '');
+    (s.last_poll ? ' -- last poll ' + Math.round((Date.now()/1000 - s.last_poll)) + 's ago' : '') +
+    (logStale ? ` -- log last written ${Math.round(s.log_age_s/60)}min ago, no active pipeline run` : '');
   const stageEl = document.getElementById('stage');
-  stageEl.textContent = s.stage_label || '--';
-  stageEl.className = 'stage' + (s.stage === 'done' ? ' done' : (s.stage === 'error' || s.stage === 'sanity_failed' ? ' error' : ''));
+  stageEl.textContent = (logStale ? '[stale] ' : '') + (s.stage_label || '--');
+  // A stale error/sanity_failed is old history from a run that already
+  // ended, not a live problem -- don't paint it alarming red, that's what
+  // confused a fresh "is the pipeline currently broken?" glance.
+  const isLiveError = (s.stage === 'error' || s.stage === 'sanity_failed') && !logStale;
+  stageEl.className = 'stage' + (s.stage === 'done' && !logStale ? ' done' : (isLiveError ? ' error' : ''));
 
   const grid = document.getElementById('grid');
   grid.innerHTML = '';
