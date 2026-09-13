@@ -1169,7 +1169,60 @@ bought. Not a bug to fix -- a real Pareto frontier. The only unexplored
 lever is intermediate points on that frontier (e.g. bump only attention,
 leave mamba/shared low) rather than the two extremes measured so far.
 
-## 6. Files touched this session (for reference)
+### 7s. Extended the pipeline to dense (non-MoE) NemotronH models, and a clean one-shot-vs-sequential result
+
+Applied the full GPTQ+component-recipe pipeline to
+`nvidia/NVIDIA-Nemotron-3-Nano-4B-BF16` -- a dense NemotronH variant (42
+layers: 21 mamba, 17 plain "mlp", 4 attention, **no MoE at all**). This
+surfaced several real universality gaps the pipeline had never hit
+before (all fixed, all committed):
+
+- Block-type dispatch was hardcoded to `kind in ("mamba", "attention")`
+  everywhere (in `quantize_full_moe_model.py` and
+  `gptq_stock_convert.py`) -- this model's "mlp" blocks (40% of it) hit
+  the silent "unknown kind, skipping" fallback and were left
+  unquantized. Replaced with a moe/non-moe split plus a generic
+  `dense_projection_names()` helper: known kinds use their validated
+  projection lists, anything else falls back to auto-discovering every
+  `nn.Linear` on the block's mixer.
+- This checkpoint's `config.json` has no `layers_block_type` key at all
+  -- only a compact `hybrid_override_pattern` string. `AutoConfig`
+  derives the per-layer list from that pattern at LOAD time as a live
+  attribute, but never writes it back to the file. Fixed by reading
+  `model.config.layers_block_type` (post-load) instead of raw
+  `json.load(config.json)`.
+- Added a `"jang-dense"` component recipe (attention=8, mamba=6, mlp=3 --
+  no MoE speed/size tension here since nothing is sparsely activated, so
+  bits go purely by component size) and the matching
+  `mlx_convert_recipe.py` predicate branch + `COMPONENT_BIT_RECIPES`
+  entry. Also fixed an unrelated latent bug there: the convert()
+  placeholder `low_bits` hardcoded `cbits["moe_routed_down"]`, a
+  MoE-only key that KeyErrors on any dense-only recipe -- now
+  `min(cbits.values())`.
+
+**Result** (wikitext-2 test, 20x512 chunks):
+
+| | size | PPL |
+|---|---|---|
+| bf16 (MLX, unquantized) | 7.78GB | 9.7990 |
+| jang-dense, sequential | 2.7GB (5.778 bpw) | 10.2432 |
+| jang-dense, one-shot | 2.7GB (5.778 bpw) | 10.2463 |
+
+Only **+4.5% PPL for a 2.9x size reduction** -- much better than Stage
+A's earlier binary/ternary results on this same model (4.7x-46.5x PPL
+degradation), because this uses proper GPTQ-affine calibration at
+moderate bit-widths (3/6/8) instead of extreme 1-2 bit.
+
+**Sequential vs one-shot**: the difference (10.2432 vs 10.2463) is
+noise-level (0.03% relative), while one-shot ran in 515s vs sequential's
+979s -- essentially free speedup with no quality cost at THESE
+bit-widths. Sequential's whole value proposition is compensating
+already-quantized upstream blocks' error in downstream blocks'
+calibration; at 3/6/8-bit that per-block error is small enough that
+there's very little for it to compensate. Likely matters much more at
+extreme low bits (1-2 bit, where Stage A's own dense-model ablations
+showed large, cascading error) -- not re-tested here, since that's a
+different point on the Pareto curve than this recipe targets.
 
 - `poc/gptq.py` — cholesky fix, batched-across-experts functions, `gptq_nbit`
 - `poc/methods.py` — `rot_gptq_salient_batched`
