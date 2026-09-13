@@ -104,14 +104,25 @@ def compute_sensitivity_scores(
     mixed-precision recipes ever promote to high_bits (v_proj, down_proj) --
     a data-driven replacement for recipe_bits_for's positional guess.
 
-    Score = sum_i H_ii * ||W[:, i]||^2, the aggregate Optimal-Brain-Damage-
-    style saliency (Frantar et al.'s H_ii * w_ij^2, the same quantity
-    gptq.hessian_diag exposes for methods.py's salient-weight selection)
-    summed over every weight in the projection matrix -- i.e. how much
-    squared error this whole projection is expected to contribute if
-    quantized aggressively, using the SAME Hessian GPTQ's own error
-    compensation is built on, not a hand-picked "usually important" layer
-    position copied from llama.cpp's Q4_K_M heuristic."""
+    Raw error energy = sum_i H_ii * ||W[:, i]||^2, the aggregate Optimal-
+    Brain-Damage-style saliency (Frantar et al.'s H_ii * w_ij^2, the same
+    quantity gptq.hessian_diag exposes for methods.py's salient-weight
+    selection) summed over every weight in the projection matrix -- i.e.
+    the expected squared OUTPUT error this whole projection contributes if
+    quantized aggressively.
+
+    That raw quantity alone is confounded by depth: activation/weight scale
+    tends to grow with depth (residual-stream accumulation), so a naive
+    raw-error ranking mostly just recovers "later = bigger", not genuine
+    per-layer fragility (confirmed empirically this session -- see docs/
+    session_findings_2026-09-11.md section 7p's dry-run results, which came
+    back nearly monotonic in layer index). Normalizing by this SAME
+    projection's own output energy (sum ||Y||^2, Y = X @ W^T on the same
+    calibration data) turns this into a scale-invariant RELATIVE sensitivity
+    -- the fraction of this layer's own output signal at risk from
+    quantization -- so a layer that's simply larger in absolute terms no
+    longer automatically outranks one that's smaller but proportionally
+    more fragile."""
     scores: dict[tuple[int, str], float] = {}
     for i, kind in enumerate(block_types):
         block = model.model.layers[i]
@@ -122,23 +133,41 @@ def compute_sensitivity_scores(
                 continue
             W = module.weight.detach().to(torch.float32).cpu()
             diag = hessian_diag(X, W.shape[1], percdamp)
-            scores[(i, "v_proj")] = float((diag * (W**2).sum(dim=0)).sum())
+            raw_error = float((diag * (W**2).sum(dim=0)).sum())
+            with torch.no_grad():
+                Y = F.linear(X.to(torch.float32), W)
+            output_energy = float((Y**2).sum())
+            scores[(i, "v_proj")] = raw_error / (output_energy + 1e-8)
         elif kind == "moe":
             expert_inputs, shared_inputs = moe_acts.get(i, ({}, {}))
-            down_param = block.mixer.experts.down_proj
-            total = 0.0
-            for e, X in expert_inputs.items():
-                if X.shape[0] == 0:
+            experts_module = block.mixer.experts
+            up_param, down_param, act_fn = experts_module.up_proj, experts_module.down_proj, experts_module.act_fn
+            total_raw, total_energy = 0.0, 0.0
+            for e, X_up in expert_inputs.items():
+                if X_up.shape[0] == 0:
                     continue
+                # expert_inputs is captured at the *up_proj* input (hidden_size)
+                # -- down_proj's actual input (intermediate_size) doesn't exist
+                # until up_proj + activation run, exactly like quantize_moe_block
+                # derives it on the fly (no hook can capture it directly).
+                W_up = up_param.data[e].detach().to(torch.float32).cpu()
+                with torch.no_grad():
+                    X_down = act_fn(F.linear(X_up.to(torch.float32), W_up))
                 W = down_param.data[e].detach().to(torch.float32).cpu()
-                diag = hessian_diag(X, W.shape[1], percdamp)
-                total += float((diag * (W**2).sum(dim=0)).sum())
+                diag = hessian_diag(X_down.cpu(), W.shape[1], percdamp)
+                total_raw += float((diag * (W**2).sum(dim=0)).sum())
+                with torch.no_grad():
+                    Y = F.linear(X_down, W)
+                total_energy += float((Y**2).sum())
             X_shared = shared_inputs.get("down_proj")
             if X_shared is not None and X_shared.shape[0] > 0:
                 W_shared = block.mixer.shared_experts.down_proj.weight.detach().to(torch.float32).cpu()
                 diag = hessian_diag(X_shared, W_shared.shape[1], percdamp)
-                total += float((diag * (W_shared**2).sum(dim=0)).sum())
-            scores[(i, "down_proj")] = total
+                total_raw += float((diag * (W_shared**2).sum(dim=0)).sum())
+                with torch.no_grad():
+                    Y_shared = F.linear(X_shared.to(torch.float32), W_shared)
+                total_energy += float((Y_shared**2).sum())
+            scores[(i, "down_proj")] = total_raw / (total_energy + 1e-8)
     return scores
 
 
@@ -158,9 +187,47 @@ def count_positional_upgrades(recipe: str, block_types: list[str]) -> int:
     return count
 
 
-def select_sensitivity_upgrades(scores: dict[tuple[int, str], float], count: int) -> set[tuple[int, str]]:
+def select_sensitivity_upgrades(
+    scores: dict[tuple[int, str], float], count: int, min_gap: int = 2,
+) -> set[tuple[int, str]]:
+    """Top-`count` picks by score, with a soft anti-clustering constraint:
+    among candidates of the SAME proj_name, skip one that's within
+    `min_gap` layers of an already-picked candidate of that family, so a
+    model doesn't end up with a long unbroken run of low-bit layers
+    squeezed between two picks that scored high for near-identical reasons
+    (adjacent layers' activations/Hessians are often correlated). This is
+    the data-driven generalization of the positional recipe's "every 3rd
+    layer" spacing -- score still decides WHICH layers matter, spacing just
+    avoids wasting the upgrade budget on redundant neighbors. Doesn't
+    change anything for this specific model (MoE blocks already interleave
+    with mamba blocks, which are never candidates), but this script is
+    meant to be reused on other architectures where high-scoring layers
+    of the same family CAN sit right next to each other.
+
+    Falls back to filling the remaining budget from gap-skipped candidates
+    (in score order) if spacing can't be satisfied within `count`, so the
+    model's total size still matches the positional recipe exactly."""
     ranked = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
-    return {k for k, _ in ranked[:count]}
+    selected: set[tuple[int, str]] = set()
+    picked_idx: dict[str, list[int]] = {}
+    deferred: list[tuple[int, str]] = []
+
+    for (idx, proj), _score in ranked:
+        if len(selected) >= count:
+            break
+        too_close = any(abs(idx - other) < min_gap for other in picked_idx.get(proj, []))
+        if too_close:
+            deferred.append((idx, proj))
+            continue
+        selected.add((idx, proj))
+        picked_idx.setdefault(proj, []).append(idx)
+
+    for idx, proj in deferred:
+        if len(selected) >= count:
+            break
+        selected.add((idx, proj))
+
+    return selected
 
 
 def quantize_dense_block(
@@ -427,10 +494,24 @@ def main():
         "resumes at last_completed_block + 1 instead of --start-block.",
     )
     parser.add_argument(
+        "--sensitivity-min-gap", type=int, default=2,
+        help="with --quant-recipe-mode sensitivity: minimum layer-index gap enforced between two "
+        "upgraded layers of the SAME projection family, so high-scoring neighbors don't both get "
+        "picked at the expense of a differently-located layer -- generalizes the positional recipe's "
+        "'every 3rd layer' spacing into a score-driven constraint. Set to 0 to disable (pure top-K).",
+    )
+    parser.add_argument(
         "--sensitivity-dry-run", action="store_true",
         help="with --quant-recipe-mode sensitivity: run calibration + scoring, print/save the "
         "sensitivity_manifest.json, then exit WITHOUT quantizing or saving a checkpoint -- for "
         "inspecting what the heuristic would pick on the real model before committing to a full run.",
+    )
+    parser.add_argument(
+        "--sensitivity-manifest-in", default=None,
+        help="with --quant-recipe-mode sensitivity: path to a sensitivity_manifest.json from a "
+        "PREVIOUS --sensitivity-dry-run (or full run) on this exact model/recipe -- skips "
+        "re-scoring (the slowest part of sensitivity mode) and reuses that manifest's upgrade "
+        "choices verbatim. Calibration is still captured (GPTQ itself needs it regardless).",
     )
     parser.add_argument(
         "--cpu-threads", type=int, default=32,
@@ -483,12 +564,27 @@ def main():
         print("Sequential mode: capturing + quantizing block by block ...", flush=True)
 
     upgrade_set = None
-    if args.quant_recipe_mode == "sensitivity":
+    if args.quant_recipe_mode == "sensitivity" and args.sensitivity_manifest_in:
+        print(f"Loading precomputed sensitivity manifest from {args.sensitivity_manifest_in} (skipping re-scoring) ...", flush=True)
+        with open(args.sensitivity_manifest_in) as f:
+            manifest_in = json.load(f)
+        if manifest_in["recipe"] != args.quant_recipe or manifest_in["group_size"] != args.group_size:
+            raise SystemExit(
+                f"{args.sensitivity_manifest_in} was computed for recipe={manifest_in['recipe']} "
+                f"group_size={manifest_in['group_size']}, but this run asked for recipe={args.quant_recipe} "
+                f"group_size={args.group_size} -- refusing to reuse a mismatched manifest."
+            )
+        upgrade_set = {(i, proj_name) for i, proj_name in manifest_in["upgrades"]}
+        print(f"Loaded {len(upgrade_set)} upgraded (layer, proj) pairs from manifest.", flush=True)
+        Path(args.output).mkdir(parents=True, exist_ok=True)
+        with open(f"{args.output}/sensitivity_manifest.json", "w") as f:
+            json.dump(manifest_in, f, indent=2)
+    elif args.quant_recipe_mode == "sensitivity":
         print("Scoring per-layer sensitivity (GPTQ-Hessian saliency) ...", flush=True)
         t_score = time.time()
         scores = compute_sensitivity_scores(model, block_types, dense_acts, moe_acts)
         upgrade_count = count_positional_upgrades(args.quant_recipe, block_types)
-        upgrade_set = select_sensitivity_upgrades(scores, upgrade_count)
+        upgrade_set = select_sensitivity_upgrades(scores, upgrade_count, min_gap=args.sensitivity_min_gap)
         print(f"Sensitivity scoring done in {time.time() - t_score:.0f}s, upgrading {len(upgrade_set)}/{len(scores)} candidates to {QUANT_RECIPES[args.quant_recipe]['high_bits']}-bit:", flush=True)
         for (i, proj_name), score in sorted(scores.items(), key=lambda kv: kv[1], reverse=True):
             marker = "UPGRADE" if (i, proj_name) in upgrade_set else "       "
@@ -501,6 +597,7 @@ def main():
                     "low_bits": QUANT_RECIPES[args.quant_recipe]["low_bits"],
                     "high_bits": QUANT_RECIPES[args.quant_recipe]["high_bits"],
                     "group_size": args.group_size,
+                    "sensitivity_min_gap": args.sensitivity_min_gap,
                     "upgrades": sorted([i, proj_name] for i, proj_name in upgrade_set),
                 },
                 f, indent=2,
