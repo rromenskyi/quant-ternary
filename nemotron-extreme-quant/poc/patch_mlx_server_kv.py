@@ -13,6 +13,14 @@ additions (each safe to re-run after a fresh `pip install mlx-lm` wipes it):
    requests an arbitrary/unconfigured model name still gets routed to
    --model instead of mlx_lm trying to download it from the HF Hub.
 
+3. GET /api/v0/models -- LM Studio's own REST API convention (distinct
+   from the OpenAI-compatible /v1/models mlx_lm already serves). Some
+   clients default to probing LM Studio's endpoint shape and 404 against
+   stock mlx_lm.server. Aliased to the exact same handler as /v1/models
+   (same OpenAI-shaped response, not a re-implementation of LM Studio's
+   actual richer schema) -- enough to stop the 404s and hand back a
+   usable model list.
+
 Each patch is anchored on its own stable, untouched-by-the-other-patch
 location in the file, so they can be applied in either order/combination.
 
@@ -111,6 +119,13 @@ ALIAS_MAP_NEW = """        self._model_map["default_model"] = self.cli_args.mode
             self._adapter_map[_alias] = self.cli_args.adapter_path
             self._draft_model_map[_alias] = self.cli_args.draft_model"""
 
+LMSTUDIO_MODELS_OLD = """        if self.path.startswith("/v1/models"):
+            self.handle_models_request()
+        elif self.path == "/health":"""
+LMSTUDIO_MODELS_NEW = """        if self.path.startswith("/v1/models") or self.path.startswith("/api/v0/models"):
+            self.handle_models_request()
+        elif self.path == "/health":"""
+
 
 def find_server_py() -> Path:
     import mlx_lm
@@ -150,6 +165,8 @@ def main() -> None:
     text, did = apply_patch(text, ALIAS_ARGS_OLD, ALIAS_ARGS_NEW, "--model-alias argparse flag", target)
     changed = changed or did
     text, did = apply_patch(text, ALIAS_MAP_OLD, ALIAS_MAP_NEW, "--model-alias map wiring", target)
+    changed = changed or did
+    text, did = apply_patch(text, LMSTUDIO_MODELS_OLD, LMSTUDIO_MODELS_NEW, "/api/v0/models alias", target)
     changed = changed or did
 
     if changed:
