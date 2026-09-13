@@ -1111,6 +1111,64 @@ allocation strategy and calibration method are independent levers, and
 this combines the better allocation with the better per-bit-width
 quantization already validated tonight. Next experiment.
 
+### 7r. The JANG-component recipe wins on PPL but costs ~1.5-1.6x decode throughput on Mac -- root-caused
+
+Initial user-observed on-device number (via `mlx_lm.server`, KV-cache
+quantized) was ~30 tok/s uniform-3bit vs ~15 tok/s jang-component -- a
+~2x gap. A controlled re-test (direct `mlx_lm.generate`, no server, no
+KV quant, same prompt, `--max-tokens 300 --temp 0`, 2 runs each) found a
+smaller, cleaner, and fully explained gap:
+
+| model | avg bpw | gen tok/s (2 runs) | peak mem |
+|---|---|---|---|
+| uniform 3-bit (this project) | 3.0 | 65.4 / 68.6 | 13.98GB |
+| uniform 4-bit (mlx-community) | 4.0 | 53.8 / 53.5 | 17.93GB |
+| jang-component (this project, GPTQ) | 4.237 | 42.1 / 42.8 | 16.88GB |
+| JANG_2L-CRACK (3rd party, presumed RTN) | ~3.73 (their claim) | 42.7 / 43.1 | 16.87GB |
+
+**The real driver: component-type bit-allocation STRUCTURE, not average
+bpw.** This project's jang-component release and the 3rd-party
+JANG_2L-CRACK run at essentially identical speed (42-43 tok/s) despite
+different calibration methods (GPTQ vs presumed naive RTN) AND different
+claimed average bpw (4.237 vs their 3.73) -- because both share the exact
+same component→bits map (attention=8, mamba=6, shared-experts=8,
+routed-up=4, routed-down=3, embeddings=6, lm_head=8). Calibration method
+only chooses the quantized VALUES within each bit-width slot; it has zero
+effect on which Metal kernels get dispatched or in what order, so runtime
+speed is identical regardless of which of the two produced better PPL.
+
+**Uniform-bit-width scaling isn't quite linear with bytes either**: 4-bit
+(53.7 tok/s avg) is *faster* than pure linear byte-scaling from 3-bit
+(65 * 3/4 ≈ 48.75 predicted) would suggest -- plausibly because 3-bit
+packing doesn't align to byte boundaries (8 weights per 3 bytes, needs
+cross-byte bit-shifting to unpack) while 4-bit packs exactly 2
+values/byte (trivial mask+shift), so 3-bit's per-element unpack cost is
+higher than 4-bit's even though it moves fewer total bytes -- the byte
+savings still win out overall (3-bit is faster than 4-bit), just by less
+than naive linear scaling predicts.
+
+**Practical implication**: the component-recipe's PPL win (5.24 vs
+uniform-3bit's 6.24) costs a real, now well-understood ~1.5-1.6x
+throughput hit versus uniform 3-bit -- driven by the component-type
+bit-allocation structure itself (shared with the 3rd-party release this
+was modeled after), not by anything specific to this project's GPTQ
+calibration. Pick uniform 3-bit for interactive/latency-sensitive local
+use, component-recipe for quality-sensitive/offline use.
+
+**The three-sided coin**: size, speed, and quality can't be separated
+here. JANG's recipe bumps attention/mamba/shared-experts to high bits
+specifically because they're cheap in TOTAL PARAMETER COUNT -- but
+those same three components are the ones active on EVERY token (dense),
+while the huge-but-low-bit routed experts are only ever partially
+active per token (sparse, top-k of 128). So "cheap on disk" and "cheap
+per decoded token" are opposite properties for this architecture --
+optimizing bit-allocation for size (JANG's actual goal) directly
+pessimizes decode speed, and there's no way to lower the dense
+components' bits back down without reverting most of the PPL gain they
+bought. Not a bug to fix -- a real Pareto frontier. The only unexplored
+lever is intermediate points on that frontier (e.g. bump only attention,
+leave mamba/shared low) rather than the two extremes measured so far.
+
 ## 6. Files touched this session (for reference)
 
 - `poc/gptq.py` — cholesky fix, batched-across-experts functions, `gptq_nbit`
