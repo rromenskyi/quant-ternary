@@ -112,22 +112,25 @@ else
   '${AXOLOTL_VENV}/bin/pip' install --force-reinstall \"torch\" --index-url \"https://download.pytorch.org/whl/\$TORCH_CU_TAG\"
 
   # TORCH_CUDA_ARCH_LIST is set (the standard torch-extension convention)
-  # but this flash-attn release (2.8.3.post1) was observed to ignore it and
-  # always build all of sm_80/90/100/120 regardless -- harmless to still
-  # set, in case a future flash-attn release respects it, but don't rely on
-  # it. What DOES actually help: MAX_JOBS, setuptools' own parallel-build
-  # env var -- but a fixed guess is dangerous: a RunPod container's cgroup
-  # memory LIMIT can be far below the host's total RAM (observed: host
-  # reports ~2TB via 'free -h', but the container's own cgroup capped it at
-  # ~232GB) and flash-attn's heaviest CUDA compile units (large-hdim
-  # backward/causal templates) can peak well into multi-GB RAM each --
-  # MAX_JOBS=32 on that 232GB container OOM-killed the build partway
-  # through (ninja reported 'FAILED [code=255]' + 'Killed' on several
-  # objects). Derive MAX_JOBS from THIS container's actual cgroup memory
-  # limit and CPU count instead of a hardcoded number, so it self-adapts to
-  # whatever pod size is rented.
+  # but this flash-attn release (2.8.3.post1) was observed to ignore it --
+  # its setup.py has its OWN override instead: FLASH_ATTN_CUDA_ARCHS,
+  # defaulting to \"80;90;100;120\" (all four archs, each folded into a
+  # single 'nvcc -gencode ... -gencode ... -gencode ... -gencode ...'
+  # invocation PER SOURCE FILE, confirmed by reading the cached sdist's
+  # setup.py and a live nvcc command line on the pod). Building 4 archs
+  # nobody asked for isn't just wasted time -- it multiplies the memory
+  # footprint of every single compile job (the actual OOM root cause: even
+  # MAX_JOBS=6 still OOM-killed a 4-arch build). This pod has exactly ONE
+  # GPU architecture that matters -- restrict FLASH_ATTN_CUDA_ARCHS to it.
   ARCH=\$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader | head -1)
   export TORCH_CUDA_ARCH_LIST=\"\$ARCH\"
+  export FLASH_ATTN_CUDA_ARCHS=\"\$(echo \"\$ARCH\" | tr -d '.')\"
+  # MAX_JOBS is a secondary safety net now that per-job memory is ~4x
+  # lower (single-arch, not four) -- still derive it from THIS container's
+  # actual cgroup memory limit rather than a fixed guess, since a RunPod
+  # container's cgroup limit can be far below the host's reported total
+  # ('free -h' showed ~2TB host RAM but the container's own cgroup capped
+  # it at ~232GB).
   MEM_LIMIT_BYTES=\$(cat /sys/fs/cgroup/memory.max 2>/dev/null)
   if [[ -z \"\$MEM_LIMIT_BYTES\" || \"\$MEM_LIMIT_BYTES\" == \"max\" ]]; then
     MEM_LIMIT_BYTES=\$(cat /sys/fs/cgroup/memory/memory.limit_in_bytes 2>/dev/null || free -b | awk '/^Mem:/{print \$2}')
@@ -138,7 +141,7 @@ else
   MAX_JOBS_BY_MEM=\$(( MEM_LIMIT_GB / PER_JOB_GB ))
   export MAX_JOBS=\$(( CPU_COUNT < MAX_JOBS_BY_MEM ? CPU_COUNT : MAX_JOBS_BY_MEM ))
   [[ \$MAX_JOBS -lt 1 ]] && export MAX_JOBS=1
-  echo \"--- building flash-attn (TORCH_CUDA_ARCH_LIST=\$ARCH, cgroup mem limit=\${MEM_LIMIT_GB}GB, cpu=\${CPU_COUNT}, MAX_JOBS=\$MAX_JOBS) ---\"
+  echo \"--- building flash-attn (FLASH_ATTN_CUDA_ARCHS=\$FLASH_ATTN_CUDA_ARCHS, cgroup mem limit=\${MEM_LIMIT_GB}GB, cpu=\${CPU_COUNT}, MAX_JOBS=\$MAX_JOBS) ---\"
   export PATH=\"\$CUDA_HOME:\$PATH\"
   export LD_LIBRARY_PATH=\"\$CUDA_HOME/../lib64:\${LD_LIBRARY_PATH:-}\"
   '${AXOLOTL_VENV}/bin/pip' install flash-attn --no-build-isolation
