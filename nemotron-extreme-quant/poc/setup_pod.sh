@@ -32,6 +32,21 @@ AXOLOTL_VENV="${AXOLOTL_VENV:-/root/axolotl_venv}"
 
 SSH="ssh -i $POD_SSH_KEY -p $POD_PORT -o StrictHostKeyChecking=no root@$POD_HOST"
 
+echo "--- checking HF auth ---"
+# Check this FIRST, before any other step -- a wiped/missing token doesn't
+# break read-only steps (public model download, wikitext download), so it
+# stays invisible until the very first upload deep into the pipeline (this
+# bit us once: a RunPod disk-resize wiped the token along with everything
+# else, and it wasn't discovered until an hf upload failed after a long run).
+if $SSH "test -s ~/.cache/huggingface/token"; then
+  echo "HF token file present"
+else
+  echo "ERROR: no HF token found at ~/.cache/huggingface/token on the pod." >&2
+  echo "Log in first (paste the token via stdin, never as a CLI arg):" >&2
+  echo "  ssh -i $POD_SSH_KEY -p $POD_PORT root@$POD_HOST \"mkdir -p ~/.cache/huggingface && cat > ~/.cache/huggingface/token\" <<< 'hf_your_token_here'" >&2
+  exit 1
+fi
+
 echo "--- syncing poc/*.py to ${POD_HOST}:${POD_POC_DIR} ---"
 $SSH "mkdir -p ${POD_POC_DIR}"
 scp -i "$POD_SSH_KEY" -P "$POD_PORT" -o StrictHostKeyChecking=no \
@@ -79,7 +94,7 @@ if [[ -n "$WITH_AXOLOTL" ]]; then
   echo "--- Axolotl venv for ipsupport-code LoRA fine-tuning (isolated from the base env" \
        "above so a broken/conflicting dependency there can't take down the GPTQ pipeline) ---"
   $SSH "
-if [ -x '${AXOLOTL_VENV}/bin/python3' ] && '${AXOLOTL_VENV}/bin/python3' -c 'import axolotl, flash_attn' 2>/dev/null; then
+if [ -x '${AXOLOTL_VENV}/bin/python3' ] && '${AXOLOTL_VENV}/bin/python3' -c 'import axolotl, flash_attn, cut_cross_entropy' 2>/dev/null; then
   echo 'axolotl venv already set up, skipping'
 else
   python3 -m venv '${AXOLOTL_VENV}'
@@ -125,6 +140,31 @@ else
   ARCH=\$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader | head -1)
   export TORCH_CUDA_ARCH_LIST=\"\$ARCH\"
   export FLASH_ATTN_CUDA_ARCHS=\"\$(echo \"\$ARCH\" | tr -d '.')\"
+  PY_TAG=\"cp\$(python3 -c 'import sys; print(f\"{sys.version_info[0]}{sys.version_info[1]}\")')\"
+
+  # A from-source flash-attn build is ~20 minutes even after the arch fix
+  # below -- a prebuilt wheel is only valid for the EXACT stack it was
+  # built against (GPU arch, Python tag, CUDA/torch version), so gate this
+  # on matching FLASH_ATTN_CUDA_ARCHS/Python tag rather than blindly trying
+  # it (a wrong-arch wheel would still 'pip install' successfully but
+  # produce broken/crashing kernels at runtime instead of failing loudly).
+  FLASH_ATTN_WHEEL_REPO=\"\${FLASH_ATTN_WHEEL_REPO:-roman220220/flash-attn-wheel-cache}\"
+  FLASH_ATTN_WHEEL_FILE=\"flash_attn-2.8.3.post1-\${PY_TAG}-\${PY_TAG}-linux_x86_64.whl\"
+  CACHED_WHEEL_OK=\"\"
+  if [[ \"\$FLASH_ATTN_CUDA_ARCHS\" == \"80\" && \"\$PY_TAG\" == \"cp312\" ]]; then
+    echo \"--- arch/python match sm_80/cp312, trying cached wheel from \$FLASH_ATTN_WHEEL_REPO first ---\"
+    if hf download \"\$FLASH_ATTN_WHEEL_REPO\" \"\$FLASH_ATTN_WHEEL_FILE\" --repo-type dataset --local-dir /root/flash_attn_wheel_cache 2>/dev/null \\
+       && '${AXOLOTL_VENV}/bin/pip' install \"/root/flash_attn_wheel_cache/\$FLASH_ATTN_WHEEL_FILE\"; then
+      CACHED_WHEEL_OK=1
+      echo \"--- installed flash-attn from cached wheel, skipping source build ---\"
+    else
+      echo \"--- cached wheel unavailable, falling back to source build ---\"
+    fi
+  else
+    echo \"--- GPU arch \$ARCH / python \$PY_TAG has no matching cached wheel, building from source ---\"
+  fi
+
+  if [[ -z \"\$CACHED_WHEEL_OK\" ]]; then
   # MAX_JOBS is a secondary safety net now that per-job memory is ~4x
   # lower (single-arch, not four) -- still derive it from THIS container's
   # actual cgroup memory limit rather than a fixed guess, since a RunPod
@@ -145,6 +185,14 @@ else
   export PATH=\"\$CUDA_HOME:\$PATH\"
   export LD_LIBRARY_PATH=\"\$CUDA_HOME/../lib64:\${LD_LIBRARY_PATH:-}\"
   '${AXOLOTL_VENV}/bin/pip' install flash-attn --no-build-isolation
+  fi
+
+  # Axolotl's cut_cross_entropy plugin requires its own fork with
+  # transformers support -- the stock PyPI cut-cross-entropy package lacks
+  # it, and training fails immediately at model-load with an ImportError
+  # naming this exact install command.
+  '${AXOLOTL_VENV}/bin/pip' uninstall -y cut-cross-entropy 2>/dev/null || true
+  '${AXOLOTL_VENV}/bin/pip' install 'cut-cross-entropy[transformers] @ git+https://github.com/axolotl-ai-cloud/ml-cross-entropy.git@4dfa522'
 fi
 "
 fi
