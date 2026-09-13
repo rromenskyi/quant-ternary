@@ -83,6 +83,16 @@ if [ -x '${AXOLOTL_VENV}/bin/python3' ] && '${AXOLOTL_VENV}/bin/python3' -c 'imp
   echo 'axolotl venv already set up, skipping'
 else
   python3 -m venv '${AXOLOTL_VENV}'
+  # Activate (not just call binaries by full path) -- this is the ACTUAL
+  # fix for flash-attn's build parallelism, more important than the
+  # MAX_JOBS/TORCH_CUDA_ARCH_LIST tuning below: pip installs the 'ninja'
+  # PACKAGE regardless, but torch's BuildExtension looks for the 'ninja'
+  # EXECUTABLE via PATH lookup -- calling pip by full path without
+  # activating the venv left venv/bin off PATH, so ninja's binary was
+  # never found and the build silently fell back to a slow, effectively
+  # single-file-at-a-time compilation (only nvcc's own --threads 4
+  # per-file arch parallelism, no cross-file parallelism at all).
+  source '${AXOLOTL_VENV}/bin/activate'
   '${AXOLOTL_VENV}/bin/pip' install --quiet --upgrade pip
   # Install axolotl FIRST and let its own dependency resolution pick
   # whatever torch it wants -- pre-pinning a specific torch build here is
