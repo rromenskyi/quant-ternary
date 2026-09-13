@@ -1224,6 +1224,65 @@ extreme low bits (1-2 bit, where Stage A's own dense-model ablations
 showed large, cascading error) -- not re-tested here, since that's a
 different point on the Pareto curve than this recipe targets.
 
+### 7t. Full LoRA -> merge -> quantize cycle on the dense 4B model, and a real Mamba2 training OOM
+
+Repeated the ipsupport-code LoRA fine-tune (same dataset, same
+`lora_r=32`/`lora_alpha=64`) on Nemotron-3-Nano-4B, this time targeting
+`lora_target_modules` directly (q/k/v/o_proj + up/down_proj) instead of
+`lora_target_parameters` -- this dense model's MLP weights are plain
+`nn.Linear`, not 3D MoE-expert parameter tensors, so the exotic
+ParamWrapper path the 30B config needed doesn't apply here at all
+(simpler config, no `lora_dropout: 0` restriction either).
+
+**New bug found: axolotl training OOM'd** trying to allocate 45GB in a
+single tensor, inside `mamba2_chunk_scan`'s reference PyTorch fallback
+(`transformers` falls back to this when `causal_conv1d`/`mamba_ssm`
+aren't installed -- the GPTQ calibration scripts already print this as
+a warning every run, but calibration is forward-only and never hit the
+memory wall; training's backward pass did). Fixed by installing both
+packages (`--no-build-isolation`, matching flash-attn's requirement)
+-- but `mamba_ssm`'s own dependency resolution silently force-upgraded
+torch from 2.11.0+cu128 to 2.14.0 (a different CUDA-13 stack entirely),
+which would have broken the already-built flash-attn and axolotl's own
+declared torch pin. Fixed with `--no-deps` (mamba_ssm's setup.py only
+needs torch *importable* at build time for arch/version detection, not
+any specific version) plus a hard version-unchanged assertion baked
+into `setup_pod.sh` so this can't silently regress again.
+
+**Merge**: 50/263 tensors touched (4 attention blocks x 4 proj + 17 mlp
+blocks x 2 proj = 50 -- matches exactly, confirming the LoRA only
+touched what was asked). No expert-weight-drop warning this time
+(unlike the 30B merge) since there are no MoE experts to drop in the
+first place -- the default (non-`legacy`) merge method worked fine.
+
+**Quantized-and-compared PPL** (wikitext-2 test + our own SFT tool-call
+data, `jang-dense` recipe, 5.778 bpw, one-shot, mixed wikitext+SFT
+calibration):
+
+| | wikitext PPL | SFT-data PPL (raw flattened text) | size |
+|---|---|---|---|
+| bf16 (unquantized) | 9.7990 | -- | 7.78GB |
+| vanilla jang-dense (no LoRA) | 10.2432/10.2463 (seq/one-shot) | 2.8448 | 2.7GB |
+| LoRA + merged + jang-dense | **12.0228** | **2.9224** | 2.7GB |
+
+**The LoRA+merged version scored WORSE on both axes** than the vanilla
+quantized model, despite axolotl's own held-out eval during training
+showing clear improvement (eval_loss 0.49 -> eval_ppl 1.57 over 83
+steps). This is NOT a contradiction, it's a measurement-methodology
+mismatch: `ppl_mlx.py` scores raw, naively-flattened text (no chat
+template, no role markers, no system prompt) -- axolotl trained the
+model against properly `chat_template`-formatted conversations, a
+completely different token distribution/context than what this PPL
+probe feeds it. A model can get strictly better at its actual training
+objective (predicting tokens *within the structured chat format it was
+trained on*) while getting *worse* at raw free-text continuation of the
+same content stripped of that structure -- these measure different
+things. The functional check that actually matters (does the model call
+tools correctly) was already validated on the 30B version (zero
+malformed tool calls across a real usage session) and wasn't re-run
+here; this PPL number alone should not be read as "the 4B LoRA didn't
+work."
+
 - `poc/gptq.py` — cholesky fix, batched-across-experts functions, `gptq_nbit`
 - `poc/methods.py` — `rot_gptq_salient_batched`
 - `poc/quantize_sequential.py` — `--skip-quantize-for`, `--skip-rotation`,
