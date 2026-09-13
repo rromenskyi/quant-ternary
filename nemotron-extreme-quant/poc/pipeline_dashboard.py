@@ -226,6 +226,9 @@ PAGE = """<!doctype html>
          background: #0f1115; color: #e6e6e6; }
   @media (prefers-color-scheme: light) { body { background: #f7f7f8; color: #1a1a1a; } }
   h1 { font-size: 1.3rem; margin-bottom: 0.2rem; }
+  h2 { font-size: 0.95rem; opacity: 0.75; margin: 1.8rem 0 0.6rem; padding-top: 0.8rem;
+       border-top: 1px solid rgba(128,128,128,0.25); }
+  h2:first-of-type { border-top: none; padding-top: 0; margin-top: 1rem; }
   .sub { opacity: 0.6; font-size: 0.85rem; margin-bottom: 1.5rem; }
   .stage { font-size: 1.1rem; font-weight: 600; padding: 0.6rem 1rem; border-radius: 8px; margin-bottom: 1rem;
            background: #1e2530; }
@@ -251,7 +254,12 @@ PAGE = """<!doctype html>
   .stale { color: #e0a030; }
 </style></head>
 <body>
-  <h1>GPTQ Pipeline Dashboard</h1>
+  <h1>Nemotron Pipeline Dashboard</h1>
+
+  <h2>1. ipsupport-code LoRA training</h2>
+  <div id="axolotl-section"></div>
+
+  <h2>2. GPTQ quantization (пережим)</h2>
   <div class="sub" id="run-name">connecting...</div>
   <div class="stage" id="stage">--</div>
   <div class="grid" id="grid"></div>
@@ -263,7 +271,6 @@ PAGE = """<!doctype html>
   </div>
   <div id="ppl-section"></div>
   <div id="sensitivity-section"></div>
-  <div id="axolotl-section"></div>
   <div class="meta" id="meta"></div>
   <pre id="raw-tail"></pre>
 
