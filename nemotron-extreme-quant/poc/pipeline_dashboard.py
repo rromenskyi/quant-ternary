@@ -18,6 +18,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import re
 import subprocess
@@ -38,6 +39,7 @@ STATE = {
     "disk": None,
     "ppl_summary": None,
     "sensitivity": None,
+    "axolotl": None,
     "raw_tail": "",
     "error": None,
     "last_poll": None,
@@ -46,6 +48,41 @@ STATE = {
 
 BLOCK_RE = re.compile(r"\[block (\d+)/(\d+)\] (\w+):(.*?), .*?total_elapsed=(\d+)s")
 CALIB_RE = re.compile(r"calibration pass (\d+)/(\d+) done")
+AXOLOTL_STEP_RE = re.compile(r"(\d+)/(\d+) \[")
+AXOLOTL_METRICS_RE = re.compile(r"\{'(?:loss|eval_loss)':.*?\}")
+
+
+def parse_axolotl_log(text: str) -> dict | None:
+    """axolotl/transformers' Trainer prints tqdm step bars (`N/M [...]`)
+    interleaved with Python-dict-repr metrics lines (`{'loss': ..., 'ppl':
+    ...}` for train steps, `{'eval_loss': ..., 'eval_ppl': ...}` after each
+    eval pass) -- a completely different log shape from the GPTQ pipeline's
+    own [block N/M] lines above, so this is a separate small parser rather
+    than trying to force it through parse_log.
+    """
+    if not text:
+        return None
+    out = {"step": None, "total_steps": None, "train": None, "eval": None, "stage": "unknown"}
+    steps = AXOLOTL_STEP_RE.findall(text)
+    if steps:
+        step, total = steps[-1]
+        out["step"], out["total_steps"] = int(step), int(total)
+    for m in AXOLOTL_METRICS_RE.finditer(text):
+        try:
+            d = ast.literal_eval(m.group(0))
+        except (ValueError, SyntaxError):
+            continue
+        if "eval_loss" in d:
+            out["eval"] = d
+        else:
+            out["train"] = d
+    if "Traceback" in text:
+        out["stage"] = "error"
+    elif out["step"] is not None and out["total_steps"] and out["step"] >= out["total_steps"]:
+        out["stage"] = "done"
+    elif out["train"] or out["eval"]:
+        out["stage"] = "training"
+    return out
 
 
 def parse_log(text: str) -> dict:
@@ -106,6 +143,7 @@ echo "===RUN_NAME==="; basename "$LOG" 2>/dev/null
 echo "===LOG_TAIL==="; [ -n "$LOG" ] && tail -c 24000 "$LOG"
 echo "===DRYRUN==="; [ -f /root/sensitivity_dryrun.log ] && tail -c 20000 /root/sensitivity_dryrun.log
 echo "===PPL_SUMMARY==="; [ -f /root/ppl_summary.json ] && cat /root/ppl_summary.json
+echo "===AXOLOTL==="; [ -f /root/axolotl_train.log ] && tail -c 12000 /root/axolotl_train.log
 echo "===GPU==="; nvidia-smi --query-gpu=memory.used,memory.total,utilization.gpu --format=csv,noheader 2>/dev/null
 echo "===DISK==="; df -h / | tail -1
 """
@@ -158,6 +196,7 @@ echo "===DISK==="; df -h / | tail -1
         STATE["disk"] = parts.get("DISK", "").strip() or None
         STATE["ppl_summary"] = ppl_summary if ppl_summary is not None else STATE["ppl_summary"]
         STATE["sensitivity"] = sensitivity if sensitivity is not None else STATE["sensitivity"]
+        STATE["axolotl"] = parse_axolotl_log(parts.get("AXOLOTL", ""))
         STATE["raw_tail"] = log_tail[-4000:]
         STATE["last_poll"] = time.time()
         STATE["last_poll_ok"] = True
@@ -216,6 +255,7 @@ PAGE = """<!doctype html>
   </div>
   <div id="ppl-section"></div>
   <div id="sensitivity-section"></div>
+  <div id="axolotl-section"></div>
   <div class="meta" id="meta"></div>
   <pre id="raw-tail"></pre>
 
@@ -257,6 +297,16 @@ function render(s) {
     ).join('');
     sensDiv.innerHTML = `<h3>Sensitivity scores (top 25 of ${s.sensitivity.length})</h3><table><tr><th></th><th>block</th><th>proj</th><th>score</th></tr>${rows}</table>`;
   } else { sensDiv.innerHTML = ''; }
+
+  const axoDiv = document.getElementById('axolotl-section');
+  if (s.axolotl && (s.axolotl.step !== null || s.axolotl.train || s.axolotl.eval)) {
+    const a = s.axolotl;
+    const pct = (a.step !== null && a.total_steps) ? Math.round(100 * a.step / a.total_steps) : null;
+    let rows = '';
+    if (a.train) rows += `<tr><td>train</td><td>loss=${a.train.loss}</td><td>ppl=${a.train.ppl||''}</td><td>epoch=${a.train.epoch||''}</td></tr>`;
+    if (a.eval) rows += `<tr><td>eval</td><td>loss=${a.eval.eval_loss}</td><td>ppl=${a.eval.eval_ppl||''}</td><td>epoch=${a.eval.epoch||''}</td></tr>`;
+    axoDiv.innerHTML = `<h3>ipsupport-code LoRA training${pct !== null ? ` -- step ${a.step}/${a.total_steps} (${pct}%)` : ''}${a.stage === 'done' ? ' -- DONE' : ''}${a.stage === 'error' ? ' -- ERROR' : ''}</h3><table>${rows}</table>`;
+  } else { axoDiv.innerHTML = ''; }
 
   let meta = [];
   if (s.calib_progress) meta.push(`calibration: ${s.calib_progress[0]}/${s.calib_progress[1]}`);
