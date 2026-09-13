@@ -79,20 +79,37 @@ if [[ -n "$WITH_AXOLOTL" ]]; then
   echo "--- Axolotl venv for ipsupport-code LoRA fine-tuning (isolated from the base env" \
        "above so a broken/conflicting dependency there can't take down the GPTQ pipeline) ---"
   $SSH "
-if [ -x '${AXOLOTL_VENV}/bin/python3' ] && '${AXOLOTL_VENV}/bin/python3' -c 'import axolotl' 2>/dev/null; then
+if [ -x '${AXOLOTL_VENV}/bin/python3' ] && '${AXOLOTL_VENV}/bin/python3' -c 'import axolotl, flash_attn' 2>/dev/null; then
   echo 'axolotl venv already set up, skipping'
 else
   python3 -m venv '${AXOLOTL_VENV}'
   '${AXOLOTL_VENV}/bin/pip' install --quiet --upgrade pip
-  # Staged, not one shot: flash-attn's setup.py imports torch at build
-  # time, so torch must already be installed before flash-attn is even
-  # attempted (a single combined 'pip install axolotl[flash-attn]' fails
-  # with 'ModuleNotFoundError: No module named torch' during the build).
-  '${AXOLOTL_VENV}/bin/pip' install torch --index-url https://download.pytorch.org/whl/cu121
+  # Install axolotl FIRST and let its own dependency resolution pick
+  # whatever torch it wants -- pre-pinning a specific torch build here is
+  # pointless, since axolotl silently upgrades/replaces it anyway (observed:
+  # a pre-installed torch+cu121 got replaced by torch 2.13.0+cu130, which
+  # then mismatched this system's actual CUDA 12.8 toolkit and broke the
+  # flash-attn build). Fix torch to match the REAL system CUDA toolkit only
+  # AFTER axolotl has had its say.
   '${AXOLOTL_VENV}/bin/pip' install packaging ninja wheel setuptools
   '${AXOLOTL_VENV}/bin/pip' install axolotl
-  export PATH=/usr/local/cuda-12.8/bin:\$PATH
-  export LD_LIBRARY_PATH=/usr/local/cuda-12.8/lib64:\${LD_LIBRARY_PATH:-}
+
+  CUDA_BIN=\$(dirname \$(readlink -f /usr/local/cuda/bin/nvcc 2>/dev/null || echo /usr/local/cuda-12.8/bin/nvcc))
+  CUDA_HOME=\$(dirname \"\$CUDA_BIN\")
+  CUDA_VER=\$(\"\$CUDA_BIN/nvcc\" --version | grep -oP 'release \K[0-9]+\.[0-9]+')
+  TORCH_CU_TAG=\"cu\$(echo \$CUDA_VER | tr -d '.')\"
+  echo \"--- system CUDA toolkit: \$CUDA_VER (\$TORCH_CU_TAG) at \$CUDA_HOME ---\"
+  '${AXOLOTL_VENV}/bin/pip' install --force-reinstall \"torch\" --index-url \"https://download.pytorch.org/whl/\$TORCH_CU_TAG\"
+
+  # Only compile flash-attn kernels for the GPU(s) actually attached to this
+  # pod -- the default build targets sm_80/90/100/120 (~4x more kernel
+  # variants than a single-GPU pod needs), which was observed to make this
+  # step the single slowest part of pod setup for no benefit.
+  ARCH=\$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader | head -1)
+  export TORCH_CUDA_ARCH_LIST=\"\$ARCH\"
+  echo \"--- building flash-attn for TORCH_CUDA_ARCH_LIST=\$ARCH only ---\"
+  export PATH=\"\$CUDA_HOME:\$PATH\"
+  export LD_LIBRARY_PATH=\"\$CUDA_HOME/../lib64:\${LD_LIBRARY_PATH:-}\"
   '${AXOLOTL_VENV}/bin/pip' install flash-attn --no-build-isolation
 fi
 "
