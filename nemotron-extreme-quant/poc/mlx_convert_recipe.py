@@ -73,6 +73,27 @@ COMPONENT_BIT_RECIPES = {
         "lm_head": 8,
         "embeddings": 6,
     },
+    "jang-dense-mlp6": {
+        "attention": 8,
+        "mamba": 6,
+        "mlp": 6,
+        "lm_head": 8,
+        "embeddings": 6,
+    },
+    "jang-dense-mlp8": {
+        "attention": 8,
+        "mamba": 6,
+        "mlp": 8,
+        "lm_head": 8,
+        "embeddings": 6,
+    },
+    "dense-8bit": {
+        "attention": 8,
+        "mamba": 8,
+        "mlp": 8,
+        "lm_head": 8,
+        "embeddings": 8,
+    },
 }
 
 # The actual fix: routed experts' down_proj-equivalent tensor is named

@@ -1311,3 +1311,278 @@ work."
 - `poc/ppl_wikitext.py` — new (§7e): direct HF/PyTorch perplexity on a
   wikitext-2 split, for comparing checkpoints without a GGUF round-trip
   (useful when disk is too tight for an extra ~60GB F16 GGUF conversion)
+
+### 7u. Real-usage bug in the 4B LoRA: never closes `<think>` for plain replies -- root cause was a training/inference chat-template mismatch, not a masking bug
+
+Real usage of the 4B LoRA+quantized model (§7t) in ipsupport-code
+surfaced a serious functional bug the wikitext-PPL check never would
+have caught: for any message that doesn't obviously need a tool
+("привет", "тест", "и?"), the client got back an *empty* reply --
+`content: ""`, `tool_calls: []`, `finish_reason: stop`. Comparing raw
+`mlx_lm.generate` output side-by-side with the working 30B model on
+the identical prompt showed the actual mechanism: given a prompt
+ending in `<|im_start|>assistant\n<think>\n` (the chat template's
+forced generation-prompt suffix), the 30B model writes real reasoning,
+closes with `</think>`, then answers -- while the 4B model writes its
+answer *immediately*, never emitting `</think>` at all. The client
+(LM Studio's OpenAI-compat layer) finds no closing tag, so it
+classifies the *entire* output as `reasoning_content` and leaves
+`content` empty -- the model isn't "hallucinating," the whole reply is
+just trapped on the wrong side of an unclosed tag.
+
+**First hypothesis (wrong-ish): zero non-tool training examples.**
+The original 110-conversation SFT set had 369 tool calls across 110
+conversations and *zero* conversations that end in a plain reply with
+no tool call -- so 26, then 90 more (English, for language balance +
+volume), then 18 synthetic English tool-calling conversations were
+added (235 total) to give the model explicit examples of both "just
+reply" and "call a tool" endings. Retrained, re-quantized, re-tested --
+**the bug was still there**, unchanged. Time to actually find the real
+mechanism instead of guessing again.
+
+**Root cause, found by reading axolotl's `chat_template.py` directly**
+(`ChatTemplateStrategy._tokenize_single_prompt`/`tokenize_prompt`) and
+the tokenizer's own `chat_template.jinja`, not by trial and error:
+the jinja template only renders a *populated* `<think>...</think>`
+block when
+
+```jinja
+{%- if message.reasoning_content is defined and message.reasoning_content is string and message.reasoning_content | trim | length > 0 %}
+    {%- set content = "<think>\n" ~ message.reasoning_content ~ "\n</think>\n" ~ (message.content | default('', true)) %}
+```
+
+-- i.e. `reasoning_content` must be *present and non-empty after
+trim*. None of this project's SFT data (original real conversations
+*or* the newly-added synthetic ones) ever set `reasoning_content` on
+assistant turns -- every message was authored as plain `{"role":
+"assistant", "content": "..."}`. Without it, the template's fallback
+path collapses the turn to `<think></think>` immediately followed by
+`content`, with **no newline between the tags and no space before the
+content** -- a completely different token sequence from what
+`add_generation_prompt=True` forces at inference
+(`<|im_start|>assistant\n<think>\n`, tag-then-newline, expecting
+*something* before a closing tag). The model was trained on turns that
+never demonstrate opening `<think>` and then closing it -- only the
+collapsed empty-adjacent form -- so at inference, dropped into a
+genuinely opened `<think>\n`, it had no learned pattern for "there's
+nothing to reason about, just close and answer" and fell back to just
+answering inline, never emitting the close tag.
+
+**Verified directly, no training run needed**: wrote a small script
+that imports axolotl's own `ChatTemplateStrategy` and tokenizer,
+loading the *exact* dataset/config file used for training, and called
+`tokenize_prompt()` on individual records to inspect the rendered
+text and label mask directly:
+
+```python
+tokenizer = load_tokenizer(cfg)  # cfg.tokenizer_config = cfg.base_model first
+strategy = load_strategy(tokenizer, cfg, cfg.datasets[0])
+tok = strategy.tokenize_prompt(json.loads(line))
+tokenizer.decode(tok["input_ids"])                                  # rendered text
+tokenizer.decode([t for t,l in zip(tok["input_ids"], tok["labels"]) if l != -100])  # trainable span only
+```
+
+Without `reasoning_content`: rendered as `<think></think>Hey! What are
+we working on today?<|im_end|>`, trainable span `'Hey! What are we
+working on today?<|im_end|>'` (10 tokens). With
+`reasoning_content: "No tool needed here."` added to the same message:
+rendered as `<think>\nNo tool needed here.\n</think>\nHey!
+...<|im_end|>`, trainable span now *includes* the `</think>` token
+plus a much longer span (30 tokens) -- exactly the pattern the model
+needs to see to learn "open think, nothing to reason, close, answer."
+This is also how the *diagnostic red herring* was caught: an
+axolotl warning ("Last turn is not trainable... dataset design issue")
+fired during the original training run and looked directly relevant,
+but turned out to be about the *tool-result* turn at the end of
+tool-heavy conversations (role `tool`, correctly not trainable, not a
+bug) -- confirmed only by printing per-turn `should_train` values via
+a temporary source patch, not by assuming the log message meant what
+it sounded like.
+
+**Open question, not resolved**: the 30B-A3B model, fine-tuned on the
+exact same reasoning_content-free dataset, does *not* exhibit this bug
+-- it reliably writes real reasoning and closes `<think>` even for
+plain replies. Working theory: the larger model's own pretraining gave
+it a strong enough "always reason first" prior that 110-235 LoRA
+examples showing the collapsed pattern weren't enough to override it,
+while the 4B model's weaker prior *was* overridden by training
+data that structurally never demonstrates a closed non-empty think
+block. Not independently verified (would need a controlled ablation on
+model size holding the dataset bug constant) -- noted here so a future
+session doesn't have to re-derive it if the same bug resurfaces on
+another small model.
+
+**Fix**: added a short, contextually-appropriate `reasoning_content`
+to every synthetic assistant turn (both the tool-calling and non-tool
+conversations) -- e.g. `"Casual greeting, no task given yet -- just
+reply and see what's needed."` for greetings, `"Request is too vague
+to act on -- ask for specifics..."` for the clarifying-question
+examples, `"User wants: {task}. I'll use a tool to do this directly
+rather than describing how."` before each tool call. Re-verified via
+the same direct-tokenization check before spending another full
+train+quantize+convert cycle on it. `poc/run_4b_lora_retrain.sh`
+parameterized with `RUN_TAG` so re-runs with a corrected dataset don't
+collide with a previous (bad) run's output paths.
+
+### 7v. Real-usage catastrophic code-quality regression on the 4B LoRA -- root-caused via compile-and-run testing (not PPL), through two independent, additively-discovered causes
+
+Real usage in ipsupport-code (after the §7u fix) surfaced garbled,
+non-compiling C++ and a degenerate repetition loop on a
+"translate this to Python" follow-up -- much worse than the `<think>`
+bug. wikitext PPL had shown nothing wrong. Built a proper eval instead
+of eyeballing output: for each (temperature, prompt) pair, generate
+with N different seeds, extract the code block, and **actually compile
+(g++ -std=c++20) and run it** (Python: actually execute it), counting
+real pass/fail -- catching syntax errors, missing `#include`s, and
+logic bugs that reading the text alone misses.
+
+**First hypothesis (temperature) -- refuted by the rigorous version of
+the same test.** A single anecdotal sample suggested `temperature=1.0`
+(ipsupport-code's configured value) was too aggressive for this
+heavily-quantized small model, and `temperature=0.4` looked clean. A
+proper multi-seed (3 seeds x 3 temps x 2 prompts = 18 generations, with
+actual compile/run) sweep showed pass rate was **flat across
+temperature** (3/6, 4/6, 3/6) -- the one clean low-temp sample had been
+luck, not signal. (Aside: the first version of this eval harness used
+`max_tokens=600`, which truncated the longer C++ prompt mid-function
+and miscounted the resulting invalid syntax as a real failure --
+bumped to 900 before drawing any conclusions from it.)
+
+**Cause #1: training BOTH attention and MLP LoRA modules together
+catastrophically breaks general code competency, independent of
+quantization.** Isolated by testing the **un-fine-tuned base model**,
+the **merged (bf16, unquantized) LoRA model**, and the **quantized**
+model separately, using compile-and-run pass rate (9 generations: 3
+seeds x 3 temps, C++ sort task) as the metric:
+
+| variant | C++ compile-pass | overall (C++ + Python) |
+|---|---|---|
+| base bf16 (no LoRA at all) | 6/9 | 15/18 |
+| full LoRA (attn+mlp), bf16 merged | **0/9** | 8/18 |
+| full LoRA (attn+mlp) + jang-dense quantized | 3/9 | 10/18 |
+
+The base model itself is fine at C++ -- the LoRA fine-tune is what
+broke it, badly, and quantization on top of that broken LoRA actually
+looks *slightly* better (3/9) than the unquantized broken LoRA (0/9),
+presumably because quantization's own rounding noise perturbs the
+badly-overfit weights away from whatever specific failure mode the
+LoRA converged to, not because quantization helps.
+
+Ablated **which** LoRA-targeted modules caused this by loading the
+already-trained (r=32, 4 epochs) adapter and zeroing out its `lora_B`
+matrices for either the MLP (`up_proj`/`down_proj`) or the attention
+(`q/k/v/o_proj`) modules before merging (zeroing `lora_B` alone zeroes
+that module's entire `B @ A` delta, regardless of LoRA convention) --
+i.e. testing each half of a *jointly-trained* adapter on its own:
+
+| variant | C++ compile-pass |
+|---|---|
+| attention-only half of the joint adapter (MLP zeroed) | 6/9 |
+| MLP-only half of the joint adapter (attention zeroed) | 7/9 |
+| both halves together (the actual trained adapter) | 0/9 |
+
+Neither half alone reproduces the damage -- both are indistinguishable
+from base. **Ruled out "too much LoRA capacity / overfitting"** as the
+mechanism by retraining from scratch with both rank and epochs halved
+(r=16, 2 epochs instead of r=32, 4 epochs) while still targeting both
+attention and MLP together: **still broken** (merged bf16: 1/9 C++,
+quantized: 3/9 -- statistically indistinguishable from the original
+r=32/4-epoch run). The damage tracks *training attention and MLP LoRA
+modules simultaneously*, not capacity or training length -- looks like
+an interference effect between the two simultaneously-adapted
+sub-circuits, not simple catastrophic forgetting from overfitting.
+**Fix**: retrained with `lora_target_modules` restricted to
+`q_proj/k_proj/v_proj/o_proj` only (dropping `up_proj/down_proj`
+entirely), same r=32/alpha=64/4-epochs otherwise -- merged bf16 result
+matches base exactly (6/9, 15/18). This is now the release's adapter.
+`poc/run_4b_lora_retrain.sh` gained a `LORA_TARGET_MODULES` env var to
+make this an explicit, reusable knob rather than a hardcoded list.
+
+**Cause #2 (found only after fixing #1, on the now-healthy
+attention-only model): this project's own GPTQ pipeline underperforms
+plain RTN quantization for this specific capability, at every bit
+allocation tried.** With the LoRA interference fixed, quantizing the
+healthy attention-only merge with this project's `jang-dense` component
+recipe (mlp=3-bit) still dropped C++ compile-pass from 6/9 (unquantized)
+to 3/9. Bumping the recipe's MLP allocation up -- 3-bit -> 6-bit ->
+8-bit, and finally a diagnostic near-uniform 8-bit-everywhere pass
+(including `mamba`, the single largest component by layer count, which
+had never been raised above 6-bit in any prior recipe) -- **never
+recovered past ~3-4/9, even at 8.503 bits/weight** (4.0GB, barely
+smaller than the 7.5GB bf16 source):
+
+| recipe (attention-only LoRA base) | avg bits/weight | size | C++ compile-pass |
+|---|---|---|---|
+| unquantized bf16 | 16 | 7.5GB | 6/9 |
+| jang-dense (mlp=3-bit) | 5.778 | 2.7GB | 3/9 |
+| jang-dense-mlp6 (mlp=6-bit) | 6.788 | 3.2GB | 4/9 |
+| jang-dense-mlp8 (mlp=8-bit) | ~7.0 | 3.5GB | 3/9 |
+| dense-8bit (everything 8-bit, incl. mamba) | 8.503 | 4.0GB | 2/9 |
+
+Bit-width in the 3-8.5 range is not the variable -- more bits bought
+essentially nothing (noise-level differences, 2-4/9 throughout). Also
+ruled out the calibration corpus: re-ran `jang-dense` (mlp=3-bit) with
+`--wikitext`-only calibration (dropping the SFT/tool-calling
+`--extra-calib-file` mix-in entirely) -- still 2/9, no different from
+the mixed corpus.
+
+**The actual isolating test**: quantized the same attention-only
+merged model with **stock `mlx_lm.convert -q --q-bits 8
+--q-group-size 64`** (plain round-to-nearest, no GPTQ Hessian
+correction at all, no calibration data whatsoever) at the *same*
+8.503 bits/weight as the `dense-8bit` GPTQ recipe above:
+
+| method (same 8.503 bpw, same attention-only base) | C++ compile-pass | wikitext PPL |
+|---|---|---|
+| this project's GPTQ (Hessian-calibrated) | 2/9 | 11.3914 |
+| stock `mlx_lm.convert` (naive RTN, no calibration) | **4/9** | 11.3868 |
+| unquantized bf16 (reference) | 6/9 | 11.4260 |
+
+Naive RTN matches or slightly beats this project's calibrated GPTQ on
+the *exact* metric GPTQ exists to optimize for -- and **all three
+land within measurement noise of each other on PPL**, which is the
+real finding here: **at 8-bit, PPL cannot distinguish any of this at
+all**, while the compile-and-run test cleanly separates 2/9 from 4/9
+from 6/9. PPL and this capability are measuring genuinely different
+things; a PPL-only eval (as used everywhere else in this project so
+far, out of necessity for the MoE 30B model where compile-testing
+isn't applicable the same way) would have reported all three variants
+as equivalent, when real usage clearly isn't.
+
+**Working theory for cause #2** (not independently confirmed by
+ablating GPTQ's Hessian mechanism directly -- would need a from-scratch
+GPTQ variant with the correction step disabled but the same rounding
+grid, which wasn't built): GPTQ's Hessian-based error compensation
+optimizes weight reconstruction fidelity *for the calibration corpus's
+activation distribution*. Neither wikitext nor this project's
+tool-calling SFT data contains any C++ -- so GPTQ has no signal to
+preserve C++-specific weight directions, and its calibrated correction
+may actively trade C++ fidelity for extra precision on
+calibration-represented patterns, a trade naive calibration-agnostic
+rounding doesn't make in either direction. This would predict that
+GPTQ's usual PPL win over RTN (documented earlier in this project, at
+much lower bit-widths, on the MoE 30B model) still holds *for text
+resembling the calibration corpus* -- just not for capabilities entirely
+absent from it. Not verified further this session; flagged for anyone
+revisiting quantization recipe choices for a small model expected to
+retain broad, calibration-underrepresented capabilities (e.g. multiple
+programming languages).
+
+**Final shipped recipe for this release**: attention-only LoRA
+(`q/k/v/o_proj` only, r=32/alpha=64/4 epochs) + stock `mlx_lm.convert
+-q --q-bits 8 --q-group-size 64` (no custom GPTQ pipeline at all for
+this specific release). Verified end-to-end: `<think>` closes correctly
+for casual replies (§7u fix intact), tool-calling still works, C++/Python
+generation matches the un-fine-tuned base model's own ceiling. Uploaded
+to `roman220220/NVIDIA-Nemotron-3-Nano-4B-JANG-GPTQ-ipsupport-code-lora`
+(the repo name predates this finding and no longer accurately describes
+the quantization method used -- kept for URL continuity, corrected in
+the README instead).
+
+- `poc/run_4b_lora_retrain.sh` -- added `LORA_TARGET_MODULES` (default
+  full q/k/v/o+up/down_proj set, override to attention-only or any
+  subset), `LORA_R`/`LORA_ALPHA`/`LORA_DROPOUT`/`NUM_EPOCHS` env vars
+- `poc/gptq_stock_convert.py`, `poc/mlx_convert_recipe.py` -- added
+  `jang-dense-mlp6`, `jang-dense-mlp8`, `dense-8bit` component recipes
+  (diagnostic variants from this investigation, not expected to be
+  reused directly given the RTN finding, kept for reference)

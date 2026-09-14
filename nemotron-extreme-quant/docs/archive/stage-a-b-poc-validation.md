@@ -99,7 +99,7 @@ development target,
 | Data | Stage A's calibration set as synthetic input, since capturing *real* activations at an internal layer needs most of the model loaded (~60 GB BF16, doesn't fit locally) — real calibration for this stage happens on a cloud machine later |
 | Methods | Same set as Stage A |
 
-**Prep done 2026-09-11** (see `docs/stage_b_prep.md` for full detail): rented
+**Prep done 2026-09-11** (see `docs/archive/stage-b-prep-notes.md` for full detail): rented
 a RunPod RTX A6000 pod to validate the cloud setup before committing to the
 real 30B run. `mamba-ssm`/`causal-conv1d` installed and ran real CUDA
 kernels — Nano-4B generation went from ~0.4 tok/s on the local CPU
@@ -111,7 +111,7 @@ kernel-launch overhead with nothing to batch. The right split, now
 implemented in `quantize_sequential.py` as independent `--device` /
 `--gptq-device` flags, is model forward pass on GPU, GPTQ math on CPU.
 Still unsolved and unblocked by any of the above: the routed-expert
-calibration-data-sparsity problem (`docs/stage_b_prep.md`'s main section) —
+calibration-data-sparsity problem (`docs/archive/stage-b-prep-notes.md`'s main section) —
 Stage A's 279-token calibration set works for a dense model but would give
 most of 128 routed experts single digits of samples each, nowhere near
 enough for a GPTQ Hessian.

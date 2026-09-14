@@ -9,8 +9,8 @@ This covers two paths:
 - **B. Custom ternary+rotation+salient** (`poc/pack_mlx.py`) -- this
   project's research method for going below what a standard N-bit format
   can do (sub-3-bit routed experts), at the cost of a custom Metal kernel
-  and custom `mlx_lm` model file. Slower generation (see docs/session_
-  findings_2026-09-11.md's benchmarks) and needs `trust_remote_code=True`.
+  and custom `mlx_lm` model file. Slower generation (see docs/FINDINGS.md's
+  benchmarks) and needs `trust_remote_code=True`.
 
 Both start from the same source checkpoint and the same calibration corpus.
 
@@ -62,7 +62,9 @@ backend, for the stock-conversion path's `mlx_lm.convert` step to run
 
 ```bash
 pip install torch transformers accelerate
-pip install "mlx[cuda12]" mlx-lm   # mlx now has a real CUDA backend
+pip install "mlx[cuda]" mlx-lm   # NOT "mlx[cuda12]" -- that extra doesn't exist;
+                                  # the base "mlx" wheel alone has no CUDA runtime
+                                  # on Linux at all (see docs/FINDINGS.md)
 ```
 
 ## 3A. Path A: stock-format GPTQ (recommended default)
@@ -84,8 +86,9 @@ model to `models/gptq3bit-g64/` in this repo.
 Flags worth knowing:
 - `--sequential` -- capture each block's calibration activations with all
   *prior* blocks already quantized in place (more faithful, ~1.5x slower).
-  See docs/session_findings_2026-09-11.md §7e for why this mattered less
-  than expected for the ternary path; untested for this GPTQ-only path.
+  See docs/FINDINGS.md (sequential vs. one-shot calibration) for why this
+  mattered less than expected for the ternary path; untested for this
+  GPTQ-only path.
 - `--run-name my-label` -- override the auto-generated name (otherwise
   derived from bits/group-size/sequential).
 - `--no-upload` / `--no-download` -- skip either side-effect for a quick
@@ -123,7 +126,7 @@ python3 pack_mlx.py \
 
 Patch the output's `config.json` and copy the custom loader files in
 (pack_mlx.py's `main()` does the tensor packing but not this config step
--- see docs/session_findings_2026-09-11.md §7i for why):
+-- see docs/FINDINGS.md for why):
 
 ```bash
 python3 -c "
@@ -145,8 +148,8 @@ not stock `mlx_lm`):
 mlx_lm.generate --model /root/lightning30b-ternary-src --trust-remote-code --prompt "Hello"
 ```
 
-**Known limitations of this path** (see docs/session_findings_2026-09-11.md
-§7n for the full story): generation throughput measured at ~7 tokens/sec
+**Known limitations of this path** (see docs/FINDINGS.md for the full
+story): generation throughput measured at ~7 tokens/sec
 regardless of internal chunk-size tuning (vs ~30-70 tok/s for stock
 3-bit on the same hardware) -- the custom salient-correction kernel's
 resolve+gather+scatter path is the bottleneck, not something fixed by a

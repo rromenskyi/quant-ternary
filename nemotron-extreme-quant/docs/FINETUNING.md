@@ -1,96 +1,180 @@
-# Fine-tuning Nemotron: reference notes
+# Fine-tuning Nemotron: the ipsupport-code LoRA pipeline
 
-Separate topic from the quantization work in `docs/RUNBOOK.md` — this is
-about teaching a Nemotron model our own Java + infra conventions for a
-future internal coding assistant. Nothing here has been executed yet;
-these are reference notes from research so we don't have to re-derive
-them later.
+Separate topic from the quantization work in `docs/RUNBOOK.md`, though the
+two compose: this project's fine-tuning flow is always *train LoRA on the
+bf16 checkpoint → merge → then run the merged model through the
+quantization pipeline*, never quantize-then-fine-tune. Merging before
+quantizing means the deployed model's size/speed match an unfine-tuned
+quantized model of the same architecture — LoRA adds no parameters or
+inference overhead once merged.
 
-## Approach, if we do this
+This fine-tune's actual purpose: fix tool-calling reliability failures
+observed in real usage of
+[ipsupport-code](https://github.com/ipsupport-llc/ipsupport-code), a local
+terminal coding agent, running on quantized Nemotron models produced by
+this project. Executed on both
+`nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16` (MoE) and
+`nvidia/NVIDIA-Nemotron-3-Nano-4B-BF16` (dense) — the two architectures
+need different LoRA target configs, documented below, and the dense model
+run surfaced a real training bug (see `docs/FINDINGS.md`) that the MoE run
+never hit.
 
-**Fine-tune (LoRA/QLoRA) + RAG, not either alone.**
-- Fine-tune bakes in *style/defaults* (e.g. "our Postgres modules always
-  use multi-AZ + this parameter group") — things the model should just
-  "know" without being told every time.
-- RAG supplies *current facts* at query time (actual up-to-date file
-  contents) — fine-tuning alone goes stale the moment the repo changes;
-  RAG doesn't.
-- Train on the base **bf16** checkpoint, **merge** the LoRA delta into the
-  weights afterward, and only then run the result through our existing
-  quantization pipeline. Merging first means the deployed model's size/
-  speed are unchanged from an unfine-tuned quantized model of the same
-  bit-width/architecture — LoRA adds no parameters or inference overhead
-  once merged.
+## Tooling: Axolotl
 
-**Dataset idea**: no PR/diff history needed for a "write new code in our
-style" assistant — reverse-instruction generation from *current* code is
-enough. Have a strong model read an existing file/module and write the
-natural-language request a developer would give to produce *exactly this
-code with its specific choices* (not a generic description), 2-3 phrasing
-variants per artifact. Scrub secrets/internal identifiers first. Cover all
-our standard patterns, not just one, to avoid overfitting to whichever
-type is overrepresented. Rough scale for a style-tuning LoRA: ~5-20k
-examples (~5-20M tokens), 2-3 epochs.
+[Axolotl](https://github.com/axolotl-ai-cloud/axolotl) has ready-made
+NemotronH support (hybrid Mamba2 + Attention + MoE — a non-`nn.Linear`
+mixer, MoE experts stored as 3D tensors), with working example configs:
 
-## Axolotl: ready-made NemotronH support
-
-The open question going in was how to LoRA-target a hybrid Mamba2+
-Attention+MoE architecture (non-`nn.Linear` mixer, MoE experts as 3D
-tensors) — **Axolotl already has this solved**, with working example
-configs for our exact models:
-
-- `examples/nemotron-h/nemotron-3_5-lightning-30b-a3b-qlora.yaml` — our 30B-A3B model
-- `examples/nemotron-h/120b-a12b-qlora.yaml` — Nemotron-3-Super-120B-A12B
-- `examples/nemotron/nemotron-mini-4b-qlora.yaml` — Nemotron-Mini-4B (non-hybrid)
-- Repo: https://github.com/axolotl-ai-cloud/axolotl
+- `examples/nemotron-h/nemotron-3_5-lightning-30b-a3b-qlora.yaml`
+- `examples/nemotron/nemotron-mini-4b-qlora.yaml`
 - Docs: https://docs.axolotl.ai/
 
-### Architecture facts that drive the LoRA config (from Axolotl's README)
+Architecture facts that drive the LoRA config:
 
-- Three block types per layer: Mamba2 (SSM), Attention (sparse — only a
-  minority of layers), MoE.
-- MLP activation is `relu2` (`mlp_hidden_act`), not the usual `hidden_act`.
-- MoE experts store `up_proj`/`down_proj` as **3D `nn.Parameter` tensors**
-  (`[num_experts, out_dim, in_dim]`), not `nn.Linear` modules — there is
-  no `gate_proj`.
+- Attention lives in `NemotronHBlock.mixer`, not `layer.self_attn` — and
+  MLP uses `relu2` activation — so Axolotl's fused LoRA kernels
+  (`lora_qkv_kernel`, `lora_o_kernel`, `lora_mlp_kernel`) don't apply here
+  and must be explicitly disabled:
 
-### Required config settings (already correct in the example YAMLs)
+  ```yaml
+  lora_mlp_kernel: false
+  lora_qkv_kernel: false
+  lora_o_kernel: false
+  ```
+
+- On the **MoE** model, `up_proj`/`down_proj` are 3D `nn.Parameter` tensors
+  (`[num_experts, out_dim, in_dim]`), not `nn.Linear` modules — LoRA
+  targets them via `lora_target_parameters`, not `lora_target_modules`:
+
+  ```yaml
+  lora_target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+  lora_target_parameters:
+    - up_proj
+    - down_proj
+  ```
+
+- On the **dense** 4B model, there are no MoE experts at all —
+  `up_proj`/`down_proj` are plain `nn.Linear`, so they go through the
+  normal `lora_target_modules` path (no `lora_target_parameters` needed).
+  See `docs/FINDINGS.md` for why targeting them *together with* attention
+  turned out to matter a great deal for this specific model.
+
+- Requires `pip install mamba-ssm causal-conv1d` (fast CUDA kernels) — the
+  `transformers` reference fallback for Mamba2's chunk-scan tried to
+  allocate a single 45GB tensor during the training backward pass on the
+  4B model (forward-only calibration never hits this, so it's easy to miss
+  until an actual training run OOMs). See `docs/FINDINGS.md` and
+  `poc/setup_pod.sh`'s axolotl-venv setup for the install gotchas
+  (`--no-build-isolation`, `--no-deps`, and a torch-version regression
+  check — `mamba_ssm`'s own dependency resolution was observed to silently
+  upgrade torch to an incompatible CUDA stack).
+
+## Dataset
+
+SFT conversations in OpenAI-style `{"messages": [...]}` chat format,
+matching real ipsupport-code tool-calling schema (`role: assistant`
+messages with a `tool_calls` array; `role: tool` messages with results).
+Sourced from real usage sessions where the base model's tool-calling
+failed (malformed JSON, wrong parameter names, etc.), plus synthetic
+conversations covering the same failure patterns. See
+`poc/flatten_chat_jsonl_to_text.py` for turning this into plain text for
+GPTQ calibration mix-in after the LoRA is merged.
+
+**A real gap found in this dataset** (documented in detail in
+`docs/FINDINGS.md`): the original set was 100% tool-call-heavy, with zero
+conversations where the correct response is "just answer directly, no
+tool needed." This silently taught the model to never close its
+`<think>` block for a plain reply, since the chat template only renders a
+proper `<think>...reasoning...</think>` block when a message's
+`reasoning_content` field is present and non-empty. Fixed by adding
+~125 synthetic conversations (greetings, clarifying questions, plain
+factual answers, and a handful of English tool-calling examples for
+language balance) — each with a short, real `reasoning_content`, not an
+empty string.
+
+## 30B-A3B (MoE) recipe
 
 ```yaml
-lora_qkv_kernel: false   # attention lives in NemotronHBlock.mixer, not layer.self_attn
-lora_o_kernel: false     # same reason
-lora_mlp_kernel: false   # relu2 activation + 3D expert params, unsupported by this kernel
-
-lora_target_modules:     # regular attention projections, LoRA works normally here
-  - q_proj
-  - k_proj
-  - v_proj
-  - o_proj
-
-# To also fine-tune the MoE experts (not just attention), add:
-# lora_target_parameters:
-#   - up_proj
-#   - down_proj
+adapter: qlora
+lora_r: 32
+lora_alpha: 64
+lora_dropout: 0        # required with lora_target_parameters -- axolotl's
+                        # ParamWrapper path for 3D expert tensors doesn't
+                        # support dropout, forced to 0
+lora_target_modules: [q_proj, k_proj, v_proj, o_proj]
+lora_target_parameters: [up_proj, down_proj]
 ```
 
-Requires `pip install mamba-ssm causal-conv1d` (fast CUDA kernels) —
-mandatory for `sample_packing: true` and `context_parallel_size > 1`,
-since only these kernels correctly reset SSM state at packed-sample
-boundaries via `seq_idx` (the plain transformers fallback silently drops
-it, corrupting state across samples).
+**Merging requires `--merge_method legacy`**: axolotl's default
+("memory_efficient") merge silently *drops* LoRA weights applied via
+`lora_target_parameters` on this architecture — the fused expert tensors
+are incompatible with its merge path. `legacy` merge correctly reports
+"Applied LoRA to N/M tensors" instead of silently no-op'ing on the expert
+weights. Confirmed by checking the actual number of touched tensors after
+merge, not just that the merge command exited 0.
 
-## Model size / hardware, if we do this
+Result: `roman220220/Nemotron-3.5-Lightning-30B-A3B-JANG-GPTQ-ipsupport-code-lora`
+(final quantized+merged model), adapter alone at
+`roman220220/ipsupport-code-nemotron-lora`. Validated via real usage —
+zero malformed tool calls across a real session, after the fix.
 
-Considered going with **Nemotron-3-Super-120B-A12B** instead of the 30B-
-A3B we've been quantizing, on the reasoning that cost isn't the
-constraint for this — QLoRA on 120B needs roughly a single 80GB GPU
-minimum per Axolotl's own single-GPU example config, more realistically
-2x80GB (H100 SXM or A100 PCIe) for headroom on context/parallelism and
-to double as a serving node afterward via tensor-parallel inference
-(vLLM/TGI). Nemotron-3-Ultra-550B has no Axolotl config — that scale is
-NVIDIA's own NeMo Megatron-Bridge territory, a much bigger multi-node
-undertaking, not "take a YAML and run it."
+## Nemotron-3-Nano-4B (dense) recipe
 
-Nothing has been provisioned for this track — the only GPU currently in
-play is the existing A100 pod used for the unrelated 30B stock-GPTQ
-quantization work in `docs/RUNBOOK.md`.
+First attempt used the same-shaped config as the 30B run (`lora_r=32`,
+`lora_alpha=64`, targeting all of `q_proj/k_proj/v_proj/o_proj` +
+`up_proj/down_proj` as plain `lora_target_modules`, since this model has
+no MoE experts to need the parameter-targeting path). Training completed
+cleanly and the `<think>`-closing fix (above) worked — but real usage
+surfaced a much worse regression: the model started generating
+non-compiling, syntactically broken C++ and occasionally degenerated into
+a repetition loop, on a model that (per the base checkpoint, tested
+separately) is otherwise fine at this.
+
+Root-caused via a compile-and-run eval harness (not just reading the
+output) to: **training `q/k/v/o_proj` and `up_proj/down_proj` LoRA
+modules *together* breaks general code competency**, independent of any
+downstream quantization. Ablating a jointly-trained adapter — zeroing
+either half's `lora_B` matrices before merging and testing each half
+alone — showed neither half individually reproduces the damage; only
+training both together does, at any rank/epoch count tested. Full
+methodology and numbers in `docs/FINDINGS.md`.
+
+**Fix**: LoRA targets only `q_proj/k_proj/v_proj/o_proj` — dropping
+`up_proj`/`down_proj` entirely restores code-generation quality to the
+un-fine-tuned base model's own level:
+
+```yaml
+adapter: qlora
+lora_r: 32
+lora_alpha: 64
+lora_dropout: 0.05
+lora_target_modules: [q_proj, k_proj, v_proj, o_proj]
+```
+
+`poc/run_4b_lora_retrain.sh` exposes `LORA_TARGET_MODULES`,
+`LORA_R`/`LORA_ALPHA`/`LORA_DROPOUT`/`NUM_EPOCHS` as environment
+variables specifically so this isn't a hardcoded assumption for future
+models — test attention-only vs. full-module-set LoRA on any new
+architecture before committing to one.
+
+Merge: default (non-`legacy`) axolotl merge method works fine here (no
+MoE experts to drop in the first place).
+
+Result: `roman220220/NVIDIA-Nemotron-3-Nano-4B-JANG-GPTQ-ipsupport-code-lora`,
+adapter alone at `roman220220/NVIDIA-Nemotron-3-Nano-4B-ipsupport-code-lora`
+(private).
+
+## Style/domain fine-tuning (not executed)
+
+An earlier, separate idea explored before the tool-calling reliability
+work took priority: fine-tuning on a team's own code style/conventions
+(paired with RAG for up-to-date facts, since style bakes in but facts go
+stale). Reverse-instruction generation from existing code (have a strong
+model read a file and write the request that would produce *that exact
+code*) was the proposed dataset approach, at a rough scale of ~5-20k
+examples / 2-3 epochs. Nothing here was executed — noted only so the
+groundwork doesn't need re-deriving if it becomes relevant again.

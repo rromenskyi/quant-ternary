@@ -106,6 +106,38 @@ COMPONENT_BIT_RECIPES = {
         "lm_head": 8,
         "embeddings": 6,
     },
+    # Found (session_findings §7v) that 3-bit mlp costs real code-generation
+    # quality independent of any LoRA issue (attention-only-LoRA bf16: 6/9
+    # C++ compile pass; same model quantized jang-dense: 3/9) -- this variant
+    # bumps mlp to match mamba's 6 bits, trading disk size for quality on
+    # the same minimal-footprint-goal model.
+    "jang-dense-mlp6": {
+        "attention": 8,
+        "mamba": 6,
+        "mlp": 6,
+        "lm_head": 8,
+        "embeddings": 6,
+    },
+    "jang-dense-mlp8": {
+        "attention": 8,
+        "mamba": 6,
+        "mlp": 8,
+        "lm_head": 8,
+        "embeddings": 6,
+    },
+    # Diagnostic: near-uniform 8-bit everywhere (mamba is 21/42 blocks --
+    # the single largest component -- and had never been raised above 6-bit
+    # in any variant tested so far). If this STILL doesn't recover to
+    # unquantized-level C++ competency, the gap isn't about which component
+    # gets how many bits at all -- it's something about the GPTQ/affine
+    # quantization process itself (group_size, calibration) at any bit-width.
+    "dense-8bit": {
+        "attention": 8,
+        "mamba": 8,
+        "mlp": 8,
+        "lm_head": 8,
+        "embeddings": 8,
+    },
 }
 
 
@@ -392,6 +424,30 @@ CHECKPOINT_MANIFEST = "checkpoint_state.json"
 BLOCK_TYPE_HF_TO_MLX = {"linear_attention": "mamba", "full_attention": "attention"}
 
 
+def _tokenizer_eos_token_ids(output_dir: str) -> list[int]:
+    """Resolve the id(s) of the tokenizer's actual eos_token (as named in
+    tokenizer_config.json) by looking it up in tokenizer.json's added-tokens
+    table. Never hardcode a token id here -- some checkpoints' config.json
+    ships an eos_token_id that doesn't match the tokenizer's chat-template
+    eos_token at all (e.g. nvidia/NVIDIA-Nemotron-3-Nano-4B-BF16's config.json
+    says eos_token_id=2, a bare '</s>'-style stop, while its own
+    tokenizer_config.json's eos_token is '<|im_end|>' (id 11) -- the token the
+    chat template, and any chat/tool-call fine-tune, actually terminates
+    turns with). Returns [] if the files are missing or the token isn't found.
+    """
+    tok_cfg_path = f"{output_dir}/tokenizer_config.json"
+    tok_path = f"{output_dir}/tokenizer.json"
+    if not (Path(tok_cfg_path).exists() and Path(tok_path).exists()):
+        return []
+    with open(tok_cfg_path) as f:
+        eos_str = json.load(f).get("eos_token")
+    if not eos_str:
+        return []
+    with open(tok_path) as f:
+        added_tokens = json.load(f).get("added_tokens", [])
+    return [t["id"] for t in added_tokens if t.get("content") == eos_str]
+
+
 def fixup_config_for_mlx(output_dir: str) -> None:
     """transformers' save_pretrained() round-trip for this NemotronH config
     class breaks mlx_lm.convert in two ways, both patched here:
@@ -412,7 +468,28 @@ def fixup_config_for_mlx(output_dir: str) -> None:
        as list[float] | tuple[float, ...] with no None variant, so an
        explicit null in the JSON fails AutoConfig.from_pretrained (hit via
        mlx_lm's own tokenizer loading, which pulls in the HF config class).
+    4. eos_token_id missing the tokenizer's actual chat-template eos token
+       (see _tokenizer_eos_token_ids docstring) -- both mlx_lm and plain
+       transformers generation stop on config/generation_config's
+       eos_token_id, so a model fine-tuned to end turns with a token that's
+       absent from that set never stops and degenerates into repeating it.
+       Merged into whatever ids were already declared (as a sorted list),
+       never overwritten, so a correct upstream int/list is left untouched
+       and only ever widened.
     """
+    eos_ids = set(_tokenizer_eos_token_ids(output_dir))
+
+    def _merge_eos(cfg: dict) -> bool:
+        if not eos_ids:
+            return False
+        existing = cfg.get("eos_token_id")
+        existing_list = existing if isinstance(existing, list) else ([existing] if existing is not None else [])
+        merged = sorted(set(existing_list) | eos_ids)
+        if merged != existing_list:
+            cfg["eos_token_id"] = merged
+            return True
+        return False
+
     path = f"{output_dir}/config.json"
     with open(path) as f:
         cfg = json.load(f)
@@ -427,9 +504,18 @@ def fixup_config_for_mlx(output_dir: str) -> None:
     if isinstance(cfg.get("time_step_limit"), list):
         del cfg["time_step_limit"]
         changed = True
+    changed = _merge_eos(cfg) or changed
     if changed:
         with open(path, "w") as f:
             json.dump(cfg, f, indent=2)
+
+    gen_path = f"{output_dir}/generation_config.json"
+    if Path(gen_path).exists():
+        with open(gen_path) as f:
+            gen_cfg = json.load(f)
+        if _merge_eos(gen_cfg):
+            with open(gen_path, "w") as f:
+                json.dump(gen_cfg, f, indent=2)
 
 
 def save_checkpoint(model, tokenizer, output_dir: str, last_completed_block: int, args) -> None:

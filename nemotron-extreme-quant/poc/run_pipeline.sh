@@ -30,10 +30,10 @@
 #   WIKITEXT_PATH  -- path to wikitext-2-raw/wiki.train.raw *on the pod*.
 set -euo pipefail
 
-POD_HOST="${POD_HOST:-185.216.21.214}"
+POD_HOST="${POD_HOST:-1.2.3.4}"
 POD_PORT="${POD_PORT:-43615}"
 POD_SSH_KEY="${POD_SSH_KEY:-$HOME/.runpod/ssh/runpodctl-ssh-key}"
-HF_USER="${HF_USER:-roman220220}"
+HF_USER="${HF_USER:-your-hf-username}"
 MODEL_SRC_DIR="${MODEL_SRC_DIR:-/root/nemotron30b-bf16-src}"
 WIKITEXT_PATH="${WIKITEXT_PATH:-/root/llama.cpp/wikitext-2-raw/wiki.train.raw}"
 POD_POC_DIR="${POD_POC_DIR:-/root/poc}"

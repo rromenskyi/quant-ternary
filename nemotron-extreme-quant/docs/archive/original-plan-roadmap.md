@@ -18,7 +18,7 @@ results inline rather than in a separate log.
       not written yet
 - [ ] Everything from Phase 2 onward
 
-The PoC described in [`poc.md`](poc.md) runs independently of this roadmap,
+The PoC described in [`stage-a-b-poc-validation.md`](stage-a-b-poc-validation.md) runs independently of this roadmap,
 against a small dense model, to validate the quantization math before more
 of this plan gets built out.
 
@@ -277,7 +277,7 @@ Phase 0 → Phase 1 → Phase 2 → Phase 3 → Phase 4
 
 ## First milestone: Phases 0–6
 
-**Goal:** reproduce the metrics table in [`poc.md`](poc.md) against a real
+**Goal:** reproduce the metrics table in [`stage-a-b-poc-validation.md`](stage-a-b-poc-validation.md) against a real
 checkpoint, end to end.
 
 Parallelizable independently once the base interfaces exist:

@@ -17,7 +17,7 @@ The current development target is
 [`nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16`](https://huggingface.co/nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16).
 The eventual target this pipeline needs to scale to is the much larger
 `nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16`. The PoC (see
-[`poc.md`](poc.md)) runs against a small dense Nemotron checkpoint instead,
+[`stage-a-b-poc-validation.md`](stage-a-b-poc-validation.md)) runs against a small dense Nemotron checkpoint instead,
 specifically to validate the core quantization math before spending compute
 on either MoE model.
 
@@ -52,7 +52,7 @@ checkpoint's config rather than hardcoded:
 - Very long context (up to 256K)
 
 The quantization policy system must treat each of these tensor classes
-differently — see [`roadmap.md`](roadmap.md) Phase 14/15 for the
+differently — see [`roadmap.md`](original-plan-roadmap.md) Phase 14/15 for the
 Mamba- and MoE-specific studies this implies.
 
 ## Hardware & backend requirements

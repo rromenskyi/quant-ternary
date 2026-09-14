@@ -10,7 +10,7 @@ install.
 
 Usage:
     python poc/pipeline_dashboard.py \
-        --pod-host 154.54.102.33 --pod-port 19798 \
+        --pod-host 1.2.3.4 --pod-port 19798 \
         --pod-ssh-key ~/.runpod/ssh/runpodctl-ssh-key
     # then open http://localhost:8420
 """

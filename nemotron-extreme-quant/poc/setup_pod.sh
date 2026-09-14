@@ -187,7 +187,7 @@ else
   # on matching FLASH_ATTN_CUDA_ARCHS/Python tag rather than blindly trying
   # it (a wrong-arch wheel would still 'pip install' successfully but
   # produce broken/crashing kernels at runtime instead of failing loudly).
-  FLASH_ATTN_WHEEL_REPO=\"\${FLASH_ATTN_WHEEL_REPO:-roman220220/flash-attn-wheel-cache}\"
+  FLASH_ATTN_WHEEL_REPO=\"\${FLASH_ATTN_WHEEL_REPO:-your-hf-username/flash-attn-wheel-cache}\"
   FLASH_ATTN_WHEEL_FILE=\"flash_attn-2.8.3.post1-\${PY_TAG}-\${PY_TAG}-linux_x86_64.whl\"
   CACHED_WHEEL_OK=\"\"
   if [[ \"\$FLASH_ATTN_CUDA_ARCHS\" == \"80\" && \"\$PY_TAG\" == \"cp312\" ]]; then
@@ -240,9 +240,30 @@ else
   # tensor. Neither package exposes an arch-restriction env var (unlike
   # flash-attn's FLASH_ATTN_CUDA_ARCHS -- checked causal-conv1d's setup.py
   # directly, archs are unconditionally hardcoded by CUDA-toolkit-version
-  # thresholds), so this still builds for every arch that toolkit
-  # supports; not worth a custom setup.py patch for the few extra minutes
-  # it costs.
+  # thresholds), so both build for every arch the toolkit supports
+  # regardless -- a ~5-10 minute build each time, same wheel every time on
+  # a matching stack, so cache the built wheels the same way flash-attn's
+  # are cached below (gated on python tag + torch version match, since
+  # neither exposes a narrower arch flag to gate on).
+  MAMBA_WHEEL_REPO=\"\${MAMBA_WHEEL_REPO:-your-hf-username/mamba-ssm-wheel-cache}\"
+  CAUSAL_CONV1D_WHEEL_FILE=\"causal_conv1d-1.7.0-\${PY_TAG}-\${PY_TAG}-linux_x86_64.whl\"
+  MAMBA_SSM_WHEEL_FILE=\"mamba_ssm-2.3.2.post1-\${PY_TAG}-\${PY_TAG}-linux_x86_64.whl\"
+  MAMBA_CACHE_OK=\"\"
+  if [[ \"\$PY_TAG\" == \"cp312\" && \"\$EXPECTED_TORCH_VERSION\" == \"2.11.0+cu128\" ]]; then
+    echo \"--- python/torch match cp312/2.11.0+cu128, trying cached causal-conv1d/mamba_ssm wheels from \$MAMBA_WHEEL_REPO first ---\"
+    if hf download \"\$MAMBA_WHEEL_REPO\" \"\$CAUSAL_CONV1D_WHEEL_FILE\" --repo-type dataset --local-dir /root/mamba_wheel_cache 2>/dev/null \\
+       && hf download \"\$MAMBA_WHEEL_REPO\" \"\$MAMBA_SSM_WHEEL_FILE\" --repo-type dataset --local-dir /root/mamba_wheel_cache 2>/dev/null \\
+       && '${AXOLOTL_VENV}/bin/pip' install --no-deps \"/root/mamba_wheel_cache/\$CAUSAL_CONV1D_WHEEL_FILE\" \"/root/mamba_wheel_cache/\$MAMBA_SSM_WHEEL_FILE\"; then
+      MAMBA_CACHE_OK=1
+      echo \"--- installed causal-conv1d/mamba_ssm from cached wheels, skipping source build ---\"
+    else
+      echo \"--- cached wheels unavailable, falling back to source build ---\"
+    fi
+  else
+    echo \"--- python \$PY_TAG / torch \$EXPECTED_TORCH_VERSION has no matching cached wheel, building from source ---\"
+  fi
+
+  if [[ -z \"\$MAMBA_CACHE_OK\" ]]; then
   '${AXOLOTL_VENV}/bin/pip' install --no-build-isolation causal-conv1d
   # --no-deps is the crucial part here: mamba_ssm's own dependency
   # resolution was observed to silently force-upgrade torch (2.11.0+cu128
@@ -253,6 +274,7 @@ else
   # not any specific version -- so skip re-resolving its full dependency
   # tree and keep whatever torch is already correctly installed.
   '${AXOLOTL_VENV}/bin/pip' install --no-build-isolation --no-deps mamba_ssm
+  fi
   ACTUAL_TORCH_VERSION=\$('${AXOLOTL_VENV}/bin/python3' -c 'import torch; print(torch.__version__)')
   if [[ \"\$ACTUAL_TORCH_VERSION\" != \"\$EXPECTED_TORCH_VERSION\" ]]; then
     echo \"ERROR: torch changed from \$EXPECTED_TORCH_VERSION to \$ACTUAL_TORCH_VERSION during mamba_ssm install -- something pulled in a dependency upgrade despite --no-deps\" >&2
