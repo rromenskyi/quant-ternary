@@ -194,15 +194,36 @@ if [[ -n "$LORA_ADAPTER" ]]; then
   &&"
 fi
 MLX_LM_INSTALL_STEP=""
+EXTRACT_MTP_STEP=""
+INJECT_MTP_STEP=""
 if [[ -n "$MLX_LM_GIT" ]]; then
-  # Swaps in a patched mlx-lm fork/branch (e.g. one that preserves mtp.*
-  # weights through sanitize()/convert instead of stock mlx-lm's silent
+  # Swaps in a patched mlx-lm fork/branch (one with a NemotronH MTP head +
+  # a sanitize() that keeps mtp.* weights instead of stock mlx-lm's silent
   # strip) right before the conversion step that actually needs it --
   # --force-reinstall because pip won't otherwise treat a git URL as newer
   # than an already-satisfied "mlx-lm" from PyPI.
   # Double quotes (see MERGE_STEP's comment above) -- single quotes here
   # would terminate the outer bash -c '...' string early on the pod.
   MLX_LM_INSTALL_STEP="pip install --quiet --break-system-packages --force-reinstall \"${MLX_LM_GIT}\" && echo MLX_LM_SWAP_DONE &&"
+
+  # mtp.* weights never survive the LoRA merge or GPTQ steps regardless of
+  # which mlx-lm is installed -- HF transformers' NemotronHForCausalLM has
+  # _keys_to_ignore_on_load_unexpected = [r"mtp.*"], so
+  # AutoModelForCausalLM.from_pretrained() (used by both merge_lora.py and
+  # gptq_stock_convert.py) silently drops them on load, before either
+  # PyTorch step or mlx_lm ever sees them. Extract from the untouched bf16
+  # source up front, quantize + splice back in after mlx_lm.convert with
+  # mlx_lm's own model classes (no transformers involved at that point).
+  MTP_HEAD_DIR="/root/mtp-head-${RUN_NAME}"
+  EXTRACT_MTP_STEP="if [ ! -f \"${MTP_HEAD_DIR}/mtp_weights.safetensors\" ]; then \
+    python3 -u extract_mtp_weights.py --source ${MODEL_SRC_DIR} --output ${MTP_HEAD_DIR}; \
+  else echo \"mtp head already extracted, skipping\"; fi \
+  && echo EXTRACT_MTP_DONE \
+  &&"
+  INJECT_MTP_STEP="&& python3 -u inject_mtp_weights.py \
+    --mlx-model ${HF_MLX_DIR} --mtp-weights ${MTP_HEAD_DIR}/mtp_weights.safetensors \
+    --mtp-config ${MTP_HEAD_DIR}/mtp_config.json --bits ${BITS} --group-size ${GROUP_SIZE} \
+  && echo INJECT_MTP_DONE"
 fi
 GPTQ_BITS_ARGS="--bits ${BITS}"
 MLX_CONVERT_CMD="mlx_lm.convert --hf-path ${HF_STAGE_DIR} --mlx-path ${HF_MLX_DIR} -q --q-bits ${BITS} --q-group-size ${GROUP_SIZE}"
@@ -248,7 +269,15 @@ if [[ "$RESUME_FROM_CHECKPOINT" == "$HF_STAGE_DIR" ]]; then
   CLEAN_STAGE_DIR=""
   echo "--- resuming in place from ${HF_STAGE_DIR}, not wiping it ---"
 fi
+# When MTP is being preserved, injection (which happens after mlx_lm.convert)
+# is the true last step -- wait for ITS marker, not MLX_CONVERT_DONE, or the
+# orchestration below would race ahead to upload/download before the mtp
+# head is actually spliced in.
+FINAL_MARKER="MLX_CONVERT_DONE"
+[[ -n "$MLX_LM_GIT" ]] && FINAL_MARKER="INJECT_MTP_DONE"
+
 $SSH "${CLEAN_STAGE_DIR} cd ${POD_POC_DIR} && nohup bash -c '
+  ${EXTRACT_MTP_STEP}
   ${MERGE_STEP}
   python3 -u gptq_stock_convert.py \
     --model ${GPTQ_MODEL_DIR} --output ${HF_STAGE_DIR} \
@@ -261,14 +290,15 @@ $SSH "${CLEAN_STAGE_DIR} cd ${POD_POC_DIR} && nohup bash -c '
   && ${MLX_LM_INSTALL_STEP} \
   ${MLX_CONVERT_CMD} \
   && echo MLX_CONVERT_DONE \
+  ${INJECT_MTP_STEP} \
 ' > ${LOG_FILE} 2>&1 < /dev/null & disown"
 
 echo "--- job launched; tail with: ${SSH} 'tail -f ${LOG_FILE}' ---"
-echo "--- waiting for MLX_CONVERT_DONE (this can take a while; Ctrl-C is safe, the pod job keeps running) ---"
+echo "--- waiting for ${FINAL_MARKER} (this can take a while; Ctrl-C is safe, the pod job keeps running) ---"
 
-$SSH "tail -f -n +1 ${LOG_FILE}" | grep -m1 -E "MLX_CONVERT_DONE|SANITY_CHECK_FAILED|Traceback|Error"
+$SSH "tail -f -n +1 ${LOG_FILE}" | grep -m1 -E "${FINAL_MARKER}|SANITY_CHECK_FAILED|Traceback|Error"
 
-if $SSH "tail -50 ${LOG_FILE} | grep -q MLX_CONVERT_DONE"; then
+if $SSH "tail -50 ${LOG_FILE} | grep -q ${FINAL_MARKER}"; then
   echo "=== conversion succeeded: ${HF_MLX_DIR} ==="
 else
   echo "=== conversion FAILED -- check ${LOG_FILE} on the pod ==="
