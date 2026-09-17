@@ -18,6 +18,15 @@
 #   ./run_pipeline.sh --bits 4 --group-size 64 --sequential \
 #       --run-name my-4bit-test --no-upload
 #
+#   # Merge a LoRA adapter into the base before GPTQ, and swap in a patched
+#   # mlx-lm fork/branch for the conversion step (e.g. one that preserves
+#   # mtp.* weights instead of stock mlx-lm's silent strip). Both are
+#   # optional and independent; using either auto-suffixes the run name
+#   # (-lora / -mtp) so the result never collides with a plain run's repo:
+#   ./run_pipeline.sh --bits 4 --group-size 64 \
+#       --lora-adapter roman220220/ipsupport-code-nemotron-lora \
+#       --mlx-lm-git "git+https://github.com/ipsupport-llc/mlx-lm.git@nemotron-h-mtp"
+#
 # Requires (set as environment variables, or edit the defaults below):
 #   POD_HOST, POD_PORT, POD_SSH_KEY  -- this project's RunPod GPU pod.
 #     RunPod reassigns host/port on every pod start; check the current
@@ -58,6 +67,9 @@ CPU_THREADS=32
 SKIP_SANITY_CHECK=""
 NO_DASHBOARD=""
 DASHBOARD_PORT="${DASHBOARD_PORT:-8420}"
+LORA_ADAPTER=""
+MLX_LM_GIT=""
+COMPONENT_RECIPE=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -78,6 +90,9 @@ while [[ $# -gt 0 ]]; do
     --cpu-threads) CPU_THREADS="$2"; shift 2 ;;
     --skip-sanity-check) SKIP_SANITY_CHECK=1; shift 1 ;;
     --no-dashboard) NO_DASHBOARD=1; shift 1 ;;
+    --lora-adapter) LORA_ADAPTER="$2"; shift 2 ;;
+    --mlx-lm-git) MLX_LM_GIT="$2"; shift 2 ;;
+    --component-recipe) COMPONENT_RECIPE="$2"; shift 2 ;;
     *) echo "unknown flag: $1" >&2; exit 1 ;;
   esac
 done
@@ -87,12 +102,18 @@ if [[ -z "$RUN_NAME" ]]; then
   if [[ -n "$SEQUENTIAL" ]]; then
     SEQ_SUFFIX="-seq"
   fi
-  if [[ -n "$QUANT_RECIPE" ]]; then
+  LORA_SUFFIX=""
+  [[ -n "$LORA_ADAPTER" ]] && LORA_SUFFIX="-lora"
+  MTP_SUFFIX=""
+  [[ -n "$MLX_LM_GIT" ]] && MTP_SUFFIX="-mtp"
+  if [[ "$QUANT_RECIPE_MODE" == "component" ]]; then
+    RUN_NAME="gptq-component-${COMPONENT_RECIPE}-g${GROUP_SIZE}${SEQ_SUFFIX}${LORA_SUFFIX}${MTP_SUFFIX}"
+  elif [[ -n "$QUANT_RECIPE" ]]; then
     MODE_TAG=""
     [[ "$QUANT_RECIPE_MODE" == "sensitivity" ]] && MODE_TAG="-smart"
-    RUN_NAME="gptq-${QUANT_RECIPE}${MODE_TAG}-g${GROUP_SIZE}${SEQ_SUFFIX}"
+    RUN_NAME="gptq-${QUANT_RECIPE}${MODE_TAG}-g${GROUP_SIZE}${SEQ_SUFFIX}${LORA_SUFFIX}${MTP_SUFFIX}"
   else
-    RUN_NAME="gptq${BITS}bit-g${GROUP_SIZE}${SEQ_SUFFIX}"
+    RUN_NAME="gptq${BITS}bit-g${GROUP_SIZE}${SEQ_SUFFIX}${LORA_SUFFIX}${MTP_SUFFIX}"
   fi
 fi
 
@@ -154,9 +175,51 @@ SANITY_CHECK_STEP=""
 if [[ -z "$SKIP_SANITY_CHECK" ]]; then
   SANITY_CHECK_STEP="&& python3 -u sanity_check_hf.py --model ${HF_STAGE_DIR}"
 fi
+GPTQ_MODEL_DIR="${MODEL_SRC_DIR}"
+MERGE_STEP=""
+if [[ -n "$LORA_ADAPTER" ]]; then
+  GPTQ_MODEL_DIR="/root/nemotron30b-bf16-${RUN_NAME}-merged"
+  # Idempotent: skip the merge (a full bf16 forward-load + save, the same
+  # cost class as one GPTQ calibration pass) if a prior run already left a
+  # complete merged checkpoint here.
+  # Double quotes only below -- this whole block is later spliced into an
+  # outer bash -c '"'"'...'"'"' single-quoted string; an unescaped literal
+  # single quote here would terminate that string early and corrupt
+  # everything after it.
+  MERGE_STEP="if [ ! -f \"${GPTQ_MODEL_DIR}/config.json\" ]; then \
+    pip install --quiet --break-system-packages peft && \
+    python3 -u merge_lora.py --base ${MODEL_SRC_DIR} --adapter ${LORA_ADAPTER} --output ${GPTQ_MODEL_DIR}; \
+  else echo \"merged model already present, skipping merge\"; fi \
+  && echo LORA_MERGE_DONE \
+  &&"
+fi
+MLX_LM_INSTALL_STEP=""
+if [[ -n "$MLX_LM_GIT" ]]; then
+  # Swaps in a patched mlx-lm fork/branch (e.g. one that preserves mtp.*
+  # weights through sanitize()/convert instead of stock mlx-lm's silent
+  # strip) right before the conversion step that actually needs it --
+  # --force-reinstall because pip won't otherwise treat a git URL as newer
+  # than an already-satisfied "mlx-lm" from PyPI.
+  # Double quotes (see MERGE_STEP's comment above) -- single quotes here
+  # would terminate the outer bash -c '...' string early on the pod.
+  MLX_LM_INSTALL_STEP="pip install --quiet --break-system-packages --force-reinstall \"${MLX_LM_GIT}\" && echo MLX_LM_SWAP_DONE &&"
+fi
 GPTQ_BITS_ARGS="--bits ${BITS}"
 MLX_CONVERT_CMD="mlx_lm.convert --hf-path ${HF_STAGE_DIR} --mlx-path ${HF_MLX_DIR} -q --q-bits ${BITS} --q-group-size ${GROUP_SIZE}"
-if [[ -n "$QUANT_RECIPE" ]]; then
+if [[ "$QUANT_RECIPE_MODE" == "component" ]]; then
+  if [[ -z "$COMPONENT_RECIPE" ]]; then
+    echo "--quant-recipe-mode component requires --component-recipe (e.g. jang, jang-dense)" >&2
+    exit 1
+  fi
+  # component mode (e.g. "jang", reverse-engineered from JANG_2L-CRACK's
+  # published bit allocation -- see gptq_stock_convert.py's docstring)
+  # assigns bits purely by component type (attention/mamba/moe_shared/
+  # moe_routed_up/moe_routed_down/lm_head/embeddings), ignoring --bits/
+  # --quant-recipe/layer position entirely. This is the recipe the current
+  # production ...-JANG-GPTQ-... models actually use.
+  GPTQ_BITS_ARGS="--quant-recipe-mode component --component-recipe ${COMPONENT_RECIPE}"
+  MLX_CONVERT_CMD="python3 -u mlx_convert_recipe.py --hf-path ${HF_STAGE_DIR} --mlx-path ${HF_MLX_DIR} --group-size ${GROUP_SIZE} --mode component --component-recipe ${COMPONENT_RECIPE}"
+elif [[ -n "$QUANT_RECIPE" ]]; then
   GPTQ_BITS_ARGS="--quant-recipe ${QUANT_RECIPE} --quant-recipe-mode ${QUANT_RECIPE_MODE}"
   # Neither stock mlx_lm.convert --quant-predicate NOR this project's own
   # custom converter can be trusted here without the switch_mlp naming fix
@@ -186,15 +249,17 @@ if [[ "$RESUME_FROM_CHECKPOINT" == "$HF_STAGE_DIR" ]]; then
   echo "--- resuming in place from ${HF_STAGE_DIR}, not wiping it ---"
 fi
 $SSH "${CLEAN_STAGE_DIR} cd ${POD_POC_DIR} && nohup bash -c '
+  ${MERGE_STEP}
   python3 -u gptq_stock_convert.py \
-    --model ${MODEL_SRC_DIR} --output ${HF_STAGE_DIR} \
+    --model ${GPTQ_MODEL_DIR} --output ${HF_STAGE_DIR} \
     --wikitext ${WIKITEXT_PATH} \
     ${GPTQ_BITS_ARGS} --group-size ${GROUP_SIZE} \
     --calib-chunks ${CALIB_CHUNKS} --calib-chunk-tokens ${CALIB_CHUNK_TOKENS} \
     --moe-subbatch ${MOE_SUBBATCH} --cpu-threads ${CPU_THREADS} ${SEQUENTIAL} ${CHECKPOINT_ARGS} ${RESUME_ARGS} \
   && echo GPTQ_STAGE_DONE \
   ${SANITY_CHECK_STEP} \
-  && ${MLX_CONVERT_CMD} \
+  && ${MLX_LM_INSTALL_STEP} \
+  ${MLX_CONVERT_CMD} \
   && echo MLX_CONVERT_DONE \
 ' > ${LOG_FILE} 2>&1 < /dev/null & disown"
 

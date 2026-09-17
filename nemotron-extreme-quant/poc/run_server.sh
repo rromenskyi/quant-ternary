@@ -59,8 +59,9 @@ if [[ ! -d "$VENV_DIR" ]]; then
   "$VENV_DIR/bin/pip" install --quiet --upgrade pip
 fi
 
-echo "--- ensuring mlx-lm is installed ---"
-"$VENV_DIR/bin/pip" install --quiet mlx-lm
+PINNED_VERSION="$(python3 -c "import json; print(json.load(open('$SCRIPT_DIR/mlx_lm_runtime.json'))['pinned_version'])")"
+echo "--- ensuring mlx-lm==$PINNED_VERSION is installed (see mlx_lm_runtime.json) ---"
+"$VENV_DIR/bin/pip" install --quiet "mlx-lm==$PINNED_VERSION"
 
 echo "--- applying KV-cache-quant patch to server.py (idempotent) ---"
 "$VENV_DIR/bin/python" "$SCRIPT_DIR/patch_mlx_server_kv.py"
