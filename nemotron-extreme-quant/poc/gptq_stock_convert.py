@@ -89,6 +89,16 @@ COMPONENT_BIT_RECIPES = {
         "moe_routed_down": 3,  # routed down_proj / switch_mlp.fc2 (128 experts/block)
         "lm_head": 8,
         "embeddings": 6,
+        # Unused by GPTQ itself (mtp.* never reaches this script -- HF
+        # transformers drops it on load before GPTQ ever sees it, see
+        # inject_mtp_weights.py). Kept here anyway so this dict stays an
+        # exact mirror of mlx_convert_recipe.py's copy, which DOES use
+        # these (inject_mtp_weights.py imports its predicate builder).
+        "mtp_attention": 8,
+        "mtp_moe_shared": 8,
+        "mtp_moe_routed_up": 6,
+        "mtp_moe_routed_down": 6,
+        "mtp_fusion": 8,
     },
     # For DENSE NemotronH variants with no MoE at all (e.g.
     # nvidia/NVIDIA-Nemotron-3-Nano-4B-BF16: 42 layers, {mamba: 21,

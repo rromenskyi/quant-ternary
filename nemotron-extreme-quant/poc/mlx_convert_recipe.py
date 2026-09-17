@@ -63,6 +63,20 @@ COMPONENT_BIT_RECIPES = {
         "moe_routed_down": 3,
         "lm_head": 8,
         "embeddings": 6,
+        # The MTP head (~4% of total size) only affects self-speculative
+        # decoding's *accept rate* -- a low-bit draft head just gets rejected
+        # more often, never produces a wrong final token (verified against
+        # plain greedy decoding). But a badly-degraded draft head defeats the
+        # entire point of doing this (speedup), so it gets its OWN, higher
+        # bit-width tier instead of reusing moe_routed_up/down's aggressive
+        # 4/3-bit -- deliberately not GPTQ-calibrated like the rest (see
+        # inject_mtp_weights.py), so a bit of headroom here is cheap
+        # insurance against the extra RTN quantization error.
+        "mtp_attention": 8,
+        "mtp_moe_shared": 8,
+        "mtp_moe_routed_up": 6,
+        "mtp_moe_routed_down": 6,
+        "mtp_fusion": 8,
     },
     # For dense NemotronH variants with no MoE at all (e.g. Nemotron-3-Nano-4B).
     # See gptq_stock_convert.py's COMPONENT_BIT_RECIPES for the full rationale.
@@ -115,6 +129,52 @@ def _is_down_proj(path: str) -> bool:
     return any(alias in path for alias in DOWN_PROJ_ALIASES)
 
 
+def make_component_quant_predicate(cbits: dict, group_size: int):
+    """Build the --mode component quant_predicate for a given component-bits
+    dict. Exported (not just a main() closure) so inject_mtp_weights.py can
+    apply the SAME named recipe (e.g. "jang") to a checkpoint's mtp.* head --
+    every mtp.* path already matches one of these checks (mtp.layers.0 is an
+    attention block, mtp.layers.1 an MoE block, same submodule names as the
+    backbone) except eh_proj, the MTP-only embed/hidden fusion projection.
+    """
+
+    def quant_predicate(path: str, module) -> dict | bool:
+        for alias in ("shared_experts.up_proj", "shared_experts.down_proj"):
+            if alias in path:
+                return {"group_size": group_size, "bits": cbits["moe_shared"], "mode": "affine"}
+        if "switch_mlp.fc1" in path:
+            return {"group_size": group_size, "bits": cbits["moe_routed_up"], "mode": "affine"}
+        if "switch_mlp.fc2" in path:
+            return {"group_size": group_size, "bits": cbits["moe_routed_down"], "mode": "affine"}
+        if any(p in path for p in ("q_proj", "k_proj", "v_proj", "o_proj")):
+            return {"group_size": group_size, "bits": cbits["attention"], "mode": "affine"}
+        if "in_proj" in path or "out_proj" in path:
+            return {"group_size": group_size, "bits": cbits["mamba"], "mode": "affine"}
+        # Dense (non-MoE) MLP block, e.g. Nemotron-3-Nano-4B's "mlp" blocks --
+        # only reached here because the shared_experts/switch_mlp checks above
+        # (which require a more specific path prefix) already handled the MoE
+        # case, so a bare up_proj/down_proj at this point is unambiguous.
+        if ("up_proj" in path or "down_proj" in path) and "mlp" in cbits:
+            return {"group_size": group_size, "bits": cbits["mlp"], "mode": "affine"}
+        if "lm_head" in path:
+            return {"group_size": group_size, "bits": cbits["lm_head"], "mode": "affine"}
+        if "embeddings" in path:
+            return {"group_size": group_size, "bits": cbits["embeddings"], "mode": "affine"}
+        # MTP-only: fuses the drafted token's embedding with the backbone's
+        # hidden state (mtp.layers.0.eh_proj). No backbone equivalent --
+        # treated at the same precision as the attention block it feeds.
+        if "eh_proj" in path:
+            return {
+                "group_size": group_size,
+                "bits": cbits.get("mtp_fusion", cbits["attention"]),
+                "mode": "affine",
+            }
+        print(f"[WARN] unrecognized quantizable path {path!r} under component mode, leaving unquantized", flush=True)
+        return False
+
+    return quant_predicate
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--hf-path", required=True)
@@ -137,31 +197,7 @@ def main() -> None:
             raise SystemExit("--mode component requires --component-recipe")
         cbits = COMPONENT_BIT_RECIPES[args.component_recipe]
         print(f"[INFO] component mode: component_recipe={args.component_recipe} {cbits}", flush=True)
-
-        def quant_predicate(path: str, module) -> dict | bool:
-            for alias in ("shared_experts.up_proj", "shared_experts.down_proj"):
-                if alias in path:
-                    return {"group_size": args.group_size, "bits": cbits["moe_shared"], "mode": "affine"}
-            if "switch_mlp.fc1" in path:
-                return {"group_size": args.group_size, "bits": cbits["moe_routed_up"], "mode": "affine"}
-            if "switch_mlp.fc2" in path:
-                return {"group_size": args.group_size, "bits": cbits["moe_routed_down"], "mode": "affine"}
-            if any(p in path for p in ("q_proj", "k_proj", "v_proj", "o_proj")):
-                return {"group_size": args.group_size, "bits": cbits["attention"], "mode": "affine"}
-            if "in_proj" in path or "out_proj" in path:
-                return {"group_size": args.group_size, "bits": cbits["mamba"], "mode": "affine"}
-            # Dense (non-MoE) MLP block, e.g. Nemotron-3-Nano-4B's "mlp" blocks --
-            # only reached here because the shared_experts/switch_mlp checks above
-            # (which require a more specific path prefix) already handled the MoE
-            # case, so a bare up_proj/down_proj at this point is unambiguous.
-            if ("up_proj" in path or "down_proj" in path) and "mlp" in cbits:
-                return {"group_size": args.group_size, "bits": cbits["mlp"], "mode": "affine"}
-            if "lm_head" in path:
-                return {"group_size": args.group_size, "bits": cbits["lm_head"], "mode": "affine"}
-            if "embeddings" in path:
-                return {"group_size": args.group_size, "bits": cbits["embeddings"], "mode": "affine"}
-            print(f"[WARN] unrecognized quantizable path {path!r} under component mode, leaving unquantized", flush=True)
-            return False
+        quant_predicate = make_component_quant_predicate(cbits, args.group_size)
 
         # convert() requires q_bits even though our predicate always overrides
         # it per-path -- any valid bit-width works (unused), so just take

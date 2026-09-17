@@ -70,6 +70,13 @@ DASHBOARD_PORT="${DASHBOARD_PORT:-8420}"
 LORA_ADAPTER=""
 MLX_LM_GIT=""
 COMPONENT_RECIPE=""
+# Deliberately independent of --bits/--component-recipe: the MTP head is
+# ~4% of total size, and a badly-quantized draft head only hurts *speed*
+# (lower accept rate), never correctness (see inject_mtp_weights.py) --
+# keeping it a few bits above the main recipe's low end is cheap insurance
+# for the whole point of doing this (speedup), not a size optimization
+# target the way the rest of the checkpoint is.
+MTP_BITS=8
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -93,6 +100,7 @@ while [[ $# -gt 0 ]]; do
     --lora-adapter) LORA_ADAPTER="$2"; shift 2 ;;
     --mlx-lm-git) MLX_LM_GIT="$2"; shift 2 ;;
     --component-recipe) COMPONENT_RECIPE="$2"; shift 2 ;;
+    --mtp-bits) MTP_BITS="$2"; shift 2 ;;
     *) echo "unknown flag: $1" >&2; exit 1 ;;
   esac
 done
@@ -220,9 +228,16 @@ if [[ -n "$MLX_LM_GIT" ]]; then
   else echo \"mtp head already extracted, skipping\"; fi \
   && echo EXTRACT_MTP_DONE \
   &&"
+  INJECT_MTP_BITS_ARGS="--bits ${MTP_BITS}"
+  if [[ "$QUANT_RECIPE_MODE" == "component" && -n "$COMPONENT_RECIPE" ]]; then
+    # Same named recipe as the main model (e.g. "jang") -- uses that
+    # recipe's dedicated mtp_* bit tier, not moe_routed_up/down's
+    # aggressive 3-4 bit (see COMPONENT_BIT_RECIPES's comment).
+    INJECT_MTP_BITS_ARGS="--component-recipe ${COMPONENT_RECIPE}"
+  fi
   INJECT_MTP_STEP="&& python3 -u inject_mtp_weights.py \
     --mlx-model ${HF_MLX_DIR} --mtp-weights ${MTP_HEAD_DIR}/mtp_weights.safetensors \
-    --mtp-config ${MTP_HEAD_DIR}/mtp_config.json --bits ${BITS} --group-size ${GROUP_SIZE} \
+    --mtp-config ${MTP_HEAD_DIR}/mtp_config.json ${INJECT_MTP_BITS_ARGS} --group-size ${GROUP_SIZE} \
   && echo INJECT_MTP_DONE"
 fi
 GPTQ_BITS_ARGS="--bits ${BITS}"
