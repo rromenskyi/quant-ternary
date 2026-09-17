@@ -1042,3 +1042,114 @@ competing cheap alternative.
   that a simple packer does not implement. Where this matters, prefer
   letting a mature stock tool (e.g. `mlx_lm.convert`) do the final packing
   step instead of re-implementing bit-packing.
+
+## 4. MTP (Multi-Token Prediction) preservation
+
+### 4.1 The current production model has zero `mtp.*` weights, and neither GPTQ nor `mlx_lm.convert` is where they got lost
+
+`nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16` ships a DeepSeek-style
+MTP head (config: `num_nextn_predict_layers`, `mtp_layers_block_type`) as a
+separate safetensors shard — 270 `mtp.*` tensors, ~1.34B params (bf16),
+~4.06% of the model's total 65.8GB. This project's own
+`...-JANG-GPTQ-ipsupport-code-lora` has 0 of 729 keys starting with
+`mtp.` (confirmed directly against the published `model.safetensors.
+index.json`). The actual cause: HF transformers' `NemotronHForCausalLM`
+has `_keys_to_ignore_on_load_unexpected = [r"mtp.*"]`, so **any**
+`transformers.AutoModelForCausalLM.from_pretrained()` call — the LoRA
+merge step and `gptq_stock_convert.py`'s own loading, both PyTorch-based —
+silently drops these weights on load, before GPTQ or `mlx_lm.convert` (or
+which `mlx-lm` version is installed) ever get a chance to see them. Stock
+`mlx_lm`'s own `sanitize()` also strips `mtp.*` unconditionally, but by
+the time a checkpoint reaches that step in this project's pipeline, the
+weights are already gone — patching only that layer (as
+`ipsupport-llc/mlx-lm@nemotron-h-mtp` initially did, mirroring
+`AirRunner/mlx-lm`'s Qwen3.5 work and pierre427's abandoned
+`nemotron-h-mtp-head` PR upstream) is necessary but not sufficient for a
+pipeline that routes through PyTorch at all.
+
+Confirmed by direct reproduction: round-tripping a real `mtp.*`-bearing
+checkpoint through plain `AutoModelForCausalLM.from_pretrained(dtype=
+torch.bfloat16).save_pretrained(...)` — no GPTQ, no LoRA, nothing else —
+already drops all `mtp.*` keys (824 keys, 0 `mtp.*`, vs. the source's 272).
+
+### 4.2 Fix: extract before, inject after — never let `mtp.*` touch a PyTorch step
+
+`poc/extract_mtp_weights.py` pulls `mtp.*` straight out of the untouched
+bf16 source via `mlx.core.load` (reading only the shard(s) that actually
+contain them, identified from the index — no need to touch the other
+~62GB), before the LoRA merge or GPTQ ever run. `poc/inject_mtp_weights.py`
+splices them back into the already-`mlx_lm.convert`-ed model afterward,
+using `mlx_lm`'s own model classes directly (`ipsupport-llc/mlx-lm@
+nemotron-h-mtp`'s `nemotron_h.Model`/`sanitize()` — no transformers
+involved at this point at all). `run_pipeline.sh`'s `--mlx-lm-git` flag
+now triggers both steps around the existing merge/GPTQ/convert chain,
+rather than (as first assumed) just needing to swap the `mlx_lm.convert`
+step's package. Verified end-to-end against a real checkpoint (not just
+synthetic weights): extract → simulated transformers strip → `mlx_lm.
+convert -q` → inject → self-speculative decoding output is bit-exact
+against plain greedy decoding, both at a flat bit-width and via the
+`--component-recipe jang` path.
+
+### 4.3 A real upstream `mlx_lm` bug: the fused single-step Mamba/SSM kernel is wrong when replaying a captured (not live) state
+
+Independent of this project's pipeline: the reference MTP self-speculative
+decoding driver (`ipsupport-llc/mlx-lm@nemotron-h-mtp`'s
+`nemotron_h_mtp_generate_step`, modeled on `AirRunner/mlx-lm`'s Qwen3.5
+implementation) rejects a bad MTP draft by rolling the model's Mamba/KV
+caches back from a 2-token speculative block to 1 kept token, via
+`Model.rollback_speculative_cache` — for the Mamba side, by replaying the
+SSM update from a *captured* pre-update state (an `ssm_sink` snapshot),
+not letting the cache's own live state carry forward. `mlx_lm.models.ssm.
+ssm_update` auto-dispatches any `seq_len == 1` call on GPU to
+`ssm_update_kernel`, a fused Metal kernel that assumes `state` is *its own
+immediately-prior output* — precisely violated by a `keep == 1` rollback
+replay, which is a `seq_len == 1` call fed a state captured earlier in the
+same forward pass, not produced by that kernel a moment before. Confirmed
+by forcing `mx.set_default_device(mx.cpu)` (which always takes the safe
+`ssm_attn` scan path regardless of `seq_len`): the SAME rollback call that
+diverges by up to 1.73 (raw SSM state, arbitrary units) on GPU matches a
+fresh forward to ~1e-9 on CPU. Existing coverage never caught this because
+the one pre-existing rollback unit test only exercised `keep=2, block_size
+=4` (`seq_len=2`), which never reaches the single-step kernel at all.
+Fixed by calling `ssm_attn` directly in the replay path instead of going
+through `ssm_update`'s auto-dispatcher. `keep==1` is exactly the reject
+case for k=1 MTP speculation — the common case — so this would have
+silently corrupted the Mamba state on every rejected draft on real Apple
+Silicon hardware.
+
+### 4.4 `transformers`' `{"__float__": "Infinity"}` config encoding needs decoding in `mlx_lm`, not patching around
+
+Any config that has round-tripped through `save_pretrained()` (LoRA merge,
+GPTQ) re-serializes `NemotronHConfig`'s full resolved field set, including
+computed defaults not present in the original checkpoint's config.json.
+`time_step_limit`'s default upper bound is `float("inf")`, and plain JSON
+has no literal for that — `transformers` encodes it as
+`{"__float__": "Infinity"}` instead of a bare number. `mlx_lm`'s
+`ModelArgs.__post_init__` didn't know this convention and passed the raw
+dict straight into `mx.clip()`, crashing on the model's very first forward
+pass. Fixed at the source (a small `_decode_hf_float()` helper in
+`nemotron_h.py`'s `ModelArgs.__post_init__`) rather than a one-off
+config.json patch-up step in this project's own pipeline scripts, since
+every checkpoint that goes through a PyTorch-based step in this pipeline
+will hit this, not just the MTP path specifically.
+
+### 4.5 The MTP head gets its own bit tier, not the backbone's most aggressive one
+
+The injected head isn't GPTQ-calibrated (plain round-to-nearest via
+`mlx_lm.utils.quantize_model`, reusing its divisibility-skip safety rather
+than a bare `nn.quantize` call, which crashes instead of skipping a
+weight whose last dim isn't divisible by `group_size`). Correctness is
+unaffected by the head's precision either way — a degraded draft is just
+*rejected more often* by the verify pass, never wrong (see 4.2's bit-exact
+result) — but a badly-quantized head defeats the entire point of doing
+this (a low accept rate means little to no speedup). `COMPONENT_BIT_
+RECIPES["jang"]` therefore carries dedicated `mtp_attention`/`mtp_moe_
+shared`/`mtp_moe_routed_up`/`mtp_moe_routed_down`/`mtp_fusion` keys (8/8/
+6/6/8 bit) instead of reusing `moe_routed_up`/`moe_routed_down`'s 4/3-bit
+tier — ~4% of total size buys meaningfully better accept rate.
+`inject_mtp_weights.py` reuses `mlx_convert_recipe.py`'s own component-mode
+predicate builder (extracted to a module-level `make_component_quant_
+predicate()` so both scripts share it) — every `mtp.*` path already
+matches one of that predicate's existing checks (same submodule names as
+the backbone) except `eh_proj` (the MTP-only embed/hidden fusion
+projection), which the predicate now also handles.

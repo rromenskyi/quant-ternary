@@ -158,7 +158,65 @@ target's ceiling; `sudo sysctl iogpu.wired_limit_mb=<N>` (see MLX's own
 `mx.set_wired_limit` docs) may be needed, at the cost of leaving the OS
 less headroom.
 
-## 4. Comparing results
+## 4. LoRA-merged, MTP-preserving pipeline (self-speculative decoding)
+
+Same Path A pipeline (`run_pipeline.sh`), plus two flags. Neither the LoRA
+merge nor GPTQ can see `mtp.*` weights -- HF transformers drops them on
+load before either PyTorch step runs (see docs/FINDINGS.md section 4.1) --
+so `--mlx-lm-git` triggers extracting them from the untouched bf16 source
+up front and splicing them back into the finished MLX model afterward,
+around the merge/GPTQ/convert chain rather than by patching any single
+step in it:
+
+```bash
+cd poc
+./run_pipeline.sh --quant-recipe-mode component --component-recipe jang --group-size 64 \
+    --lora-adapter roman220220/ipsupport-code-nemotron-lora \
+    --mlx-lm-git "git+https://github.com/ipsupport-llc/mlx-lm.git@nemotron-h-mtp"
+```
+
+- `--lora-adapter <hf-repo-or-local-dir>`: merges this PEFT adapter into
+  the base checkpoint (`poc/merge_lora.py`, via `peft.PeftModel.
+  merge_and_unload()`) before GPTQ. Idempotent -- skips the merge if a
+  prior run already left a complete merged checkpoint at
+  `/root/nemotron30b-bf16-<run-name>-merged`.
+- `--mlx-lm-git <git+https url>`: installs this mlx-lm fork/branch instead
+  of stock PyPI `mlx-lm` before the conversion step (needs a NemotronH MTP
+  head + `sanitize()` that keeps `mtp.*` -- e.g. `ipsupport-llc/mlx-lm@
+  nemotron-h-mtp`), AND triggers the extract/inject steps around it
+  (`poc/extract_mtp_weights.py` before the merge/GPTQ chain,
+  `poc/inject_mtp_weights.py` after `mlx_lm.convert`/`mlx_convert_recipe.
+  py`). Using either flag auto-suffixes the run name (`-lora`/`-mtp`), so
+  the result is always a separate HF repo from a plain run -- it never
+  overwrites an existing production model.
+- `--mtp-bits N` (default 8): flat bit-width for the injected head when
+  NOT using `--component-recipe`. With `--component-recipe jang`, the
+  head instead gets that recipe's own `mtp_attention`/`mtp_moe_shared`/
+  `mtp_moe_routed_up`/`mtp_moe_routed_down`/`mtp_fusion` tier (8/8/6/6/8
+  bit) -- deliberately higher than the backbone's most aggressive
+  `moe_routed_up`/`down` (4/3-bit), since the head is ~4% of total size,
+  isn't GPTQ-calibrated (plain RTN), and a degraded draft only costs
+  *speedup* (self-speculative accept rate), never correctness.
+
+Verify the head actually made it into the result and the model still
+generates correctly:
+
+```bash
+python3 -c "
+from mlx_lm.utils import load
+model, tok = load('models/<run-name>')
+print('has mtp:', model.mtp is not None)
+"
+mlx_lm.generate --model models/<run-name> --prompt "Hello" --max-tokens 50
+```
+
+There is no CLI flag yet to actually *use* the MTP head for generation
+(the self-speculative driver, `nemotron_h_mtp_generate_step` in
+`ipsupport-llc/mlx-lm@nemotron-h-mtp`'s `mlx_lm/generate.py`, isn't wired
+into `mlx_lm.server`/`mlx_lm.generate`'s CLI yet) -- call it directly, or
+from a driver script, the same way its own tests do.
+
+## 5. Comparing results
 
 Perplexity, same corpus, either path's output:
 
