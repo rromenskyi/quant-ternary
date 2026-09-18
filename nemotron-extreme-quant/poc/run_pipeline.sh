@@ -235,8 +235,26 @@ if [[ -n "$MLX_LM_GIT" ]]; then
     # aggressive 3-4 bit (see COMPONENT_BIT_RECIPES's comment).
     INJECT_MTP_BITS_ARGS="--component-recipe ${COMPONENT_RECIPE}"
   fi
+  # gptq_mtp.py GPTQ-calibrates the head (transformers.NemotronHBlock IS
+  # what mtp.layers.0/1 already are, so gptq_stock_convert.py's own
+  # quantize_dense_block/quantize_moe_block apply completely unmodified)
+  # instead of leaving it to inject_mtp_weights.py's plain RTN -- same bit
+  # budget either way, real calibration instead of round-to-nearest. Only
+  # ~2 small blocks vs the backbone's ~51, so this adds little runtime.
+  # Calibrates against GPTQ_MODEL_DIR (the LoRA-merged, pre-GPTQ bf16
+  # model) -- must run after MERGE_STEP for that path to be the real one.
+  MTP_GPTQ_WEIGHTS="${MTP_HEAD_DIR}/mtp_weights_gptq.safetensors"
+  GPTQ_MTP_STEP="if [ ! -f \"${MTP_GPTQ_WEIGHTS}\" ]; then \
+    python3 -u gptq_mtp.py --model ${GPTQ_MODEL_DIR} \
+      --mtp-weights ${MTP_HEAD_DIR}/mtp_weights.safetensors --mtp-config ${MTP_HEAD_DIR}/mtp_config.json \
+      --wikitext ${WIKITEXT_PATH} --output ${MTP_GPTQ_WEIGHTS} \
+      ${INJECT_MTP_BITS_ARGS} --group-size ${GROUP_SIZE} \
+      --calib-chunks ${CALIB_CHUNKS} --calib-chunk-tokens ${CALIB_CHUNK_TOKENS} --moe-subbatch ${MOE_SUBBATCH}; \
+  else echo \"mtp head already GPTQ-calibrated, skipping\"; fi \
+  && echo GPTQ_MTP_DONE \
+  &&"
   INJECT_MTP_STEP="&& python3 -u inject_mtp_weights.py \
-    --mlx-model ${HF_MLX_DIR} --mtp-weights ${MTP_HEAD_DIR}/mtp_weights.safetensors \
+    --mlx-model ${HF_MLX_DIR} --mtp-weights ${MTP_GPTQ_WEIGHTS} \
     --mtp-config ${MTP_HEAD_DIR}/mtp_config.json ${INJECT_MTP_BITS_ARGS} --group-size ${GROUP_SIZE} \
   && echo INJECT_MTP_DONE"
 fi
@@ -294,6 +312,7 @@ FINAL_MARKER="MLX_CONVERT_DONE"
 $SSH "${CLEAN_STAGE_DIR} cd ${POD_POC_DIR} && nohup bash -c '
   ${EXTRACT_MTP_STEP}
   ${MERGE_STEP}
+  ${GPTQ_MTP_STEP}
   python3 -u gptq_stock_convert.py \
     --model ${GPTQ_MODEL_DIR} --output ${HF_STAGE_DIR} \
     --wikitext ${WIKITEXT_PATH} \
