@@ -86,10 +86,35 @@ def main() -> None:
     parser.add_argument("--max-rows-per-module", type=int, default=4096)
     parser.add_argument("--prompts", type=int, default=4)
     parser.add_argument("--steps", type=int, default=9)
-    parser.add_argument("--bits", type=int, default=8)
+    parser.add_argument(
+        "--bits", type=int, default=None,
+        help="uniform bit-width for both attention and feed_forward -- mutually exclusive with "
+        "--attn-bits/--ffn-bits",
+    )
+    parser.add_argument(
+        "--attn-bits", type=int, default=None,
+        help="bit-width for attention.to_q/to_k/to_v/to_out.0 (component-type mixed precision, "
+        "e.g. 8-bit attention + 4-bit feed_forward -- attention is the smaller of the two "
+        "component types by param count in Z-Image-Turbo, ~1.77B vs feed_forward's ~3.54B "
+        "across all 30 layers, so protecting it costs relatively little)",
+    )
+    parser.add_argument("--ffn-bits", type=int, default=None, help="bit-width for feed_forward.w1/w2/w3")
     parser.add_argument("--group-size", type=int, default=64)
     parser.add_argument("--device", default="cuda", choices=["cuda", "cpu", "mps"])
     args = parser.parse_args()
+
+    if args.bits is not None and (args.attn_bits is not None or args.ffn_bits is not None):
+        parser.error("--bits is mutually exclusive with --attn-bits/--ffn-bits")
+    if args.bits is None and (args.attn_bits is None or args.ffn_bits is None):
+        if args.attn_bits is None and args.ffn_bits is None:
+            args.bits = 8  # preserve the old default when nothing is specified
+        else:
+            parser.error("--attn-bits and --ffn-bits must both be given together")
+    attn_bits = args.attn_bits if args.attn_bits is not None else args.bits
+    ffn_bits = args.ffn_bits if args.ffn_bits is not None else args.bits
+
+    def bits_for(key: str) -> int:
+        return attn_bits if ".attention." in key else ffn_bits
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -156,17 +181,23 @@ def main() -> None:
 
         print("  Running GPTQ correction for this batch ...", flush=True)
         corrected: dict[str, torch.Tensor] = {}
+        key_bits: dict[str, int] = {}
         for key, module in target_modules.items():
+            bits = bits_for(key)
             X = torch.cat(captured[key], dim=0)
             W = module.weight.detach().to(torch.float32).cpu()
             result = gptq_nbit(
-                W, X, bits=args.bits, group_size=args.group_size, device=args.device, scheme="affine"
+                W, X, bits=bits, group_size=args.group_size, device=args.device, scheme="affine"
             )
             corrected[key] = result["W_hat"].to(torch.bfloat16).contiguous()
-            print(f"    {key}: {tuple(W.shape)}, calib rows={X.shape[0]}", flush=True)
+            key_bits[key] = bits
+            print(f"    {key}: {tuple(W.shape)}, bits={bits}, calib rows={X.shape[0]}", flush=True)
 
         batch_path = output_dir / f"batch_{'_'.join(str(i) for i in batch)}.safetensors"
-        save_file(corrected, str(batch_path), metadata={"bits": str(args.bits), "group_size": str(args.group_size)})
+        save_file(
+            corrected, str(batch_path),
+            metadata={"group_size": str(args.group_size), "key_bits": json.dumps(key_bits)},
+        )
         print(f"  Wrote {batch_path}", flush=True)
         done_layers.update(batch)
         save_progress(output_dir, done_layers)

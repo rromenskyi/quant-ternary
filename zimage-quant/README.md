@@ -75,7 +75,13 @@ mflux-generate-z-image-turbo --model /tmp/zimage-8bit-gptq-full \
 ```
 
 Published checkpoints: [z-image-turbo-gptq-mlx-8bit](https://huggingface.co/roman220220/z-image-turbo-gptq-mlx-8bit),
-[z-image-turbo-gptq-mlx-4bit](https://huggingface.co/roman220220/z-image-turbo-gptq-mlx-4bit).
+[z-image-turbo-gptq-mlx-4bit](https://huggingface.co/roman220220/z-image-turbo-gptq-mlx-4bit),
+[z-image-turbo-gptq-mlx-mixed](https://huggingface.co/roman220220/z-image-turbo-gptq-mlx-mixed)
+(attention 8-bit + feed-forward 4-bit — a `jang-dense`-style component-type
+bit allocation, adapted from `nemotron-extreme-quant`'s LLM recipe of the
+same name; validated to beat uniform 4-bit on both PSNR and generation
+composition stability for +0.8GB, via `--attn-bits`/`--ffn-bits` on
+`zimage_gptq_calibrate.py`).
 
 Use these models directly from [LLMTray](https://github.com/ipsupport-llc/llmtray)'s
 built-in image generation (tool-calling `generate_image`), which drives

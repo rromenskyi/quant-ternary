@@ -60,7 +60,7 @@ def layer_of(key: str) -> int:
 
 
 def apply_corrections_to_checkpoint(
-    output_dir: Path, corrected: dict, bits: int, group_size: int
+    output_dir: Path, corrected: dict, key_bits: dict[str, int], group_size: int
 ) -> None:
     transformer_dir = output_dir / "transformer"
     index_path = transformer_dir / "model.safetensors.index.json"
@@ -83,7 +83,7 @@ def apply_corrections_to_checkpoint(
         tensors = dict(mx.load(str(shard_path)))
         for key in keys:
             w = corrected[key]  # already mx.array, bf16
-            wq, scales, biases = mx.quantize(w, group_size=group_size, bits=bits, mode="affine")
+            wq, scales, biases = mx.quantize(w, group_size=group_size, bits=key_bits[key], mode="affine")
             tensors[f"{key}.weight"] = wq
             tensors[f"{key}.scales"] = scales
             tensors[f"{key}.biases"] = biases
@@ -96,7 +96,10 @@ def main() -> None:
     parser.add_argument("--corrected-dir", required=True, help="dir of batch_*.safetensors from zimage_gptq_calibrate.py")
     parser.add_argument("--mflux-saved-dir", required=True, help="template, used only if --output-dir doesn't exist yet")
     parser.add_argument("--output-dir", required=True)
-    parser.add_argument("--bits", type=int, default=8)
+    parser.add_argument(
+        "--bits", type=int, default=8,
+        help="fallback bit-width for batch files with no per-key metadata (old single-bit-width runs)",
+    )
     parser.add_argument("--group-size", type=int, default=64)
     args = parser.parse_args()
 
@@ -119,6 +122,13 @@ def main() -> None:
             batch_layers = {layer_of(k) for k in keys}
             if batch_layers <= done_layers:
                 continue  # already spliced in a previous run of this script
+            metadata = f.metadata() or {}
+            if "key_bits" in metadata:
+                key_bits = json.loads(metadata["key_bits"])
+            else:
+                # Old single-bit-width batch files (metadata={"bits": "8"}) --
+                # every key in the file used the same --bits value.
+                key_bits = {k: args.bits for k in keys}
             # bfloat16 isn't a native numpy dtype -- bridge through float32,
             # same as zimage_gptq.py's original write_corrected_checkpoint.
             corrected = {
@@ -126,7 +136,7 @@ def main() -> None:
                 for k in keys
             }
         print(f"Splicing {batch_path.name} (layers {sorted(batch_layers)}) ...", flush=True)
-        apply_corrections_to_checkpoint(output_dir, corrected, args.bits, args.group_size)
+        apply_corrections_to_checkpoint(output_dir, corrected, key_bits, args.group_size)
         done_layers |= batch_layers
         save_progress(output_dir, done_layers)
         applied += 1
