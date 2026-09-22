@@ -46,9 +46,31 @@ def hessian_diag(X: torch.Tensor, in_features: int, percdamp: float = 0.01) -> t
 
 
 def _compute_hinv(X: torch.Tensor, in_features: int, percdamp: float) -> torch.Tensor:
-    """Upper-triangular Cholesky factor of (X^T X + damping)^-1, float32."""
-    H = _raw_hessian(X, in_features, percdamp)
-    L = torch.linalg.cholesky(H)
+    """Upper-triangular Cholesky factor of (X^T X + damping)^-1, float32.
+
+    When there are fewer calibration rows than in_features (e.g. a wide
+    feed-forward down-proj calibrated on a few thousand diffusion-step
+    activations), X^T X is exactly rank-deficient -- adding `percdamp *
+    mean(diag)` to every diagonal entry is mathematically enough to make
+    H positive-definite (H + damp*I has min eigenvalue >= damp > 0), but
+    in float32 that margin can still be swamped by round-off once Cholesky
+    is deep into a near-null direction (confirmed live: failed at leading
+    minor 7278/10240 with the default percdamp on a genuinely rank-4224,
+    10240-wide matrix). Retrying with 10x the damping is the standard GPTQ
+    fix for this and only ever fires on already-ill-conditioned layers --
+    it does not change behavior for the common case where the first
+    Cholesky attempt succeeds.
+    """
+    damp_mult = 1.0
+    for attempt in range(6):
+        H = _raw_hessian(X, in_features, percdamp * damp_mult)
+        try:
+            L = torch.linalg.cholesky(H)
+            break
+        except torch._C._LinAlgError:
+            if attempt == 5:
+                raise
+            damp_mult *= 10
     # torch.cholesky_inverse (LAPACK potri) measured 24s+ on a 2688x2688 matrix
     # regardless of conditioning; cholesky_solve against the identity uses the
     # same factor L but stays ~30x faster (0.7s) on this hardware's BLAS.
