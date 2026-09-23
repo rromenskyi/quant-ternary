@@ -19,10 +19,10 @@ Model cards live in [`cards/`](cards). The pipelines copy them in, so edit
 them here, not on HF.
 
 The two MLX repos predate the leftover-RTN fix (FINDINGS: "uncalibrated
-Linears shipped in bf16"): E4B still carries ~30MB of bf16 audio
-projections plus ~110MB of never-loaded weights, and the 26B carries its
-3.2M-element `embed_vision.embedding_projection`. A pipeline re-run with
-`PUBLISH=1` replaces them.
+Linears shipped in bf16"). The E4B carries ~30MB of bf16 audio projections
+plus ~110MB of never-loaded weights, and the 26B carries 6.5MB. Republishing
+was deliberately deferred: the gain is negligible. The next real re-release
+picks the fix up automatically.
 
 ## Method, in one paragraph each
 

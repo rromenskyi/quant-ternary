@@ -252,9 +252,21 @@ parameter that isn't a Linear breaks at load if its weight is packed.
 `--drop-kv-shared-dead` omits the dead tensors. Validated on a copy of the
 published E4B with 14 RTN'd and 54 dropped: text unchanged, vision "two
 cats", audio transcription word-for-word identical, audio embeddings
-cosine ≥ 0.9997 vs the bf16 original. **Not republished yet**: both HF
-repos still have the leftovers until the pipeline is re-run with
-`PUBLISH=1`.
+cosine ≥ 0.9997 vs the bf16 original.
+
+**Decision (2026-09-23): not republished, not worth a pod run on its own.**
+What the published repos actually carry:
+
+| Repo | Real leftover | Intentional float | Dead on disk |
+|---|---|---|---|
+| E4B JANG | 14 audio tensors, ~30MB (≈0.5% of 6.3GB) | `patch_embedder.input_proj` 0.6M | 54 KV-shared k/v/k_norm, ~110MB (never loaded) |
+| 26B JANG | `embed_vision.embedding_projection` 6.5MB (~3MB saved at 8-bit, of 15GB) | routers 21.6MB, `patch_embedder.input_proj` 1.8MB | none |
+
+No measurable speed/memory/quality gain; bf16 is if anything slightly more
+precise. The pipeline now handles it automatically, so the next real
+re-release (new recipe / calibration) ships clean. Until then the live HF
+cards still say "Nothing is left in bf16"; the corrected wording is in
+`cards/` and goes out with that re-release.
 
 **Trap: `vision_tower.patch_embedder.input_proj` must stay float.**
 mlx-lm's `gemma4_vision.PatchEmbedder` casts pixels to
