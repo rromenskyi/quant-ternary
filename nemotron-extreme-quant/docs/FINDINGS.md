@@ -681,6 +681,58 @@ consolidated here since it recurs across §1.6/§1.1 and §2.1/§2.2:
 
 ---
 
+### 2.5 The 30B ipsupport-code LoRA calls tools reflexively and double-closes `<think>` (found in LLMTray, 2026-09-23)
+
+Symptom in LLMTray (image generation on, so `generate_image` was in the
+tool list): on "привет" the model's reasoning said "No tool needed", then it
+answered and **called `generate_image` anyway** with an unrelated prompt
+("a Japanese garden...", "a futuristic city..."). Some replies also showed a
+literal `</think>` followed by the answer repeated.
+
+Measured with `poc/eval_tool_reflex.py`: "привет", temperature 1.0,
+top_p 0.95, seeds 0–19, in-process `stream_generate`, the same tool schema
+LLMTray sends.
+
+| model | double `</think>` (no tools in prompt) | tool call on "привет" (tools in prompt) |
+|---|---|---|
+| **LoRA-MTP** (`...-ipsupport-code-lora-MTP`) | **3/20** | **10/20**, 9 with "no tool needed" in the reasoning |
+| JANG-GPTQ, no LoRA (`nemotron-30b-a3b-gptq-jang-component`) | 0/20 | 0/20 |
+| stock `mlx-community/...-4bit` | 0/20 | 0/20 |
+
+**The LoRA is the cause, not quantization.** Greedy decoding (temperature
+0) reproduces it deterministically: reasoning "No tool needed" →
+`</think>` → "Привет! Чем могу помочь?" → `<tool_call>`.
+
+- **The double close is real model output, not a parser bug.** The special
+  `</think>` token (id 13) is generated twice: `...</think>`, the answer,
+  `</think>`, the answer again. mlx_lm.server's reasoning parser splits at
+  the first one and passes the second through as text, which is correct.
+- **Working theory (the dataset lives on the pod, not re-inspected yet):**
+  - The ~125 synthetic "just answer, no tool" conversations added in §2.1
+    were greetings/clarifications **without a tool schema in the prompt**.
+  - Every example that *had* tools available ended its assistant turn in a
+    tool call.
+  - So the model never saw "tools available, and the right move is not to
+    use them". Its reasoning text learned to say "no tool", but the action
+    after the answer is still the learned reflex.
+  - The double close plausibly comes from mixed rendering. Prior assistant
+    turns in multi-turn traces render as the collapsed `<think></think>`
+    form, while the final turn gets the full `<think>\n...\n</think>\n`
+    form (see §2.1). So "answer, then `</think>`" is a sequence the model
+    has seen.
+- **Fix direction for the next LoRA round:**
+  1. Add conversations where the tool schema **is** present and the correct
+     turn is a plain reply (greetings, questions, "explain X"). Also add
+     ones where a tool is used once and then the turn ends in text.
+  2. Re-check the rendered training text with the direct-tokenization
+     method of §2.1, including history turns.
+  3. Gate the release on `eval_tool_reflex.py`: 0 tool calls and 0 double
+     closes on non-task prompts.
+- **Not caused by** temperature alone. The stock and no-LoRA models are
+  0/20 at the same temperature 1.0. Temperature only changes the rate on
+  the LoRA model (7/10 at T=1.0 vs 1/10 at T=0.6 in one server run; small
+  samples).
+
 ## 3. Infrastructure and tooling
 
 ### 3.1 `torch.cholesky_inverse` is silently ~30x slower than the mathematically-equivalent alternative
@@ -1153,3 +1205,35 @@ predicate()` so both scripts share it) — every `mtp.*` path already
 matches one of that predicate's existing checks (same submodule names as
 the backbone) except `eh_proj` (the MTP-only embed/hidden fusion
 projection), which the predicate now also handles.
+
+### 4.6 The MTP decode path prefilled the whole prompt at once: unbounded memory → OOM (fixed, ipsupport-llc/mlx-lm#6)
+
+A tester reported the MTP model using 36+GB and then OOM'ing when driven
+by a coding agent (long prompts, greedy decoding). Greedy selects the MTP
+path. Cause:
+- `nemotron_h_mtp_generate_step` fed the entire prompt to the backbone in
+  one call.
+- `stream_generate` never passed it `prefill_step_size`.
+
+So peak memory grew with prompt length: MoE and Mamba activations for every
+prompt token at once.
+
+Reproduced on a 26GB M5 (Metal `max_recommended_working_set_size` 19.07GB,
+model 17.9GB active), `prefill_step_size=128`:
+
+| prompt | plain sampled path | MTP path before | MTP path after |
+|---|---|---|---|
+| 400 tok | 18.44GB | **OOM** | 18.44GB |
+| 1000 tok | 18.44GB | **OOM** | 18.44GB |
+| 4000 tok | 18.45GB | **OOM** | 18.45GB |
+
+The fix chunks the MTP prefill like `generate_step`. Only the last chunk's
+hidden state feeds the MTP head, as before. Chunked vs one-shot greedy
+output diverges late at a near-tie token, exactly like plain
+`generate_step` does (bf16 chunked Mamba scan). That's inherent, not
+introduced by the fix.
+
+Related operational note: `sudo sysctl iogpu.wired_limit_mb=22000` (used
+earlier to give this 17GB model headroom) does **not** survive a reboot. It
+was back at 0 (default, 19.07GB on this Mac) on 2026-09-23. At the default
+limit, a 400-token prompt with the old MTP code was enough to OOM.
