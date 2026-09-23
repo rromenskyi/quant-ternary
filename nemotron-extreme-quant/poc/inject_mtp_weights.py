@@ -45,12 +45,22 @@ def main() -> None:
     parser.add_argument("--mlx-model", required=True)
     parser.add_argument("--mtp-weights", required=True)
     parser.add_argument("--mtp-config", required=True)
-    parser.add_argument("--group-size", type=int, required=True)
+    parser.add_argument("--group-size", type=int, default=None, help="ignored for --mode nvfp4 (fixed group_size=16)")
     parser.add_argument("--bits", type=int, default=None, help="uniform bit-width; overridden by --component-recipe")
     parser.add_argument("--component-recipe", default=None, choices=list(COMPONENT_BIT_RECIPES))
+    parser.add_argument(
+        "--mode", default="affine", choices=["affine", "nvfp4"],
+        help="nvfp4 is a fixed (group_size=16, bits=4) floating-point format, uniform across the "
+        "whole head -- --bits/--component-recipe's per-component tiering doesn't apply to it, "
+        "since mlx's nvfp4 quantized modules don't take a variable bit-width.",
+    )
     args = parser.parse_args()
-    if args.component_recipe is None and args.bits is None:
-        raise SystemExit("Either --bits or --component-recipe is required.")
+    if args.mode == "affine" and args.component_recipe is None and args.bits is None:
+        raise SystemExit("Either --bits or --component-recipe is required for --mode affine.")
+    if args.mode == "nvfp4" and (args.component_recipe is not None or args.bits is not None):
+        raise SystemExit("--bits/--component-recipe don't apply to --mode nvfp4 (fixed 4-bit, uniform).")
+    if args.mode == "affine" and args.group_size is None:
+        raise SystemExit("--group-size is required for --mode affine.")
 
     config_path = os.path.join(args.mlx_model, "config.json")
     with open(config_path) as f:
@@ -73,6 +83,7 @@ def main() -> None:
 
     quant_predicate = None
     bits_for_convert = args.bits
+    group_size_for_convert = args.group_size
     if args.component_recipe is not None:
         cbits = COMPONENT_BIT_RECIPES[args.component_recipe]
         # Remap this recipe's mtp_* tier onto the plain component-name keys
@@ -88,13 +99,19 @@ def main() -> None:
         }
         quant_predicate = make_component_quant_predicate(mtp_cbits, args.group_size)
         bits_for_convert = min(mtp_cbits.values())  # unused (predicate overrides per-path), quantize_model still wants a value
+    elif args.mode == "nvfp4":
+        # Fixed format -- quantize_model's own defaults_for_mode() fills in
+        # (group_size=16, bits=4) when both are None, uniformly, no predicate.
+        bits_for_convert = None
+        group_size_for_convert = None
 
     # Reuse mlx_lm's own quantize_model (not a bare nn.quantize) -- it skips
     # any weight whose last dim isn't divisible by group_size instead of
     # crashing, matching exactly how mlx_lm.convert quantized the rest of
     # this checkpoint.
     quantize_model(
-        model.mtp, {}, group_size=args.group_size, bits=bits_for_convert, quant_predicate=quant_predicate
+        model.mtp, {}, group_size=group_size_for_convert, bits=bits_for_convert,
+        mode=args.mode, quant_predicate=quant_predicate,
     )
 
     quantized_flat = dict(tree_flatten(model.mtp.parameters()))
@@ -114,14 +131,18 @@ def main() -> None:
 
     config.update(mtp_config)
     quant = config.setdefault(
-        "quantization", {"group_size": args.group_size, "bits": args.bits or 4, "mode": "affine"}
+        "quantization", {"group_size": args.group_size or 16, "bits": args.bits or 4, "mode": args.mode}
     )
     for name, module in model.mtp.named_modules():
         if hasattr(module, "bits"):
             quant[f"mtp.{name}"] = {
                 "group_size": module.group_size,
                 "bits": module.bits,
-                "mode": "affine",
+                # nn.QuantizedLinear/QuantizedEmbedding expose their own
+                # .mode -- read it back rather than assuming args.mode, in
+                # case quantize_model's mode-specific defaults ever diverge
+                # from what was actually requested.
+                "mode": getattr(module, "mode", args.mode),
             }
     with open(config_path, "w") as f:
         json.dump(config, f, indent=2)
