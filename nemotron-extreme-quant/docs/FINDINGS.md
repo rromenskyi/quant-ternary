@@ -728,6 +728,32 @@ LLMTray sends.
      method of §2.1, including history turns.
   3. Gate the release on `eval_tool_reflex.py`: 0 tool calls and 0 double
      closes on non-task prompts.
+- **Prompt-side mitigation measured (2026-09-23): helps questions, does not fix greetings.**
+  LoRA-MTP model, temperature 1.0 / top_p 0.95, seeds 0–19, LLMTray's
+  tool schema. `rule` is a system message ("Only call a tool when the
+  user's latest message explicitly asks you to perform that action... For
+  greetings, small talk, questions and anything else, answer in text and
+  do not call any tool."). `desc` is the tool description rewritten to
+  "Call this only when the user's latest message explicitly asks for an
+  image... Never call it for greetings, small talk or questions."
+
+  | variant | "привет" | "как дела? что умеешь?" | "нарисуй кота в космосе" (should call) |
+  |---|---|---|---|
+  | baseline | 10/20 | 14/20 | 20/20 |
+  | rule | 11/20 | 5/20 | 20/20 |
+  | desc | 7/20 | 4/20 | 19/20 |
+  | rule + desc | 10/20 | 6/20 | 20/20 |
+
+  - Questions drop from 14/20 to 4–6/20.
+  - Greetings stay at 7–11/20, which is within noise of the baseline at
+    N=20.
+  - Real requests are unaffected.
+  - Conclusion: the greeting reflex is baked into the LoRA and no prompt
+    removes it. LLMTray ships rule + desc anyway (llmtray#8), because it
+    costs nothing and fixes the question case.
+  - For greetings the remaining levers are lower temperature (1/10 at
+    T=0.6 in one run, via a per-model profile) or the next LoRA round.
+    The user decided against retraining for now.
 - **Not caused by** temperature alone. The stock and no-LoRA models are
   0/20 at the same temperature 1.0. Temperature only changes the rate on
   the LoRA model (7/10 at T=1.0 vs 1/10 at T=0.6 in one server run; small
