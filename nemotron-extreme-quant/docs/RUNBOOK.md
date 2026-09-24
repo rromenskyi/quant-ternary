@@ -210,6 +210,21 @@ print('has mtp:', model.mtp is not None)
 mlx_lm.generate --model models/<run-name> --prompt "Hello" --max-tokens 50
 ```
 
+Measure how much speedup the head actually buys (draft accept rate and
+tok/s of self-speculative decoding on held-out text) -- the number to
+compare MTP-head quantization variants by (RTN-affine vs. GPTQ-affine vs.
+RTN-nvfp4); it never affects correctness:
+
+```bash
+python poc/eval_mtp_accept_rate.py --model models/<run-name> \
+  --text /path/to/wikitext-2-raw/wiki.test.raw \
+  --prompts 8 --prompt-tokens 64 --gen-tokens 200
+```
+
+It drives `nemotron_h_mtp_generate_step` directly and prints per-prompt
+and overall `accept_rate` / `tok/s` (an accepted draft yields two tokens,
+the draft plus a free bonus token, which the script accounts for).
+
 There is no CLI flag yet to actually *use* the MTP head for generation
 (the self-speculative driver, `nemotron_h_mtp_generate_step` in
 `ipsupport-llc/mlx-lm@nemotron-h-mtp`'s `mlx_lm/generate.py`, isn't wired
