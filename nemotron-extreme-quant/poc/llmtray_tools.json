@@ -1,0 +1,260 @@
+{
+  "tool_use_policy" : "Call a tool only when the user's latest message needs it: to do what they asked (for example draw, generate or create an image), or to get what you can't know yourself -- today's date or time, exact arithmetic, current news, facts you'd have to look up. For greetings, small talk and anything you can answer from your own knowledge, answer in text and do not call any tool.",
+  "tools" : [
+    {
+      "function" : {
+        "description" : "Generate an image from a text description using a local diffusion model running on this Mac. Call this only when the user's latest message explicitly asks for an image (draw, create, generate, sketch, or make a picture, illustration, artwork, or photo). Never call it for greetings, small talk or questions.",
+        "name" : "generate_image",
+        "parameters" : {
+          "properties" : {
+            "height" : {
+              "description" : "Image height in pixels. Defaults to 1024.",
+              "type" : "integer"
+            },
+            "prompt" : {
+              "description" : "A detailed visual description of the image to generate.",
+              "type" : "string"
+            },
+            "width" : {
+              "description" : "Image width in pixels. Defaults to 1024.",
+              "type" : "integer"
+            }
+          },
+          "required" : [
+            "prompt"
+          ],
+          "type" : "object"
+        }
+      },
+      "type" : "function"
+    },
+    {
+      "function" : {
+        "description" : "Today's date, weekday and local time. Call it first whenever the user says today, tomorrow, yesterday, a weekday or \"now\" -- you don't know the current date otherwise.",
+        "name" : "get_current_date",
+        "parameters" : {
+          "properties" : {
+            "timezone" : {
+              "description" : "IANA time zone like \"Europe\/Kyiv\" or \"UTC\". Omit for the user's own.",
+              "type" : "string"
+            }
+          },
+          "required" : [
+
+          ],
+          "type" : "object"
+        }
+      },
+      "type" : "function"
+    },
+    {
+      "function" : {
+        "description" : "The current local date and time in a city (\"what time is it in Tokyo?\"). `city` is a single place name, never a comma-separated address; put the country in `country_code`.",
+        "name" : "get_current_time_in_city",
+        "parameters" : {
+          "properties" : {
+            "city" : {
+              "description" : "City name, e.g. \"Kyiv\".",
+              "type" : "string"
+            },
+            "country_code" : {
+              "description" : "Optional ISO-3166 alpha-2 code, e.g. \"UA\", to pick the right city.",
+              "type" : "string"
+            }
+          },
+          "required" : [
+            "city"
+          ],
+          "type" : "object"
+        }
+      },
+      "type" : "function"
+    },
+    {
+      "function" : {
+        "description" : "Evaluate an arithmetic expression exactly. Use it for ANY numeric answer instead of computing in your head (multi-digit multiplication, percentages, powers, rounding). Supports + - * \/ \/\/ % ^ **, parentheses, pi, e, and sqrt, cbrt, log(x[, base]), log10, log2, exp, sin, cos, tan, asin, acos, atan, floor, ceil, round(x[, digits]), abs, min, max, hypot, factorial, gcd, lcm. Examples: \"3847 * 29\", \"2450 * 15 \/ 100\", \"sqrt(2450)\", \"log(8, 2)\".",
+        "name" : "calculate",
+        "parameters" : {
+          "properties" : {
+            "expression" : {
+              "description" : "The expression, e.g. \"(300 + 50) * 1.08 \/ 2\".",
+              "type" : "string"
+            }
+          },
+          "required" : [
+            "expression"
+          ],
+          "type" : "object"
+        }
+      },
+      "type" : "function"
+    },
+    {
+      "function" : {
+        "description" : "General web search (DuckDuckGo) for non-time-sensitive questions: documentation, facts, companies, how-tos. Returns titles, URLs and snippets. For current events use `news`; for Hacker News use `hackernews`.",
+        "name" : "web_search",
+        "parameters" : {
+          "properties" : {
+            "limit" : {
+              "description" : "1-15, default 8.",
+              "type" : "integer"
+            },
+            "query" : {
+              "description" : "What to search for, in any language.",
+              "type" : "string"
+            }
+          },
+          "required" : [
+            "query"
+          ],
+          "type" : "object"
+        }
+      },
+      "type" : "function"
+    },
+    {
+      "function" : {
+        "description" : "Recent news (Google News) -- use for current events, anything \"today\", \"latest\", \"recent\". With a query: articles about it; without: top headlines.",
+        "name" : "news",
+        "parameters" : {
+          "properties" : {
+            "lang" : {
+              "description" : "Language code for the edition, e.g. \"en\", \"ru\", \"uk\", \"de\". Default \"en\".",
+              "type" : "string"
+            },
+            "limit" : {
+              "description" : "1-20, default 10.",
+              "type" : "integer"
+            },
+            "query" : {
+              "description" : "Topic to search news for. Omit for top headlines.",
+              "type" : "string"
+            }
+          },
+          "required" : [
+
+          ],
+          "type" : "object"
+        }
+      },
+      "type" : "function"
+    },
+    {
+      "function" : {
+        "description" : "Hacker News posts -- when the user names HN or asks what the tech community is discussing. For mainstream news use `news`.",
+        "name" : "hackernews",
+        "parameters" : {
+          "properties" : {
+            "category" : {
+              "description" : "One of top (default), new, best, ask, show, job.",
+              "type" : "string"
+            },
+            "limit" : {
+              "description" : "1-30, default 15.",
+              "type" : "integer"
+            }
+          },
+          "required" : [
+
+          ],
+          "type" : "object"
+        }
+      },
+      "type" : "function"
+    },
+    {
+      "function" : {
+        "description" : "A short Wikipedia summary and link for a person, place, concept or event (\"tell me about X\", \"who is X\", \"what is X\", \"расскажи про X\", \"кто такой X\").",
+        "name" : "get_wikipedia_summary",
+        "parameters" : {
+          "properties" : {
+            "lang" : {
+              "description" : "Wikipedia language code, e.g. \"en\", \"ru\", \"uk\", \"de\". Default: the title's language.",
+              "type" : "string"
+            },
+            "title" : {
+              "description" : "The topic as the user said it, e.g. \"Kyiv\" or \"Alan Turing\".",
+              "type" : "string"
+            }
+          },
+          "required" : [
+            "title"
+          ],
+          "type" : "object"
+        }
+      },
+      "type" : "function"
+    },
+    {
+      "function" : {
+        "description" : "Country facts from Wikidata: capital, population, area, continent, currency, official languages, calling code, neighbours.",
+        "name" : "get_country_info",
+        "parameters" : {
+          "properties" : {
+            "country" : {
+              "description" : "Country name in any language (\"Ukraine\", \"Украина\") or ISO code (\"UA\", \"UKR\").",
+              "type" : "string"
+            }
+          },
+          "required" : [
+            "country"
+          ],
+          "type" : "object"
+        }
+      },
+      "type" : "function"
+    },
+    {
+      "function" : {
+        "description" : "Public holidays of a country in a year.",
+        "name" : "get_public_holidays",
+        "parameters" : {
+          "properties" : {
+            "country_code" : {
+              "description" : "ISO-3166 alpha-2 code, e.g. \"UA\", \"US\", \"JP\".",
+              "type" : "string"
+            },
+            "year" : {
+              "description" : "Defaults to the current year.",
+              "type" : "integer"
+            }
+          },
+          "required" : [
+            "country_code"
+          ],
+          "type" : "object"
+        }
+      },
+      "type" : "function"
+    },
+    {
+      "function" : {
+        "description" : "Convert an amount between currencies at today's exchange rate (\"how much is 50 USD in EUR?\"). Rates change every day: always call this for any currency conversion -- never assume a rate or compute one with `calculate`.",
+        "name" : "convert_currency",
+        "parameters" : {
+          "properties" : {
+            "amount" : {
+              "description" : "The amount to convert.",
+              "type" : "number"
+            },
+            "from_currency" : {
+              "description" : "ISO-4217 code, e.g. \"USD\".",
+              "type" : "string"
+            },
+            "to_currency" : {
+              "description" : "ISO-4217 code, e.g. \"EUR\".",
+              "type" : "string"
+            }
+          },
+          "required" : [
+            "amount",
+            "from_currency",
+            "to_currency"
+          ],
+          "type" : "object"
+        }
+      },
+      "type" : "function"
+    }
+  ]
+}

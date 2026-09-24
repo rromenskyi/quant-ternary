@@ -759,6 +759,46 @@ LLMTray sends.
   the LoRA model (7/10 at T=1.0 vs 1/10 at T=0.6 in one server run; small
   samples).
 
+- **Measured with LLMTray's tools (2026-09-24).** LLMTray now ships eleven
+  chat tools (date/time, calculator, web search, news, Hacker News,
+  Wikipedia, country facts, holidays, currency, image generation) and a new
+  default tool-use rule. The old rule forbade tools for any question, which
+  would block the calculator and date tools. The new one: "Call a tool only
+  when the user's latest message needs it: to do what they asked (for
+  example draw, generate or create an image), or to get what you can't know
+  yourself -- today's date or time, exact arithmetic, current news, facts
+  you'd have to look up. For greetings, small talk and anything you can
+  answer from your own knowledge, answer in text and do not call any tool."
+  Measured with `poc/eval_tool_choice.py` against LLMTray's server: all 11
+  tools declared, the rule in the system prompt, temperature 0.7, one run
+  per prompt. There are 8 no-tool prompts (greetings, small talk, knowledge,
+  code) and 13 prompts that need a specific tool.
+
+  | model | tool call when none needed | right tool when one is needed |
+  |---|---|---|
+  | Gemma 4 26B-A4B gptq-mlx-jang | **0/8** | **13/13** |
+  | Nemotron 3 Nano 4B JANG-GPTQ ipsupport-code-lora | **0/8** | 11/13 → 12/13 |
+
+  - Nano 4B's two misses:
+    - It answered "население и столица Японии" from memory (acceptable).
+    - It "converted" 100 USD to EUR with `calculate` and an invented rate.
+      After `convert_currency`'s description said that rates change daily
+      and must never be assumed (llmtray#36), it called `convert_currency`
+      in 9/9 runs (3 prompts × 3). "привет" stayed at 0/3.
+  - **The 30B LoRA-MTP could not be re-measured on the 26 GB Mac.** The model
+    is 17 GB, against the ~19 GB default Metal limit. The server's prompt
+    cache (512 MB) grew with each request until
+    `[METAL] Command buffer execution failed: Insufficient Memory` on about
+    the 9th request. It happened with a second model resident as well.
+    - After that the server's generation thread is dead but the process
+      lives on, so every request is refused at once ("Remote end closed
+      connection") until a restart.
+    - LLMTray didn't notice, because no request stalls. It is now fixed to
+      restart on that log line.
+    - To do: re-run `eval_tool_choice.py` and `eval_tool_reflex.py` on the
+      30B LoRA-MTP with the GPU otherwise free, or on the pod. The §2.5
+      greeting reflex (7–11/20 under the old rule) is the number to beat.
+
 ## 3. Infrastructure and tooling
 
 ### 3.1 `torch.cholesky_inverse` is silently ~30x slower than the mathematically-equivalent alternative
