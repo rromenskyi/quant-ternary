@@ -170,10 +170,37 @@ table above.
 - Total ≈ 5.7GB weights and ~7GB peak at 1024². That fits next to Gemma 4
   26B JANG + drafter (~15.5GB) on a 26GB Mac.
 
+## Editing (`Flux2KleinEdit`, measured 2026-09-25)
+
+Same weights as text-to-image; the reference image(s) are VAE-encoded at
+their own size and their tokens concatenated to the generation's (with a KV
+cache for them). Script `poc/klein_edit_memory.py`, numbers in
+`docs/edit_results_2026-09-25.json`, images in
+[docs/klein_edit_grid.jpg](klein_edit_grid.jpg). Recipe above (TE 8-bit
+truncated, transformer 4-bit RTN, VAE tiles 256), 1024², 4 steps.
+
+| | peak | time* |
+|---|---|---|
+| weights resident | 5.66GB | |
+| text-to-image | 7.33GB | 37–43s |
+| edit, 1 reference | **9.43GB** | ~114s |
+| edit, 2 references | 11.04GB | ~184s |
+
+\* Measured with Gemma 4 26B loaded in another process and ~10% memory
+free, so every time is inflated by memory pressure (text-to-image took
+~20s on an idle Mac, above). The peaks are this process's and hold.
+
+- Editing costs ~2.5–3× the time of generating (the reference tokens
+  lengthen the sequence), and ~2GB more peak per 1024² reference.
+- **Quality holds at 4-bit**: "make it night, full moon, falling snow"
+  kept the fox, trees and composition and changed only the light; "put a
+  red knitted hat on the fox" changed only the hat; two references (fox +
+  cat) merged into one scene with both recognisable.
+- For LLMTray: with the chat model unloaded during generation (the
+  default), a one-reference edit peaks at ~9.4GB, well inside 26GB.
+
 Open questions:
 - GPTQ vs RTN for the transformer: calibration pipeline to port from
   zimage-quant.
-- The editing variant (`flux2_klein_edit`): same weights, different
-  pipeline. Measure its memory with a reference image.
 - Unloading the text encoder between the prompt encode and denoising
   (3.3GB freed during the transformer steps, at a reload cost per image).
