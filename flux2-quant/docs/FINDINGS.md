@@ -214,3 +214,79 @@ plain `model_path`. 6.2 GB on disk (text encoder 4.0, transformer 2.0, VAE 0.16)
 loaded; image PSNR 50.3 dB vs the in-memory recipe; editing works. This is the RTN
 baseline LLMTray tests with (`mflux_models/klein4b`, not published); GPTQ for the
 transformer is next, and publishing waits on testing.
+
+## GPTQ for the transformer (`poc/klein_gptq.py`, 2026-09-25/26)
+
+Method, and where it differs from zimage-quant:
+- **Calibrated inside mflux on the real 4-step loop** (no diffusers/torch
+  pipeline). 16 text-to-image samples at 512²–1024×768 plus 8 edits whose
+  references are the bf16 model's own images, so the reference-image tokens
+  (edit mode, step 0 through the KV cache) are in the calibration set.
+  `mx.disable_compile()` is needed: mflux compiles `predict`, and the
+  capture wrappers' side effects must run.
+- **Hessians accumulated, not activations dumped.** Each target Linear is
+  wrapped; X^T X (float32, on the GPU) is summed over every token of every
+  step — no row cap. `gptq_nbit` depends on X only through X^T X, so it
+  gets a square X = chol(H)^T. q/k/v (and add_q/k/v) read the same input
+  and share one H.
+- **Passes under a memory budget** (`--hessian-budget-gb`, default 3):
+  all 109 Hessians are ~17 GB (a single block's `to_out` is 12288² = 604 MB).
+  Each pass re-runs the same deterministic samples on the bf16 model
+  (one-shot GPTQ, not sequential).
+- Text encoder: encoded once per prompt, then freed (TE 8-bit, 27 layers,
+  as deployed).
+- Rank-deficient Hessians (modulation Linears see one timestep embedding
+  per step): Cholesky with a jitter far below GPTQ's 1% damping; `eigh` in
+  float64 as the last resort took minutes per 9216-wide matrix, so it's
+  avoided.
+
+Pitfalls hit:
+- A numpy view (`np.array(mx_array, copy=False)`) of a temporary mlx
+  array, handed to torch, was read after mlx freed it: SIGBUS mid-GPTQ.
+  Always copy across mlx → numpy → torch.
+- One 69-Linear pass (all double blocks, ~5 GB of Hessians) beside the
+  7.8 GB bf16 model swapped: 197 s per 1024×768 sample instead of ~70 s.
+- Unbounded, mlx's buffer cache plus lazily-kept per-call X^T X (the sum
+  was only evaluated at the end of each step: a second full set of
+  Hessians) grew the process to 17–18 GB. Fixed by `mx.eval` on each
+  accumulation and `mx.set_cache_limit(1 GB)`; calibration sizes capped at
+  768 px. Process then ~14–15 GB, no new swap.
+
+Run (M5, 26 GB): 109 Linears, 4 passes at `--hessian-budget-gb 5`, 24
+samples per pass. Pass times 26 / 22 / 20 / 12 min, ~1 h 20 min in total.
+Text-to-image samples take 16–66 s, edits ~2 min (the reference doubles the
+sequence). GPTQ itself is 1–14 s per Linear on CPU. Same size as RTN:
+transformer 2.18 GB, checkpoint 6.2 GB.
+
+### Evaluation (`poc/klein_gptq_eval.py`, raw numbers in `docs/gptq_eval_2026-09-26.json`)
+
+Setup:
+- 6 text-to-image prompts and 3 edits, none of them in the calibration
+  set, 1024², seed 7.
+- The same 8-bit, 27-layer text encoder embeddings for every model, so
+  only the transformer differs.
+- Main metric: **teacher-forced velocity error**. Each step of the
+  quantized model gets bf16's latents as input; the value is
+  ||v_q − v_bf16|| / ||v_bf16||, averaged over the 4 steps.
+- Also the free-run image's PSNR vs bf16's.
+
+| transformer 4-bit g64 | v-err txt2img | v-err edit | PSNR txt2img | PSNR edit |
+|---|---|---|---|---|
+| RTN | 0.244 | 0.171 | 18.7 | 25.7 |
+| **GPTQ** | **0.202** (−17%) | **0.136** (−20%) | **19.6** | **26.2** |
+
+- **GPTQ has the lower velocity error on all 9 samples** (per sample
+  −12 % to −21 %).
+- PSNR is mixed per sample (GPTQ is lower on poster, sunflowers and
+  poster_text), as expected from single-seed image PSNR, but better on
+  average.
+- Visually ([docs/klein_gptq_grid.jpg](klein_gptq_grid.jpg), columns
+  bf16 / RTN / GPTQ), both stay close to bf16's composition. The
+  differences are small detail: poster decoration, the fox's fur, the
+  sunflower heads.
+- Neither quant fixes what bf16 itself gets wrong: the "SUMMER SALE" text
+  edit fails in bf16 too.
+
+Next: truncate the text encoder to its 27 used layers on disk (~1 GB
+smaller download), then LLMTray testing with the GPTQ checkpoint before
+anything is published.
