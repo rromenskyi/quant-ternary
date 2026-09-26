@@ -141,3 +141,113 @@ instrumental prompt).
 - mlx-audio pinned to `1e8264a` and installed from a GitHub tarball;
 - mlx-community 4-bit DiT + the official LM 1.7B folder, ~9 GB;
 - 30 s of music in ~23 s through the app's Swift path.
+
+## ACE-Step variants on the vocal test set (2026-09-26)
+
+Same 3 songs × 4 seeds, 30 s, Whisper WER (capped at 1 per track). Times
+on the M5 unless noted.
+
+| config | mean WER | pop | rock | ballad | < 0.3 | s / track |
+|---|---|---|---|---|---|---|
+| turbo 4-bit, LM 1.7B, 8 steps (LLMTray today) | 0.56 | 0.35 | 0.70 | 0.63 | 3 | 22 |
+| turbo 4-bit, LM 1.7B, 20 steps | 0.55 | 0.33 | 0.69 | 0.63 | 2 | 33 |
+| turbo 4-bit, LM 4B, 8 steps | 0.51 | 0.14 | 0.80 | 0.59 | 5 | 48 |
+| turbo 4-bit, LM 4B, 20 steps | 0.45 | 0.14 | 0.65 | 0.55 | 5 | 56 |
+| official pipeline, turbo | 0.66 | 0.63 | 0.58 | 0.77 | 2 | 83 |
+| official pipeline, **sft** (50 steps, CFG 7) | **0.17** | 0.11 | 0.21 | 0.18 | 9 | 114 |
+| **MLX sft** (bf16, ours, no LM, 50 steps, CFG 7) | **0.22** | 0.02 | 0.22 | 0.43 | 6 | **36** (peak 10.6 GB) |
+
+Listening (the user): the turbo tracks sound fuller and more like a
+finished song. sft puts the voice upfront with less music. The two are
+different trade-offs, not a strict ranking, and WER only measures the
+vocals.
+
+### Making sft work in mlx-audio
+
+- mlx-audio's DiT architecture is the same for sft and turbo. The official
+  `modeling_acestep_v15_base.py` and `_turbo.py` differ only in sampling:
+  linspace schedule with shift vs turbo's fixed 8-step table, ODE to t=0,
+  and CFG with APG and a momentum buffer.
+- `poc/acestep_convert_mlx.py` converts any official DiT. mlx-audio's
+  `convert.py` is hard-wired to turbo. The DiT is stored bf16.
+- **The sft DiT makes cacophony (no music, no words) when fed mlx-audio's
+  5 Hz LM hints.** Without the LM (`use_lm=False`), with CFG 7, APG,
+  shift 1, CFG on every step, it sings: pop WER 0.07 on the first probe.
+  sft doesn't need the planner, so there are ~15 s and ~4 GB less.
+- mlx-audio's unconditional CFG branch runs the encoder on zeros.
+  Officially it is the trained `null_condition_emb`
+  (`poc/acestep_null_cond.py` patches it). Whether this matters is being
+  measured (`sft_nolm_zeros` run).
+- Red herring for the record: the official `silence_latent.pt` is
+  [1, 64, T], and mlx-audio's loader transposes it itself. The
+  mlx-community turbo repo's copy is missing from the snapshot, and mlx-audio
+  then uses zeros, which turbo tolerates.
+
+## MiniMax Music 3 (MiniMaxAI/MiniMax-Music3), on a rented A100 (2026-09-26)
+
+Community license: commercial use is allowed. The UI must show
+"MiniMax-Music3"; above US$20M/yr revenue a separate authorization is
+needed; safeguards against rights violations are required.
+
+Components the diffusers pipeline actually loads, ~28.5 GB bf16 (the repo is
+57 GB):
+- global LM, Qwen3-8B: 17.2 GB;
+- flow-matching DiT, 2.4B: 9.7 GB;
+- RVQ depth decoder, 0.6B: 1.3 GB;
+- vocoder and condition encoder: 0.3 GB.
+
+`qwen_7B/` (18.5 GB, MiniMax "abab", Mixtral-style) and the `.pth` files are
+not used by the diffusers pipeline.
+
+**The LM's last hidden state of every frame is part of what the synthesis
+stage decodes** (`frame_hiddens` = LM hidden ⊕ depth hiddens,
+`encoders.py`). So LM quantization error reaches the audio directly, not
+only through token choices.
+
+Reference, bf16 on the A100 (diffusers 0.40.0, 30 s):
+- 54 s a track, 24.5 GB peak;
+- vocal WER: 0.76 with our one-line captions, 0.63 with detailed
+  structured captions (the format MiniMax recommends);
+- listening: music, clearly AI, decent. It adds lyric-driven sound design,
+  e.g. rain in the song whose lyrics mention rain.
+
+Quantization, LM only, other parts bf16. WER on 12 sampled tracks is **not
+usable** for this: RTN-4 scored 0.32 against bf16's 0.63 (seed luck, since
+AR sampling diverges at the first different token). Instead,
+`poc/minimax_tf_metric.py` does teacher forcing:
+- bf16 generates 3 songs and every LM input is recorded;
+- the whole sequence goes through bf16 and each variant;
+- the metrics are taken at the audio frames.
+
+| LM 8B | hidden-state rel. error | top-1 agreement | KL |
+|---|---|---|---|
+| RTN 8-bit g64 | 1.5% | 97.2% | 0.0018 |
+| RTN 4-bit g64 | 15.0% | 85.5% | 0.056 |
+| **GPTQ 4-bit g64** (`poc/minimax_gptq_lm.py`) | **9.9% (−34%)** | **90.3%** | **0.027 (−52%)** |
+
+GPTQ calibration:
+- 8 songs outside the eval set, including Russian and Spanish;
+- Hessians summed over the AR generation, q/k/v and gate/up sharing one;
+- 6 min of GPTQ on the A100.
+
+The packed 4-bit LM (3.9 GB) is kept for an MLX port. Estimated size of a
+Mac recipe (LM GPTQ-4, DiT and depth 8-bit): ~8 GB. Estimated speed on an
+M5: 1–2 min per 30 s, which is not measured.
+
+Head to head on one electronic track (dubstep synth-pop, 60 s, listening):
+none of the three really does dubstep. ACE-Step **sft** sounded best on
+electronic music, turbo was "a little electronic", and MiniMax was fine but
+no better. **Decision: MiniMax parked; ACE-Step sft goes into LLMTray.**
+
+Pod pitfalls:
+- On a community A100 node (load average ~205), long processes were
+  SIGKILLed from outside the container: downloads and generation, with no
+  cgroup OOM and no killer inside. A secure-cloud pod ran clean.
+- `hf download` of many large files in parallel silently failed there.
+  Per-file `curl -C -` in a resume loop worked.
+- The pipeline's `modular_model_index.json` points every component at the
+  hub repo: `load_components` re-downloads even from a local directory.
+  Point it at the local path and set `HF_HUB_OFFLINE=1`.
+- A secure host failed to start the container at all
+  (`/dev/dri/card7` missing). Its logs showed it; deleting and re-creating
+  the pod fixed it.
