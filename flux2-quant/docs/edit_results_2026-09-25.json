@@ -1,0 +1,23 @@
+{
+  "weights_gb": 5.66,
+  "txt2img_1024": {
+    "sec": 43.1,
+    "peak_gb": 7.33
+  },
+  "txt2img_cat_1024": {
+    "sec": 36.9,
+    "peak_gb": 7.33
+  },
+  "edit_night_1ref": {
+    "sec": 113.8,
+    "peak_gb": 9.43
+  },
+  "edit_hat_1ref": {
+    "sec": 114.4,
+    "peak_gb": 9.43
+  },
+  "edit_2ref": {
+    "sec": 184.2,
+    "peak_gb": 11.04
+  }
+}
