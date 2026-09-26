@@ -204,3 +204,13 @@ Open questions:
   zimage-quant.
 - Unloading the text encoder between the prompt encode and denoising
   (3.3GB freed during the transformer steps, at a reload cost per image).
+
+## Loadable checkpoint (RTN recipe, 2026-09-25)
+
+`poc/klein_make_checkpoint.py` turns an `mflux-save --model flux2-klein-4b --quantize 8`
+directory into the recipe checkpoint: transformer re-quantized to 4-bit (group 64), text
+encoder kept 8-bit. mflux infers per-module bits from tensor shapes, so it loads with a
+plain `model_path`. 6.2 GB on disk (text encoder 4.0, transformer 2.0, VAE 0.16), 5.65 GB
+loaded; image PSNR 50.3 dB vs the in-memory recipe; editing works. This is the RTN
+baseline LLMTray tests with (`mflux_models/klein4b`, not published); GPTQ for the
+transformer is next, and publishing waits on testing.
