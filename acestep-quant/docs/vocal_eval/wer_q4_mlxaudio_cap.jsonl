@@ -1,0 +1,12 @@
+{"wav": "q4_mlxaudio_cap/pop_s1.wav", "wer": 1.0, "transcript": "Ross Howard"}
+{"wav": "q4_mlxaudio_cap/pop_s2.wav", "wer": 1.0, "transcript": "Top\u306a \u0417\u0434\u0435\u0441\u044c"}
+{"wav": "q4_mlxaudio_cap/pop_s3.wav", "wer": 1.0, "transcript": "Peace"}
+{"wav": "q4_mlxaudio_cap/pop_s4.wav", "wer": 1.0, "transcript": "Satsang with Mooji"}
+{"wav": "q4_mlxaudio_cap/rock_s1.wav", "wer": 1.0, "transcript": "Thank you."}
+{"wav": "q4_mlxaudio_cap/rock_s2.wav", "wer": 1.0, "transcript": "Outro Music"}
+{"wav": "q4_mlxaudio_cap/rock_s3.wav", "wer": 1.0, "transcript": "Thank you."}
+{"wav": "q4_mlxaudio_cap/rock_s4.wav", "wer": 1.0, "transcript": "Thank you."}
+{"wav": "q4_mlxaudio_cap/ballad_s1.wav", "wer": 0.707, "transcript": "Quiet rain against the windowpane I still hear you whisper my name Every candlelight"}
+{"wav": "q4_mlxaudio_cap/ballad_s2.wav", "wer": 0.976, "transcript": "Thank you."}
+{"wav": "q4_mlxaudio_cap/ballad_s3.wav", "wer": 0.976, "transcript": "I'll see you next time."}
+{"wav": "q4_mlxaudio_cap/ballad_s4.wav", "wer": 0.634, "transcript": "! Quiet rain against the wind, the pain I say you whisper my name Every candle that we used to light"}
