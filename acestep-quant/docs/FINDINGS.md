@@ -176,12 +176,62 @@ vocals.
   sft doesn't need the planner, so there are ~15 s and ~4 GB less.
 - mlx-audio's unconditional CFG branch runs the encoder on zeros.
   Officially it is the trained `null_condition_emb`
-  (`poc/acestep_null_cond.py` patches it). Whether this matters is being
-  measured (`sft_nolm_zeros` run).
+  (`poc/acestep_null_cond.py` patches it). It matters a little: mean WER
+  0.22 with `null_condition_emb` vs 0.28 with zeros (rock 0.22 vs 0.32,
+  ballad 0.43 vs 0.49, pop 0.02 both). LLMTray uses it.
 - Red herring for the record: the official `silence_latent.pt` is
   [1, 64, T], and mlx-audio's loader transposes it itself. The
   mlx-community turbo repo's copy is missing from the snapshot, and mlx-audio
   then uses zeros, which turbo tolerates.
+
+### sft quantization: 8-bit and GPTQ 4-bit (2026-09-26)
+
+`poc/acestep_sft_gptq.py` quantizes the DiT's decoder and condition
+encoders (the Linears mlx-community's turbo 4-bit covers; the encoders'
+embeddings round-to-nearest):
+- GPTQ calibrates on the real sft sampling loop: 50 steps, both CFG
+  branches, 8 calibration songs outside the eval set;
+- Linears reading the same input share a Hessian (q/k/v, cross-attn k/v,
+  gate/up);
+- `--rtn-only` gives plain round-to-nearest.
+
+The output loads like mlx-community's turbo 4-bit (config `quantization`,
+the loader quantizes what has `.scales`). Two save bugs, both caught by
+listening (tracks with no music and no words):
+- `copytree` dropped the text encoder's `model.safetensors`;
+- the null-cond wrapper renamed the encoder to `encoder.inner.*`.
+
+`save_quantized` now remaps the names and asserts every DiT key is present.
+Under Python 3.14, `gc.collect()` mid-GPTQ segfaulted (visit_decref on mlx
+objects). It is gone, and `--hessians` keeps the calibration across a
+crash.
+
+Teacher-forced error against bf16 (`poc/acestep_tf_metric.py`, the
+klein/MiniMax method): the bf16 model samples 3 songs, every decoder and
+encoder call is recorded, and each variant gets exactly those inputs, so
+there is no trajectory drift or seed luck
+(`docs/sft_tf_results_2026-09-26.json`).
+
+| DiT | velocity error | condition error | DiT size |
+|---|---|---|---|
+| 8-bit RTN | 2.1% | 0.46% | 2.7 GB |
+| 4-bit RTN | 13.9% | 5.0% | 1.65 GB |
+| **4-bit GPTQ** | **10.4%** (−25%) | **2.65%** (−47%) | 1.65 GB |
+
+Lyrics (the vocal eval above: 3 songs × 4 seeds, Whisper WER; 12 tracks,
+so a few points is noise), M5:
+
+| DiT | mean WER | pop | rock | ballad | < 0.3 | s / track | peak |
+|---|---|---|---|---|---|---|---|
+| bf16 | 0.22 | 0.02 | 0.22 | 0.43 | 6 | 36 | 10.6 GB |
+| 8-bit RTN | 0.24 | 0.02 | 0.26 | 0.45 | 6 | 49 | 8.6 GB |
+| 4-bit GPTQ | 0.29 | 0.06 | 0.35 | 0.45 | 5 | 36 | 7.5 GB |
+
+8-bit is slower than bf16 here (the 8-bit quantized matmul), 4-bit the
+same speed. The 8-bit teacher-forced error is 2%: practically bf16.
+
+Published as `roman220220/ACE-Step1.5-sft-MLX-{bf16,8bit,gptq-4bit}`. In
+LLMTray, the user picks among them.
 
 ## MiniMax Music 3 (MiniMaxAI/MiniMax-Music3), on a rented A100 (2026-09-26)
 

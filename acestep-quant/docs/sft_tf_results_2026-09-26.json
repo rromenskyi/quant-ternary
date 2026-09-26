@@ -1,0 +1,17 @@
+{
+  "rtn8": {
+    "velocity_rel_err": 0.020991345634683967,
+    "condition_rel_err": 0.004566394413510959,
+    "decoder_calls": 60
+  },
+  "rtn4": {
+    "velocity_rel_err": 0.13910468555986882,
+    "condition_rel_err": 0.04993848378459612,
+    "decoder_calls": 60
+  },
+  "gptq4": {
+    "velocity_rel_err": 0.10419987762967746,
+    "condition_rel_err": 0.02653433692951997,
+    "decoder_calls": 60
+  }
+}
