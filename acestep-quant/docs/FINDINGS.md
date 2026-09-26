@@ -120,3 +120,24 @@ each 2 verses + a chorus, 30 s, English. DiT 8 steps. Raw per-track WER in
 
 Default for LLMTray, from this: mlx-community 4-bit DiT + this planner with
 LM 1.7B, no DiT metadata, chunked VAE decode.
+
+Planner fixes after review (in `acestep_planner.py` and LLMTray's runner):
+- only codes 0–63999 are allowed. The tokenizer also has
+  `<|audio_code_64000…65534|>`, which the FSQ can't represent; mlx-audio
+  would clamp them to 63999;
+- a malformed CoT YAML (an unquoted colon in the caption) falls back to
+  parsing the known `key: value` lines, instead of dropping all metadata;
+- empty lyrics are sent empty, as the official pipeline does, not as
+  `[Instrumental]`.
+
+The eval above ran before these fixes. They change only edge cases
+(sampling one of the 1,535 out-of-range codes, a malformed CoT, the
+instrumental prompt).
+
+## In LLMTray
+
+`generate_music` (LLMTray PR #79) runs this recipe:
+- `runtime/llmtray_music_runner.py`, with the planner inlined;
+- mlx-audio pinned to `1e8264a` and installed from a GitHub tarball;
+- mlx-community 4-bit DiT + the official LM 1.7B folder, ~9 GB;
+- 30 s of music in ~23 s through the app's Swift path.

@@ -72,16 +72,39 @@ def _code_mask(tokenizer) -> mx.array:
     size = max(vocab.values()) + 1
     mask = [False] * size
     for text, i in vocab.items():
-        if re.fullmatch(r"<\|audio_code_\d+\|>", text):
+        if (m := re.fullmatch(r"<\|audio_code_(\d+)\|>", text)) and int(m.group(1)) < 64000:
             mask[i] = True
     return mx.array(mask)
+
+
+def parse_cot(body):
+    """The LM's <think> YAML; when that doesn't parse (a caption with an
+    unquoted colon, say), the known "key: value" lines one by one -- the
+    official constrained decoder never lets it be malformed."""
+    keys = ("bpm", "caption", "duration", "keyscale", "language", "timesignature")
+    try:
+        meta = yaml.safe_load(body)
+        if isinstance(meta, dict):
+            return {k: v for k, v in meta.items() if k in keys}
+    except yaml.YAMLError:
+        pass
+    meta, current = {}, None
+    for line in body.splitlines():
+        m = re.match(r"^(\w+):\s*(.*)$", line)
+        if m and m.group(1) in keys:
+            current = m.group(1)
+            value = m.group(2).strip()
+            meta[current] = int(value) if value.isdigit() else value
+        elif current == "caption" and line.startswith(" "):
+            meta["caption"] = f"{meta['caption']} {line.strip()}".strip()   # a wrapped caption
+    return meta
 
 
 def plan(model, tokenizer, caption: str, lyrics: str, duration: float, language: str = "en", seed: int | None = None,
          temperature: float = 0.85, top_p: float = 0.9, cfg: float = 2.0, max_cot_tokens: int = 512):
     if seed is not None:
         mx.random.seed(seed)
-    lyrics = lyrics.strip() or "[Instrumental]"
+    lyrics = lyrics.strip()   # empty as is, as the official pipeline sends it
     user = f"# Caption\n{caption}\n\n# Lyric\n{lyrics}\n"
     enc = lambda s: tokenizer.encode(s, add_special_tokens=False)
 
@@ -99,13 +122,7 @@ def plan(model, tokenizer, caption: str, lyrics: str, duration: float, language:
             break
         stream.push(token)
     body = text.split("<think>", 1)[-1].split("</think>", 1)[0]
-    try:
-        metadata = yaml.safe_load(body) or {}
-        if not isinstance(metadata, dict):
-            metadata = {}
-    except yaml.YAMLError:
-        metadata = {}
-    metadata = {k: v for k, v in metadata.items() if k in ("bpm", "caption", "duration", "keyscale", "language", "timesignature")}
+    metadata = parse_cot(body)
     metadata["duration"] = int(round(duration))
     if language and language != "unknown":
         metadata["language"] = language
