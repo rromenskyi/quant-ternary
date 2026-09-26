@@ -287,6 +287,27 @@ Setup:
 - Neither quant fixes what bf16 itself gets wrong: the "SUMMER SALE" text
   edit fails in bf16 too.
 
-Next: truncate the text encoder to its 27 used layers on disk (~1 GB
-smaller download), then LLMTray testing with the GPTQ checkpoint before
-anything is published.
+## Text encoder cut to its 27 used layers (`poc/klein_truncate_te.py`, 2026-09-26)
+
+klein reads the Qwen3 hidden states 9, 18 and 27, and index 0 is the
+embedding, so layers 27–35 (0-based) never affect the output.
+`klein_truncate_te.py` drops their tensors from the checkpoint:
+- text encoder 4.3 → 3.3 GB;
+- checkpoint 6.2 → **5.3 GB**.
+
+mflux 0.20 still loads it by `model_path`: it builds all 36 layers, and the
+missing ones stay uninitialized. LLMTray's runner cuts the layer list to 27
+right after loading, so they are never evaluated.
+
+Checked:
+- prompt embeddings are bit-identical to the full encoder's;
+- the runner's final 1024² image is bit-identical (same md5, same seed);
+- peak footprint 11.8 vs 12.1 GB (the 12 GB is the whole process with
+  previews, not mlx's peak).
+
+Pitfall: `mx.load` maps the file lazily, and saving over the shard being
+read corrupted it. The script writes new files and renames them into place.
+
+Checkpoint for LLMTray testing (not published): GPTQ transformer + 27-layer
+text encoder, in `mflux_models/klein4b`. Next: testing in the app, then the
+publishing decision.
