@@ -111,11 +111,24 @@ def main() -> None:
     ap.add_argument("--planner", default="mlx-audio", choices=["mlx-audio", "official"],
                     help="official: acestep_planner.py (the official prompt layout, CFG, forced duration)")
     ap.add_argument("--lm-path", help="LM checkpoint for --planner official (HF id or local dir)")
+    ap.add_argument("--guidance", type=float, default=1.0, help="DiT CFG scale (non-turbo: official 7.0)")
+    ap.add_argument("--shift", type=float, default=3.0, help="timestep shift (official sft/base: 1.0)")
+    ap.add_argument("--guidance-interval", type=float, default=0.5, help="fraction of steps with CFG (official: 1.0)")
+    ap.add_argument("--cfg-type", default="apg", choices=["apg", "cfg"])
+    ap.add_argument("--no-lm", action="store_true", help="no 5 Hz LM planner (sft/base: CFG only; mlx-audio's LM-hint path breaks the sft DiT)")
+    ap.add_argument("--null-cond", action="store_true", help="CFG's unconditional branch with the trained null_condition_emb (official)")
     ap.add_argument("--vae-chunk", type=int, default=0, help="decode in windows of N latent frames (0 = whole)")
     ap.add_argument("--no-dit-metadata", action="store_true", help="--planner official: keep mlx-audio's DiT prompt")
     args = ap.parse_args()
 
     from mlx_audio.tts import load
+    import mlx_audio.utils as audio_utils
+
+    # mlx-audio maps the checkpoint's model_type ("acestep") to its module
+    # through the parts of the path: a local folder doesn't give it away.
+    pick_module = audio_utils.get_model_class
+    audio_utils.get_model_class = lambda model_type, model_name, category, model_remapping: pick_module(
+        "ace_step", None, category, model_remapping)
 
     if args.planner == "official":
         from acestep_planner import install
@@ -132,6 +145,10 @@ def main() -> None:
     mx.eval(model.parameters())
     load_s = time.time() - t0
     mem_after_load = mx.get_active_memory() / 1e9
+    if args.null_cond:
+        from acestep_null_cond import install as install_null_cond
+
+        install_null_cond(model)
     if args.vae_chunk:
         from acestep_vae_chunk import chunked
 
@@ -144,6 +161,8 @@ def main() -> None:
     with contextlib.redirect_stdout(log):
         results = list(model.generate(text=args.prompt, lyrics=lyrics, duration=args.duration, seed=args.seed,
                                       num_steps=args.steps, vocal_language=args.language, lm_model_size=args.lm,
+                                      guidance_scale=args.guidance, shift=args.shift, use_lm=not args.no_lm,
+                                      guidance_interval=args.guidance_interval, cfg_type=args.cfg_type,
                                       verbose=True))
     total_s = time.time() - t0
     peak = mx.get_peak_memory() / 1e9
@@ -162,7 +181,7 @@ def main() -> None:
         "rtf": round(total_s / args.duration, 2), "active_after_load_gb": round(mem_after_load, 2),
         "peak_generate_gb": round(peak, 2), "rms": float(np.sqrt(np.mean(audio**2))),
         "samples": int(audio.shape[0]), "lm_s": round(LM_TIME["s"], 1), "lm_codes": LM_TIME["codes"],
-        "cap_codes": args.cap_codes, "planner": args.planner, "vae_chunk": args.vae_chunk, "dit_metadata": not args.no_dit_metadata, "lm_path": args.lm_path, "prompt": args.prompt, "stages": stages, "stage_peaks_gb": PEAKS,
+        "cap_codes": args.cap_codes, "planner": args.planner, "vae_chunk": args.vae_chunk, "guidance": args.guidance, "use_lm": not args.no_lm, "null_cond": args.null_cond, "shift": args.shift, "dit_metadata": not args.no_dit_metadata, "lm_path": args.lm_path, "prompt": args.prompt, "stages": stages, "stage_peaks_gb": PEAKS,
     }
     with open(out / "bench.jsonl", "a") as f:
         f.write(json.dumps(record) + "\n")

@@ -27,6 +27,8 @@ def main() -> None:
     ap.add_argument("--lm", default="acestep-5Hz-lm-0.6B")
     ap.add_argument("--duration", type=float, default=30)
     ap.add_argument("--steps", type=int, default=8)
+    ap.add_argument("--config-path", default="acestep-v15-turbo", help="DiT: acestep-v15-turbo, acestep-v15-sft, acestep-v15-xl-turbo, ...")
+    ap.add_argument("--guidance", type=float, default=1.0, help="DiT CFG (non-turbo only; official default for base/sft: 7.0)")
     args = ap.parse_args()
 
     sys.path.insert(0, args.repo)
@@ -36,7 +38,7 @@ def main() -> None:
     from acestep.llm_inference import LLMHandler
 
     dit = AceStepHandler()
-    msg, ok = dit.initialize_service(project_root=args.repo, config_path="acestep-v15-turbo", device="auto",
+    msg, ok = dit.initialize_service(project_root=args.repo, config_path=args.config_path, device="auto",
                                      offload_to_cpu=False)
     assert ok, msg
     llm = LLMHandler()
@@ -49,7 +51,7 @@ def main() -> None:
     for seed in args.seeds:
         params = GenerationParams(task_type="text2music", thinking=True, caption=args.caption, lyrics=lyrics,
                                   vocal_language="en", duration=args.duration, inference_steps=args.steps,
-                                  guidance_scale=1.0, seed=seed)
+                                  guidance_scale=args.guidance, seed=seed)
         tmp = os.path.join(args.out, "_tmp")
         t0 = time.time()
         result = generate_music(dit, llm, params=params, config=GenerationConfig(batch_size=1, audio_format="wav"),
@@ -60,7 +62,8 @@ def main() -> None:
         shutil.move(result.audios[0]["path"], dest)
         shutil.rmtree(tmp, ignore_errors=True)
         with open(os.path.join(args.out, "official.jsonl"), "a") as f:
-            f.write(json.dumps({"name": args.name, "seed": seed, "lm": args.lm, "seconds": round(took, 1),
+            f.write(json.dumps({"name": args.name, "seed": seed, "lm": args.lm, "dit": args.config_path,
+                                "steps": args.steps, "guidance": args.guidance, "seconds": round(took, 1),
                                 "caption": args.caption, "wav": dest}) + "\n")
         print(f"{dest} {took:.1f}s", flush=True)
 
