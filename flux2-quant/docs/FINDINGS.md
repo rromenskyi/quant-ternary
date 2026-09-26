@@ -276,7 +276,7 @@ Setup:
 | **GPTQ** | **0.202** (−17%) | **0.136** (−20%) | **19.6** | **26.2** |
 
 - **GPTQ has the lower velocity error on all 9 samples** (per sample
-  −12 % to −21 %).
+  −12 % to −22 %).
 - PSNR is mixed per sample (GPTQ is lower on poster, sunflowers and
   poster_text), as expected from single-seed image PSNR, but better on
   average.
