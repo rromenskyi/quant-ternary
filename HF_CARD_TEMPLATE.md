@@ -50,11 +50,12 @@ tags:
 > [![GitHub stars](https://img.shields.io/github/stars/ipsupport-llc/llmtray?style=for-the-badge&logo=github)](https://github.com/ipsupport-llc/llmtray)
 
 <!-- A2. CODE / AGENT (only the ipsupport-code LoRA models)
-> ### ▶ A coding-agent model — built for [IPSupport Code](https://ipsupport-llc.github.io/ipsupport-code/)
+> ### ▶ A coding-agent model — run it in [LLMTray](https://www.ipsupport.us/llmtray/), drive it with [IPSupport Code](https://ipsupport-llc.github.io/ipsupport-code/)
 > This model is fine-tuned for **IPSupport Code**, a local AI coding agent for
-> real repositories (analyze · fix · test · report). It works best paired with
-> that agent; tool-calling is trained in (see "Tool calling is trained in"
-> below). You can also run it locally in [LLMTray](https://www.ipsupport.us/llmtray/).
+> real repositories (analyze · fix · test · report). It is **not** used
+> standalone: **run it in LLMTray**, which serves it over an OpenAI-compatible
+> API, then point IPSupport Code at that endpoint. Tool-calling is trained in
+> (see "Tool calling is trained in" below).
 >
 > [![Download LLMTray](https://img.shields.io/badge/Download-LLMTray%20for%20Mac-2f7d4f?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/ipsupport-llc/llmtray/releases/latest/download/LLMTray-Full.dmg)
 > [![GitHub stars](https://img.shields.io/github/stars/ipsupport-llc/llmtray?style=for-the-badge&logo=github)](https://github.com/ipsupport-llc/llmtray)
@@ -94,7 +95,7 @@ leaves your Mac.
   music:        LLMTray uses this model for in-chat music generation.
   drafter:      LLMTray pairs this drafter with the main model for faster local decoding.
   plain quant:  Runs in LLMTray as a local chat LLM.
-  code model:   Run this model in LLMTray, or wire it into IPSupport Code as the agent's backend.
+  code model:   Run this model in LLMTray (serves an OpenAI-compatible API), then point IPSupport Code at that endpoint — the pairing is how it runs.
   GGUF:         This is the GGUF build (ollama / llama.cpp). For the MLX build LLMTray runs, see <org/mlx-sibling>.
 >
 
