@@ -81,7 +81,7 @@ pipeline_init mlx "VARIANT=$VARIANT MODEL_ID=$MODEL_ID CORRECTED=$CORRECTED OUT_
 # --- setup -------------------------------------------------------------------
 if [ "${SETUP:-0}" = 1 ]; then
   run_step setup "pip deps" bash -c "
-    pip install --quiet torch transformers accelerate safetensors huggingface_hub pillow librosa &&
+    pip install --quiet torch transformers accelerate safetensors huggingface_hub pillow librosa datasets soundfile &&
     pip install --quiet --upgrade 'mlx[cuda]' &&
     pip install --quiet --force-reinstall --no-deps 'git+https://github.com/ipsupport-llc/mlx-lm.git@$MLX_LM_REF'"
 else
