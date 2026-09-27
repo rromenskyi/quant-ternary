@@ -113,8 +113,17 @@ if [ -f "$MMPROJ_F16" ]; then skip_step mmproj_convert "$MMPROJ_F16 exists"; els
   run_step mmproj_convert "vision tower -> mmproj GGUF" \
     python3 "$LLAMA/convert_hf_to_gguf.py" "$MODEL_FIXED" --mmproj --outfile "$MMPROJ_F16"
 fi
+# Q8_0 on the E2B mmproj hits a llama.cpp GGML_ASSERT (size mismatch on an
+# audio conv1d tensor); the F16 mmproj converts and serves fine, so fall back
+# to it rather than fail the release. MMPROJ is what downstream steps use.
+MMPROJ="$MMPROJ_Q8"
 if [ -f "$MMPROJ_Q8" ]; then skip_step mmproj_quantize "$MMPROJ_Q8 exists"; else
-  run_step mmproj_quantize "mmproj -> Q8_0" "$BIN/llama-quantize" "$MMPROJ_F16" "$MMPROJ_Q8" Q8_0 16
+  if "$BIN/llama-quantize" "$MMPROJ_F16" "$MMPROJ_Q8" Q8_0 16 2>"$LOG_DIR/gguf-e2b_mmproj_quantize.log"; then
+    run_step mmproj_quantize "mmproj -> Q8_0" true
+  else
+    MMPROJ="$MMPROJ_F16"
+    run_step mmproj_quantize "mmproj Q8_0 hit llama.cpp assert -> shipping F16 mmproj" true
+  fi
 fi
 
 # --- ollama Modelfile (no drafter; dense model) ------------------------------
@@ -141,7 +150,7 @@ gguf_smoke () {
   local port=18091 img="$WORK/smoke-assets/cats.jpg"
   mkdir -p "$(dirname "$img")"
   [ -f "$img" ] || curl -sfL -o "$img" http://images.cocodataset.org/val2017/000000039769.jpg
-  "$BIN/llama-server" -m "$TEXT_GGUF" --mmproj "$MMPROJ_Q8" -ngl "$NGL" --jinja --port "$port" \
+  "$BIN/llama-server" -m "$TEXT_GGUF" --mmproj "$MMPROJ" -ngl "$NGL" --jinja --port "$port" \
     > "$LOG_DIR/gguf_e2b_smoke_server.log" 2>&1 &
   local pid=$! rc=0
   for _ in $(seq 1 180); do curl -sf "localhost:$port/health" >/dev/null && break; sleep 2; done
@@ -176,7 +185,7 @@ run_step smoke "llama-server --jinja + mmproj: text (no control-token leak) + vi
 [ -f "$CARD" ] && run_step card "copy $(basename "$CARD") -> README.md" cp "$CARD" "$OUT_DIR/README.md" || skip_step card "no card yet"
 if [ "${PUBLISH:-0}" = 1 ]; then
   run_step publish "hf upload $HF_REPO" \
-    hf upload "$HF_REPO" "$OUT_DIR" . --exclude '*-f16.gguf' --exclude '*.tmp' --commit-message "gemma4_e2b_gguf_pipeline.sh"
+    hf upload "$HF_REPO" "$OUT_DIR" . --exclude '*.tmp' --commit-message "gemma4_e2b_gguf_pipeline.sh"
 else
   skip_step publish "PUBLISH!=1"
 fi
