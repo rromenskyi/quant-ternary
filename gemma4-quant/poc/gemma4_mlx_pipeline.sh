@@ -63,7 +63,11 @@ case "$VARIANT" in
     # Same architecture family as E4B (dense, per-layer embeddings, KV-shared,
     # text+vision+audio), just smaller (35 layers, hidden 1536). Reuses the
     # generic E4B calibrate/splice path unchanged.
-    MODEL_ID="google/gemma-4-E2B-it"
+    # MODEL_ID/HF_REPO are env-overridable so the same variant can quantize the
+    # QAT-unquantized checkpoint (google/gemma-4-E2B-it-qat-q4_0-unquantized),
+    # which carries quantization-aware-trained weights and quantizes better than
+    # the plain -it.
+    MODEL_ID="${MODEL_ID:-google/gemma-4-E2B-it}"
     COMPONENTS=(text vision audio)
     CALIBRATE="$HERE/gemma4_gptq_calibrate.py"
     SPLICE="$HERE/gemma4_gptq_splice.py"

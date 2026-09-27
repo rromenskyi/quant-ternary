@@ -292,3 +292,77 @@ invalid ones crashed the server on the first quantized cache
 Everything above is automated in three resumable pipelines. They share one
 step log, and `pipeline_dashboard.py` shows them live. Commands are in
 [RUNBOOK.md](RUNBOOK.md).
+
+## Gemma 4 E2B: when NOT to quantize — the vendor already shipped QAT (2026-09-27)
+
+We set out to quantize `google/gemma-4-E2B-it` to GGUF + MLX for "max quality
+at min size". The useful result was a **negative** one: for this model our
+quantization is redundant, because Google shipped a **quantization-aware-trained
+(QAT)** release of the whole model and the community has already ported it to
+every format we'd target. Worth writing down so the next popular small model
+gets a 30-second check before a pod is rented.
+
+### What exists already
+
+- `google/gemma-4-E2B-it-qat-q4_0-gguf` — Google's QAT, 4-bit, whole model
+  (~3.12 GB text). Also `...-qat-q4_0-unquantized` (the QAT weights dequantized
+  back to bf16).
+- `mlx-community/gemma-4-E2B-it-qat-{4,5,6,8}bit` (+ mxfp4/nvfp4/bf16, and
+  `-assistant-*` for the MTP drafter) — the QAT checkpoint already in MLX, at
+  every bit width. So the MLX niche (our LLMTray target) is covered too.
+
+### Why our PTQ can't win here
+
+- **QAT beats PTQ by construction, and only the vendor can do it.** QAT
+  fine-tunes with fake-quant in the forward pass so the weights *learn* to be
+  4-bit-robust; PTQ (GPTQ/imatrix — what our pipelines do) only picks rounding
+  after the fact. No calibration recipe recovers what QAT bakes in.
+- **JANG buys nothing on a dense model.** JANG's real lever is MoE: spend bits
+  asymmetrically because ~93% of params are routed experts (26B / Nemotron —
+  where JANG beat uniform and third-party releases). E2B is dense, so JANG
+  degenerates to a mild "attn 8 / ffn 4" mix with no structural win.
+- **QAT robustness is tied to its own grid.** Even quantizing the
+  `qat-q4_0-unquantized` weights ourselves (GPTQ/JANG, an affine/mixed grid)
+  wouldn't reliably carry the QAT benefit, which was trained against the q4_0
+  grid specifically.
+
+### The perplexity red herring (and how it was diagnosed)
+
+Raw wikitext PPL on this model in llama.cpp comes out absurdly high, which
+looked like a bug. It is not ours:
+
+| model of `google/gemma-4-E2B-it` (same binary, wiki.test.raw, -c 512, 20 chunks) | PPL |
+|---|---|
+| ggml-org **official** Q8_0 (near-lossless reference) | 233 |
+| our Q4_K_M + imatrix + JANG | 215 |
+| our F16 | 154 |
+| Google **QAT** q4_0 (different, QAT-trained checkpoint) | 69 |
+
+Our build matches (slightly beats) the official ggml-org GGUF of the same base
+→ **our quantization is correct.** The ~230 absolute is a property of the
+metric on an instruct/multimodal model tuned for chat, not a defect (instruct
+tuning inflates raw-text PPL). The QAT release scoring 69 is a *different
+checkpoint*, not a like-for-like comparison — do not read it as "q4_0 format
+beats Q4_K_M" (it doesn't; K-quants win at equal bits). Judge such models by
+generation, not raw PPL.
+
+### Process rule
+
+Before quantizing a **popular** model, check for (a) a vendor QAT release and
+(b) existing community MLX/GGUF builds. If both exist and cover your formats,
+your effort is better spent on models **without** that coverage — our own
+fine-tunes (ipsupport-code LoRA), MoE models where JANG actually wins
+(Nemotron, 26B), or niche/larger models the community hasn't done well.
+
+### What was kept (reusable, for non-QAT models)
+
+- `gemma4_mlx_pipeline.sh VARIANT=e2b` (reuses the E4B multimodal path;
+  MODEL_ID/HF_REPO env-overridable).
+- `gemma4_e2b_gguf_pipeline.sh` — a dense (no-MoE, no-drafter) GGUF pipeline
+  with an env-driven recipe and a wikitext-PPL step.
+- SETUP now installs `datasets`/`soundfile` (the audio-calibration path needed
+  them; only worked on E4B before because they were preinstalled).
+- mmproj Q8_0 on E2B hits a llama.cpp `GGML_ASSERT` (audio conv1d tensor) →
+  the pipeline falls back to an F16 mmproj.
+
+Nothing was published for E2B.
