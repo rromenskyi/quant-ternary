@@ -10,6 +10,10 @@ tags:
   - nemotron
 ---
 
+<p align="center">
+  <img src="llmtray-banner.png" alt="LLMTray" width="100%">
+</p>
+
 # Nemotron-3.5-Lightning-30B-A3B — GPTQ uniform 3-bit (MLX)
 
 > ### ▶ Run it locally in [LLMTray](https://www.ipsupport.us/llmtray/)

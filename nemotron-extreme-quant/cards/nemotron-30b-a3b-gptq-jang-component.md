@@ -11,6 +11,10 @@ tags:
   - mixed-precision
 ---
 
+<p align="center">
+  <img src="llmtray-banner.png" alt="LLMTray" width="100%">
+</p>
+
 # Nemotron-3.5-Lightning-30B-A3B — GPTQ, JANG-style component-type bit allocation (MLX)
 
 > ### ▶ Run it locally in [LLMTray](https://www.ipsupport.us/llmtray/)

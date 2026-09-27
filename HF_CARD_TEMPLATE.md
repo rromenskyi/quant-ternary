@@ -29,6 +29,13 @@ tags:
   # + gptq, jang, lora, tool-calling, coding-agent, vision, audio, mtp, ...
 ---
 
+<!-- Hero banner right after frontmatter, before the H1.
+     CODE models → ipsupport-code-banner.png ; everything else → llmtray-banner.png
+     (both live in cards_assets/ and are uploaded into each repo alongside README) -->
+<p align="center">
+  <img src="<llmtray-banner.png | ipsupport-code-banner.png>" alt="<LLMTray | IPSupport Code>" width="100%">
+</p>
+
 # <Human title: model, recipe, format>
 
 <!-- ===== Block A — pick ONE, place right after the H1 ===== -->

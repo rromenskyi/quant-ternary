@@ -12,6 +12,10 @@ tags:
   - image-generation
 ---
 
+<p align="center">
+  <img src="llmtray-banner.png" alt="LLMTray" width="100%">
+</p>
+
 # Z-Image-Turbo — GPTQ, mixed precision (attention 8-bit + feed-forward 4-bit, MLX / mflux)
 
 > ### ▶ Run it locally in [LLMTray](https://www.ipsupport.us/llmtray/)

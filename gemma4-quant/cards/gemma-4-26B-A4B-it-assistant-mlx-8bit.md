@@ -11,6 +11,10 @@ tags:
 - mtp
 ---
 
+<p align="center">
+  <img src="llmtray-banner.png" alt="LLMTray" width="100%">
+</p>
+
 # Gemma 4 26B-A4B MTP drafter — MLX 8-bit
 
 > ### ▶ A speculative-decoding drafter for [LLMTray](https://www.ipsupport.us/llmtray/)

@@ -12,6 +12,10 @@ tags:
   - quantized
 ---
 
+<p align="center">
+  <img src="llmtray-banner.png" alt="LLMTray" width="100%">
+</p>
+
 # ACE-Step 1.5 sft for MLX: GPTQ 4-bit
 
 > ### ▶ Run it locally in [LLMTray](https://www.ipsupport.us/llmtray/)

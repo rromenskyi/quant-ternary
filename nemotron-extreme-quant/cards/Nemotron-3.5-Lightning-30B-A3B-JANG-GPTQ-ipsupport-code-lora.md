@@ -15,6 +15,10 @@ tags:
   - coding-agent
 ---
 
+<p align="center">
+  <img src="ipsupport-code-banner.png" alt="IPSupport Code" width="100%">
+</p>
+
 # Nemotron-3.5-Lightning-30B-A3B, JANG bit-allocation + GPTQ calibration + ipsupport-code coding-agent LoRA (MLX)
 
 > ### ▶ A coding-agent model — built for [IPSupport Code](https://ipsupport-llc.github.io/ipsupport-code/)

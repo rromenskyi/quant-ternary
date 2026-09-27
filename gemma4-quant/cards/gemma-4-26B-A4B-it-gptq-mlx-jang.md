@@ -13,6 +13,10 @@ tags:
   - jang
 ---
 
+<p align="center">
+  <img src="llmtray-banner.png" alt="LLMTray" width="100%">
+</p>
+
 # Gemma 4 26B-A4B (MoE) — GPTQ, JANG-mixed precision, text + vision, MLX
 
 > ### ▶ Run it locally in [LLMTray](https://www.ipsupport.us/llmtray/)

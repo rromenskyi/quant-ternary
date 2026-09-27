@@ -15,6 +15,10 @@ tags:
   - apple-silicon
 ---
 
+<p align="center">
+  <img src="llmtray-banner.png" alt="LLMTray" width="100%">
+</p>
+
 # FLUX.2 klein 4B: GPTQ 4-bit for MLX / mflux (generate and edit)
 
 > ### ▶ Run it locally in [LLMTray](https://www.ipsupport.us/llmtray/)

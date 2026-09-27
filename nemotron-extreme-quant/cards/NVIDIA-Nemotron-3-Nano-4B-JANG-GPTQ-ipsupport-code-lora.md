@@ -12,6 +12,10 @@ tags:
   - coding-agent
 ---
 
+<p align="center">
+  <img src="ipsupport-code-banner.png" alt="IPSupport Code" width="100%">
+</p>
+
 # NVIDIA-Nemotron-3-Nano-4B, ipsupport-code LoRA (MLX)
 
 > ### ▶ A coding-agent model — built for [IPSupport Code](https://ipsupport-llc.github.io/ipsupport-code/)

@@ -13,6 +13,10 @@ tags:
   - vision
 ---
 
+<p align="center">
+  <img src="llmtray-banner.png" alt="LLMTray" width="100%">
+</p>
+
 # Gemma 4 26B-A4B (MoE) — GGUF, imatrix + JANG-mixed, text + vision
 
 > ### ▶ GGUF build for ollama / llama.cpp

@@ -17,6 +17,10 @@ tags:
   - speculative-decoding
 ---
 
+<p align="center">
+  <img src="ipsupport-code-banner.png" alt="IPSupport Code" width="100%">
+</p>
+
 # Nemotron-3.5-Lightning-30B-A3B, JANG bit-allocation + GPTQ + ipsupport-code LoRA + MTP (MLX)
 
 > ### ▶ A coding-agent model — built for [IPSupport Code](https://ipsupport-llc.github.io/ipsupport-code/)
