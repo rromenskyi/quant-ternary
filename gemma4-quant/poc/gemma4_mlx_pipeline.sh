@@ -59,7 +59,17 @@ case "$VARIANT" in
     SPLICE="$HERE/gemma4_gptq_splice.py"
     HF_REPO="${HF_REPO:-roman220220/gemma-4-E4B-it-gptq-mlx-jang}"
     ;;
-  *) echo "VARIANT must be 26b or e4b" >&2; exit 2 ;;
+  e2b)
+    # Same architecture family as E4B (dense, per-layer embeddings, KV-shared,
+    # text+vision+audio), just smaller (35 layers, hidden 1536). Reuses the
+    # generic E4B calibrate/splice path unchanged.
+    MODEL_ID="google/gemma-4-E2B-it"
+    COMPONENTS=(text vision audio)
+    CALIBRATE="$HERE/gemma4_gptq_calibrate.py"
+    SPLICE="$HERE/gemma4_gptq_splice.py"
+    HF_REPO="${HF_REPO:-roman220220/gemma-4-E2B-it-gptq-mlx-jang}"
+    ;;
+  *) echo "VARIANT must be 26b, e4b or e2b" >&2; exit 2 ;;
 esac
 CARD="$HERE/../cards/${HF_REPO#*/}.md"
 CORRECTED="${CORRECTED:-$WORK/gemma4-$VARIANT-corrected}"
@@ -118,7 +128,7 @@ fi
 mkdir -p "$ASSETS"
 [ -f "$ASSETS/cats.jpg" ] || curl -sfL -o "$ASSETS/cats.jpg" http://images.cocodataset.org/val2017/000000039769.jpg
 SMOKE_ARGS=(--model "$OUT_DIR" "${KEEP_FLOAT[@]}" --image "$ASSETS/cats.jpg" --expect-in-image-answer cat)
-if [ "$VARIANT" = e4b ]; then
+if [ "$VARIANT" = e4b ] || [ "$VARIANT" = e2b ]; then
   if [ ! -f "$ASSETS/speech.wav" ] && command -v say >/dev/null; then
     say -o "$ASSETS/speech.aiff" "The quick brown fox jumps over the lazy dog."
     afconvert -f WAVE -d LEI16@16000 -c 1 "$ASSETS/speech.aiff" "$ASSETS/speech.wav"
