@@ -15,18 +15,23 @@ tags:
 
 # Gemma 4 26B-A4B (MoE) — GPTQ, JANG-mixed precision, text + vision, MLX
 
+> ### ▶ Run it locally in [LLMTray](https://www.ipsupport.us/llmtray/)
+> A free, native macOS app for local AI on Apple Silicon — chat, images,
+> music, agents and an OpenAI-compatible API. Point it at this model; nothing
+> leaves your Mac.
+>
+> [![Download LLMTray](https://img.shields.io/badge/Download-LLMTray%20for%20Mac-2f7d4f?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/ipsupport-llc/llmtray/releases/latest/download/LLMTray-Full.dmg)
+> [![GitHub stars](https://img.shields.io/github/stars/ipsupport-llc/llmtray?style=for-the-badge&logo=github)](https://github.com/ipsupport-llc/llmtray)
+
+
 A JANG-style mixed-precision MLX quantization of
 [google/gemma-4-26B-A4B-it](https://huggingface.co/google/gemma-4-26B-A4B-it)
 — the 26.5B-parameter, 128-expert / top-8 MoE variant of Gemma 4 (≈4B
 active parameters per token, hence "A4B") — using **GPTQ Hessian-based
 error correction** across every quantizable Linear in both the text
 decoder and the vision tower. Attention projections at 8-bit, feed-forward
-(dense MLP **and** all 128 routed experts) at 4-bit, embeddings and every
-uncalibrated Linear at 8-bit RTN. Kept in bf16 on purpose (~23MB total):
-- the MoE routers, because routing precision is disproportionately
-  sensitive;
-- `vision_tower.patch_embedder.input_proj`, because mlx-lm casts pixels to
-  its weight dtype, so quantizing it breaks vision.
+(dense MLP **and** all 128 routed experts) at 4-bit, embeddings at 8-bit
+RTN. **Nothing is left in bf16.**
 
 - ~15GB (down from 51.6GB bf16 — 3.4× smaller).
 - This variant has **no audio tower** (`audio_config` is null on the real
@@ -102,3 +107,25 @@ image plumbing for this fork's vision models yet) — full example in the
 - Model code: [ipsupport-llc/mlx-lm](https://github.com/ipsupport-llc/mlx-lm) (`gemma4.py`, `gemma4_text.py`, `gemma4_vision.py`)
 - Quantization pipeline: [rromenskyi/quant-ternary/gemma4-quant](https://github.com/rromenskyi/quant-ternary/tree/main/gemma4-quant) (`gemma4_26b_gptq_calibrate.py`, `gemma4_26b_gptq_splice.py`)
 - Same `gptq_nbit`/`gptq_nbit_batched` implementation as this account's other quantization work (`nemotron-extreme-quant`, `zimage-quant`), unmodified.
+
+## The IPSupport local-AI stack
+
+Local-first AI tools for macOS by [IPSupport](https://www.ipsupport.us) — nothing
+leaves your Mac.
+
+- **[LLMTray](https://www.ipsupport.us/llmtray/)** — your local AI
+  workstation for macOS: chat with local LLMs, generate and edit images, make
+  music, run agents, and serve an OpenAI-compatible API. Downloads models from
+  Hugging Face in-app, with per-model profiles.
+- **[IPSupport Code](https://ipsupport-llc.github.io/ipsupport-code/)** — your
+  AI coding agent for real repositories: analyze, fix, test, report.
+
+Runs in LLMTray as a chat model, with vision.
+
+## License
+
+Licensed under the **Apache License 2.0**, the same license as the base model — see [`LICENSE`](LICENSE).
+
+Modified from [google/gemma-4-26B-A4B-it](https://huggingface.co/google/gemma-4-26B-A4B-it): the text decoder and vision tower were GPTQ-quantized (attention 8-bit; dense MLP and all 128 MoE experts 4-bit; group size 64), embeddings were quantized to 8-bit RTN, the router was left untouched, the vision MLP was zero-padded from 4304 to 4352 (with `config.json` updated to match), and the model was converted to MLX. The weights and configuration files in this repo are therefore modified versions of the original, not the original files.
+
+Gemma 4 is released by Google under Apache 2.0 ([Gemma 4 license terms](https://ai.google.dev/gemma/docs/gemma_4_license)).
