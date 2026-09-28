@@ -1,0 +1,45 @@
+[transformers] You are using a model of type `nemotron_voicechat` to instantiate a model of type ``. This may be expected if you are loading a checkpoint that shares a subset of the architecture (e.g., loading a `sam2_video` checkpoint into `Sam2Model`), but is otherwise not supported and can yield errors. Please verify that the checkpoint is compatible with the model you are instantiating.
+q01 frames=60 ms/frame=79.7 user='What is the capital of France' reply='The capital of France is Paris.'
+q02 frames=58 ms/frame=79.5 user='How many legs does a spider have' reply='Spiders have eight legs.'
+q03 frames=92 ms/frame=80.2 user='What planet is known as the red planet' reply='Mars is commonly referred to as the Red Planet due to its reddish hue.'
+q04 frames=80 ms/frame=80.1 user='Who wrote Romeo and Juliet' reply='Romeo and Juliet was written by William Shakespeare.'
+q05 frames=65 ms/frame=80.7 user='What is the largest ocean on Earth' reply='The Pacific Ocean is the largest ocean on Earth.'
+q06 frames=76 ms/frame=80.1 user='What gas do plants absorb from the air' reply='Plants absorb carbon dioxide from the air.'
+q07 frames=62 ms/frame=80.3 user='How many days are there in a week' reply='There are seven days in a week.'
+q08 frames=64 ms/frame=83.8 user='What is the capital of Japan' reply='The capital of Japan is Tokyo.'
+q09 frames=91 ms/frame=83.9 user='What is the boiling point of water and Celsius' reply='The boiling point of water in Celsius is one hundred degrees Celsius.'
+q10 frames=79 ms/frame=88.0 user='Which animal is known as the King of the Jungle' reply='The lion is known as the "king of the jungle."'
+q11 frames=80 ms/frame=87.3 user='What color do you get when you mix blue and yellow' reply='Mixing blue and yellow results in green.'
+q12 frames=127 ms/frame=92.0 user='What is the tallest mountain in the world' reply='The tallest mountain in the world is Mount Everest, which stands at eight thousand eight hundred and forty eight meters above sea level.'
+q13 frames=55 ms/frame=94.8 user='How many continents are there' reply='There are seven continents.'
+q14 frames=93 ms/frame=107.3 user='What is the freezing point of water in Fahrenheit' reply='The freezing point of water is thirty two degrees Fahrenheit.'
+q15 frames=89 ms/frame=108.9 user='Who painted the Lisa' reply='The Mona Lisa was painted by the renowned Italian artist, Leonardo da Vinci.'
+q16 frames=102 ms/frame=115.9 user='What is the chemical symbol for gold' reply='The chemical symbol for gold is Au, which comes from its Latin name, aurum.'
+q17 frames=78 ms/frame=134.5 user='What is the largest planet in our solar system' reply='Jupiter is the largest planet in our solar system.'
+q18 frames=74 ms/frame=141.9 user='In which country are the pyramids of Giza' reply='The Pyramids of Giza are located in Egypt.'
+q19 frames=66 ms/frame=140.2 user='What language is spoken in Brazil' reply='Portuguese is spoken in Brazil.'
+q20 frames=60 ms/frame=134.0 user='How many minutes are in an hour' reply='There are sixty minutes in an hour.'
+{
+ "ms_per_frame": {
+  "codec": 7.65,
+  "llm": 46.32,
+  "perception": 14.29,
+  "rnnt": 0.87,
+  "total": 98.71,
+  "tts": 28.71,
+  "rest": 0.87
+ },
+ "rtf": 1.234,
+ "frame_ms_p95": 145.3,
+ "peak_memory_gb": 8.24,
+ "variant": {
+  "scales_cast": 0,
+  "rtn": {
+   "stt_model.perception:4:64": {
+    "modules": 266,
+    "pointwise_convs_rewritten": 48
+   }
+  },
+  "param_gb": 6.727
+ }
+}

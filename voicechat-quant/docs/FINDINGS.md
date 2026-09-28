@@ -60,13 +60,43 @@ ms per 80 ms frame, mean over all frames of all questions; quality from
 - Uploads from the pod: the HF token went over ssh stdin into the upload
   process's environment only — never onto the pod's disk or into logs.
 
+## Night 2026-09-27/28: fork-side speedups (ipsupport-llc/mlx-audio PR #3)
+
+Measured in isolation on the base M5 (`scripts/bench_perception.py`,
+`bench_llm_step.py`), then in the full session (`vc_eval.py`).
+
+| change | alone | notes |
+|---|---|---|
+| perception in bf16 (mel frames arrived float32, promoting every matmul) | 51.0 → 17.3 ms | cosine 0.99985 vs the old path |
+| + `linear_pos(pos_emb)` cached per window (was per layer per frame) | (in the above) | |
+| + compiled steady-state conformer stack (`mx.compile`) | 17.3 → 13.6 ms | cosine 0.99984 |
+| perception weights 8-bit / 4-bit RTN | 12.1 / 10.2 ms | cosine 0.9995 / 0.974; 4-bit keeps user WER 0.013, 20/20 answers |
+| TTS: MoG head computes only the sampled mixture; compiled code generation | TTS 42.7 → ~26 ms in session | same sampled codes |
+| LLM input cast to the weight dtype | — | no float32 LLM step/caches |
+| compiled LLM decode (Mamba + MLP runs between attention layers) | 40.2 → 40.0 ms | **reverted**: the step is memory-bound |
+| compiled codec `decode_step` | 5.9 → 5.3 ms | exact |
+
+Full session, GPTQ-3 LLM + fork fixes: **~95–99 ms per 80 ms frame**
+(185 upstream), 20/20 answers, reply WER 0.043. Where a frame goes now:
+LLM 43–46, TTS 27–29 (Gemma3 backbone 12 at batch 2 for CFG, codes 8.5,
+fusion 2.2), perception 14–19, codec 7.5.
+
+- **The LLM is at the bandwidth floor.** 3-bit ≈ 4.4 GB read per frame in
+  ~42 ms ≈ 105 GB/s effective on a base M5; compiling the step changed
+  nothing. Faster only with fewer bits (the MLP runs are ~45% of it) or a
+  smaller LLM.
+- **The TTS backbone is launch-bound** (4-bit weights didn't speed it up).
+  Its KV grows (sliding window 7500), so a compiled step needs a fixed-size
+  KV buffer with a mask.
+- **The Mac isn't idle while measuring** (`gpu_busy_before` 13–17%: the UI,
+  a task monitor): ±5 ms between runs. Headline numbers need an idle machine.
+
 ## Next
 
-1. Perception step: `mx.compile` of the one-frame step with fixed-size ring
-   caches, precomputed positional terms, 4-bit weights (RTN holds quality:
-   user WER 0.013). Target ~10 ms.
-2. TTS step: the same (25.6 ms now).
-3. Walkie-talkie mode only: skip perception while the model speaks (silent
+1. Below 80 ms needs ~20 ms more: a 2-bit/3-bit mixed LLM (MLP down 2-bit,
+   GPTQ on the pod, calibration set on HF), and/or a compiled TTS backbone
+   with a fixed KV buffer; TTS guidance off (batch 1) is worth a quality check.
+2. Walkie-talkie mode only: skip perception while the model speaks (silent
    mic) once the encoder output has converged on silence.
 4. Package the best variant as a full MLX checkpoint with a card from
    `HF_CARD_TEMPLATE.md` and publish (OpenMDW 1.1 notices, NVIDIA attribution).
