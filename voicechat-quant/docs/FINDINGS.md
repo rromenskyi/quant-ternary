@@ -117,6 +117,36 @@ Parity of the compiled paths is tested on the **CPU**: Metal's fp32 matmul
 rounds like tf32 (selected-means vs full projection: 1e-3 on the GPU,
 2e-7 on the CPU), which would hide an indexing mistake in the tolerance.
 
+## Plan item 3: mixed 2/3-bit LLM — closed, quality loss (2026-09-28)
+
+GPTQ on the pod: a new A100 SXM pod, `uaaawubmr2qf66`, with an 80 GB
+volume, stopped afterwards and not deleted. It ran about 48 min for
+≈ $1.3. The calibration set came from HF, with no second capture. With
+`--cpu-threads` it took about 6 s per layer and about 8 min per variant.
+Each result went up to the private repo and came down to the Mac from
+there. Base recipe: 3-bit g64, as in gptq3. The overrides:
+
+| variant | override | LLM GB | perception | LLM | TTS | codec | **total** | keyword acc | misses | reply WER |
+|---|---|---|---|---|---|---|---|---|---|---|
+| gptq3 (reference, `table_pr3final`) | — | 4.37 | 16.4 | 39.5 | 24.4 | 5.9 | 87.7 | **1.00** | — | 0.043 |
+| mlp2 | MLP up+down 2-bit g64 | 3.93 | 16.2 | **35.6** | 23.6 | 5.7 | **82.6** | 0.90 | blue+yellow = "gray"; Mona Lisa by "Francisco … Esquiza" | 0.011 |
+| mlp2 + backbone 8-bit | + `--rtn tts…backbone:8:64` | 3.93 | 18.2 | 36.9 | 21.8 | 6.7 | 85.2 | 0.90 | same two | 0.017 |
+| mlp2g32 | MLP up+down 2-bit g32 | 4.15 | 16.8 | 38.0 | 24.6 | 5.9 | 86.7 | 0.95 | elephant is "king of the jungle" | 0.086 |
+| down2 | MLP down 2-bit g64 | 4.15 | 15.9 | 37.5 | 23.5 | 5.7 | 84.0 | 0.90 | jaguar = king of the jungle; water freezes at "0 °F" | 0.045 |
+
+- **2-bit MLP costs facts.** Every 2-bit variant gets answers wrong that
+  the 3-bit model gets right. The MLPs hold the model's knowledge. The
+  speed gain is at most 4 ms (39.5 → 35.6); g32 or only `down_proj` keep
+  less than half of it and still miss answers.
+- **GPTQ-3 stays the published model.** Below 80 ms needs something else:
+  - a smaller or distilled LLM;
+  - skipping perception while the model speaks (walkie-talkie);
+  - a GPTQ-calibrated 4-bit TTS backbone (RTN 8-bit is −4 ms and safe);
+  - an M5 Pro or Max, with more bandwidth.
+- The LLM parts are in `pod_results/mix/hf/<variant>` and on the private
+  repo (`mlp2`, `mlp2g32`, `down2`). The spliced models were deleted; they
+  can be rebuilt with `splice_llm.py` from these files.
+
 ## Plan item 4: compiled TTS backbone step — closed, no gain (2026-09-28)
 
 Built it: static K/V buffers (grown in 512-frame chunks), a boolean mask
