@@ -94,6 +94,30 @@ fusion 2.2), perception 14–19, codec 7.5.
 - **The Mac isn't idle while measuring** (`gpu_busy_before` 13–17%: the UI,
   a task monitor): ±5 ms between runs. Headline numbers need an idle machine.
 
+## Published (2026-09-28)
+
+[roman220220/NemotronLabs-VoiceChat-11B-gptq-mlx-3bit](https://huggingface.co/roman220220/NemotronLabs-VoiceChat-11B-gptq-mlx-3bit)
+(public, OpenMDW 1.1; card `cards/NemotronLabs-VoiceChat-11B-gptq-mlx-3bit.md`,
+staged and uploaded by `scripts/hf_publish.py`: private upload, every file's
+size checked, then public). It's the `models/vc-gptq3` splice, unchanged,
+with NVIDIA's LICENSE and notice files. LLMTray Voice Lab's default from
+v0.8.3-beta.2.
+
+Final run on an idle Mac (`gpu_busy_before` 7–9%), fork `2dce524` (PR #3
+merged), `results/mac_full/table_pr3final.md`:
+
+| variant | perception | LLM | TTS | codec | **total** | p95 | RTF | peak GB | user WER | keyword acc | reply WER |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| gptq3 + fork 2dce524 | 16.4 | 39.5 | 24.4 | 5.9 | **87.7** | 98.7 | 1.10 | 9.12 | 0.020 | 1.00 | 0.043 |
+
+Voice Lab's runner (`llmtray_voice_runner.py`, walkie-talkie over its frame
+protocol) on the published files: loads in 4.3 s, warm-up 83 ms/frame
+(rtf 1.03), right answer.
+
+Parity of the compiled paths is tested on the **CPU**: Metal's fp32 matmul
+rounds like tf32 (selected-means vs full projection: 1e-3 on the GPU,
+2e-7 on the CPU), which would hide an indexing mistake in the tolerance.
+
 ## Plan (agreed with the user, 2026-09-28)
 
 1. LLMTray v0.8.3-beta.2 with the fork speedups (Voice Lab).
@@ -108,5 +132,4 @@ fusion 2.2), perception 14–19, codec 7.5.
    with a fixed KV buffer; TTS guidance off (batch 1) is worth a quality check.
 2. Walkie-talkie mode only: skip perception while the model speaks (silent
    mic) once the encoder output has converged on silence.
-4. Package the best variant as a full MLX checkpoint with a card from
-   `HF_CARD_TEMPLATE.md` and publish (OpenMDW 1.1 notices, NVIDIA attribution).
+4. ~~Package and publish the best variant~~ — done, see Published.
