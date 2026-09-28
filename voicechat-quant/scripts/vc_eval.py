@@ -94,7 +94,7 @@ class Timers:
 
 def run_question(model, q, audio_dir, out_dir, args, timers):
     speech = read_wav(audio_dir / f"{q['id']}.wav")
-    session = model.create_duplex_session(system_prompt=args.prompt, seed=args.seed)
+    session = model.create_duplex_session(system_prompt=args.prompt, seed=args.seed, **({"tts_guidance": False} if args.no_tts_guidance else {}))
     if args.profile:
         timers.instrument_session(session)
     timers.take()  # drop time spent in the session's prompt prefill
@@ -200,6 +200,7 @@ def main():
     ap.add_argument("--voice-rms", type=float, default=0.01, help="frame RMS above which reply audio counts as voiced")
     ap.add_argument("--no-profile", dest="profile", action="store_false")
     ap.add_argument("--warmup", type=int, default=1, help="warm-up questions not recorded")
+    ap.add_argument("--no-tts-guidance", action="store_true", help="TTS without classifier-free guidance (batch 1)")
     vc_variants.add_variant_args(ap)
     args = ap.parse_args()
     assert os.environ.get("HF_HUB_OFFLINE") == "1", "run with HF_HUB_OFFLINE=1"

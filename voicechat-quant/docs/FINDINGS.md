@@ -88,6 +88,9 @@ fusion 2.2), perception 14–19, codec 7.5.
 - **The TTS backbone is launch-bound** (4-bit weights didn't speed it up).
   Its KV grows (sliding window 7500), so a compiled step needs a fixed-size
   KV buffer with a mask.
+- TTS without CFG (`--no-tts-guidance`, backbone batch 1): 106 ms vs 99 in
+  the paired run, reply WER unchanged 0.044 — inconclusive: background GPU
+  load was 25–27% during it vs 13–17%. Re-measure on an idle Mac.
 - **The Mac isn't idle while measuring** (`gpu_busy_before` 13–17%: the UI,
   a task monitor): ±5 ms between runs. Headline numbers need an idle machine.
 
