@@ -201,6 +201,8 @@ def main():
     ap.add_argument("--no-profile", dest="profile", action="store_false")
     ap.add_argument("--warmup", type=int, default=1, help="warm-up questions not recorded")
     ap.add_argument("--no-tts-guidance", action="store_true", help="TTS without classifier-free guidance (batch 1)")
+    ap.add_argument("--tts-kv-chunk", type=int, default=None,
+                    help="TTS backbone static K/V buffer growth in frames (0: eager caches; default: the fork's)")
     vc_variants.add_variant_args(ap)
     args = ap.parse_args()
     assert os.environ.get("HF_HUB_OFFLINE") == "1", "run with HF_HUB_OFFLINE=1"
@@ -220,6 +222,11 @@ def main():
     state_before = load_system_state()
     t0 = time.perf_counter()
     model = load(model_path)
+    if args.tts_kv_chunk is not None:
+        tts = model.tts_model.tts_model
+        if not hasattr(type(tts), "backbone_buffer_chunk"):
+            sys.exit("--tts-kv-chunk needs a fork with the static TTS backbone")
+        tts.backbone_buffer_chunk = args.tts_kv_chunk
     load_s = time.perf_counter() - t0
     variant = vc_variants.apply_variant(model, args)
     vc_variants.patch_activation_dtype(args.act_dtype)

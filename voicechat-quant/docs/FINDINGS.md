@@ -85,9 +85,8 @@ fusion 2.2), perception 14–19, codec 7.5.
   ~42 ms ≈ 105 GB/s effective on a base M5; compiling the step changed
   nothing. Faster only with fewer bits (the MLP runs are ~45% of it) or a
   smaller LLM.
-- **The TTS backbone is launch-bound** (4-bit weights didn't speed it up).
-  Its KV grows (sliding window 7500), so a compiled step needs a fixed-size
-  KV buffer with a mask.
+- ~~The TTS backbone is launch-bound~~ — wrong, it's bandwidth-bound; see
+  "Plan item 4" below.
 - TTS without CFG (`--no-tts-guidance`, backbone batch 1): 106 ms vs 99 in
   the paired run, reply WER unchanged 0.044 — inconclusive: background GPU
   load was 25–27% during it vs 13–17%. Re-measure on an idle Mac.
@@ -117,6 +116,42 @@ protocol) on the published files: loads in 4.3 s, warm-up 83 ms/frame
 Parity of the compiled paths is tested on the **CPU**: Metal's fp32 matmul
 rounds like tf32 (selected-means vs full projection: 1e-3 on the GPU,
 2e-7 on the CPU), which would hide an indexing mistake in the tolerance.
+
+## Plan item 4: compiled TTS backbone step — closed, no gain (2026-09-28)
+
+Built it: static K/V buffers (grown in 512-frame chunks), a boolean mask
+for the unfilled tail and for what the sliding layers' RotatingKVCache
+would drop, one `mx.compile` graph per capacity. Exact: a CPU parity test
+past the sliding window and across buffer growth, CFG on and off; bitwise
+the same in bf16 on the real model. Branch `tts-backbone-compile` on
+ipsupport-llc/mlx-audio, **not merged**.
+
+It isn't faster, because the step isn't launch-bound. It reads 1.19 GB of
+bf16 weights (the other TTS parts: MoG head 0.32 GB, subword encoder 0.05 GB)
+in about 11 ms, which is ~108 GB/s, the same bandwidth floor as the LLM.
+The earlier note that "4-bit weights didn't speed it up" was wrong: it
+came from a noisy run. `scripts/bench_tts_step.py`, 200 frames at
+batch 2 (CFG):
+
+| backbone | eager ms | static-compiled ms |
+|---|---|---|
+| bf16 | 11.2–11.8 | 12.0 |
+| RTN 8-bit g64 | 7.4–7.8 | 8.3 |
+| RTN 4-bit g64 | 5.3–5.4 | 5.5 |
+
+In the full session (`--rtn tts_model.tts_model.backbone:B:64`):
+
+| variant | perception | LLM | TTS | codec | **total** | RTF | keyword acc | reply WER |
+|---|---|---|---|---|---|---|---|---|
+| gptq3, bf16 backbone (static compile) | 15.9 | 39.8 | 23.3 | 5.7 | 86.1 | 1.08 | 1.00 | 0.043 |
+| gptq3 + backbone 8-bit | 16.7 | 39.7 | **20.4** | 5.9 | **84.2** | 1.05 | 1.00 | 0.049 |
+| gptq3 + backbone 4-bit | 20.7 | 41.8 | 22.3 | 7.9 | 94.4 | 1.18 | 1.00 | 0.054 |
+
+The 4-bit row ran under outside GPU load: every part slowed, including
+perception and codec, which it doesn't touch. Its TTS column isn't
+comparable. **Next for the TTS: an 8-bit backbone** (−4 ms, quality holds)
+in the next checkpoint. For 4-bit, calibrate (GPTQ on captured TTS inputs)
+rather than RTN.
 
 ## Plan (agreed with the user, 2026-09-28)
 
