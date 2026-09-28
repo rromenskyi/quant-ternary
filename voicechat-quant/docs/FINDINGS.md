@@ -94,6 +94,13 @@ fusion 2.2), perception 14–19, codec 7.5.
 - **The Mac isn't idle while measuring** (`gpu_busy_before` 13–17%: the UI,
   a task monitor): ±5 ms between runs. Headline numbers need an idle machine.
 
+## Plan (agreed with the user, 2026-09-28)
+
+1. LLMTray v0.8.3-beta.2 with the fork speedups (Voice Lab).
+2. Public HF release of the GPTQ-3 model with a template card (OpenMDW 1.1).
+3. Then: a mixed 2/3-bit LLM (MLP in 2-bit, GPTQ on the pod).
+4. Then: a compiled TTS backbone step (fixed-size KV buffer).
+
 ## Next
 
 1. Below 80 ms needs ~20 ms more: a 2-bit/3-bit mixed LLM (MLP down 2-bit,
