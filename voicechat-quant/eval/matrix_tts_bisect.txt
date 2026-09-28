@@ -1,0 +1,5 @@
+tb8   --act-dtype bf16 --scales-dtype bf16 --rtn tts_model.tts_model.backbone:8:64
+tb4   --act-dtype bf16 --scales-dtype bf16 --rtn tts_model.tts_model.backbone:4:64
+tm8   --act-dtype bf16 --scales-dtype bf16 --rtn tts_model.tts_model.mog_head:8:64
+ts8   --act-dtype bf16 --scales-dtype bf16 --rtn tts_model.tts_model.embed_subword:8:64
+tg8   --act-dtype bf16 --scales-dtype bf16 --rtn tts_model.tts_model.gated_fusion_audio_text:8:64 --rtn tts_model.tts_model.embed_code:8:64

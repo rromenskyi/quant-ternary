@@ -1,0 +1,48 @@
+q01 frames=56 ms/frame=133.3 user='What is the capital of France' reply='The capital of France is Paris.'
+q02 frames=54 ms/frame=138.0 user='How many legs does a spider have' reply='A spider has eight legs.'
+q03 frames=83 ms/frame=137.1 user='What planet is known as the red planet' reply='Mars is known as the Red Planet due to its reddish appearance.'
+q04 frames=75 ms/frame=139.9 user='Who wrote Romeo and Juliet' reply='William Shakespeare wrote "Romeo and Juliet."'
+q05 frames=65 ms/frame=138.3 user='What is the largest ocean on Earth' reply='The Pacific Ocean is the largest ocean on Earth.'
+q06 frames=73 ms/frame=138.0 user='What gas do plants absorb from the air' reply='Plants absorb carbon dioxide from the air.'
+q07 frames=56 ms/frame=136.0 user='How many days are there in a week' reply='There are seven days in a week.'
+q08 frames=57 ms/frame=139.4 user='What is the capital of Japan' reply='The capital of Japan is Tokyo.'
+q09 frames=84 ms/frame=137.5 user='What is the boiling point of water and Celsius' reply='The boiling point of water in Celsius is one hundred degrees.'
+q10 frames=80 ms/frame=139.7 user='Which animal is known as the King of the Jungle' reply='The jaguar is commonly called the "king of the jungle."'
+q11 frames=77 ms/frame=138.2 user='What color do you get when you mix blue and yellow' reply='Mixing blue and yellow results in green.'
+q12 frames=115 ms/frame=140.2 user='What is the tallest mountain in the world' reply='The tallest mountain is Mount Everest, standing at about eight thousand eight hundred and forty eight meters above sea level.'
+q13 frames=57 ms/frame=137.3 user='How many continents are there' reply='There are seven continents on Earth.'
+q14 frames=107 ms/frame=144.6 user='What is the freezing point of water in Fahrenheit?' reply='The freezing point of water is thirty two degrees Fahrenheit (zero degrees Celsius).'
+q15 frames=67 ms/frame=137.7 user='Who painted the Mona Lisa' reply='The Mona Lisa was painted by Leonardo da Vinci.'
+q16 frames=68 ms/frame=148.0 user='What is the chemical symbol for gold' reply='The chemical symbol for gold is Au.'
+q17 frames=74 ms/frame=140.2 user='What is the largest planet in our solar system' reply='Jupiter is the largest planet in our solar system.'
+q18 frames=75 ms/frame=135.4 user='In which country are the pyramids of Giza' reply='The Pyramids of Giza are located in Egypt.'
+q19 frames=68 ms/frame=137.6 user='What languages spoken in Brazil' reply='The official language of Brazil is Portuguese.'
+q20 frames=56 ms/frame=139.6 user='How many minutes are in an hour' reply='There are sixty minutes in an hour.'
+{
+ "ms_per_frame": {
+  "codec": 12.22,
+  "llm": 61.8,
+  "perception": 25.51,
+  "rnnt": 1.67,
+  "total": 139.05,
+  "tts": 36.33,
+  "rest": 1.52
+ },
+ "rtf": 1.738,
+ "frame_ms_p95": 163.7,
+ "peak_memory_gb": 8.96,
+ "variant": {
+  "scales_cast": 246,
+  "rtn": {
+   "stt_model.perception:8:64": {
+    "modules": 266,
+    "pointwise_convs_rewritten": 48
+   },
+   "tts_model.tts_model.backbone:8:64": {
+    "modules": 196,
+    "pointwise_convs_rewritten": 0
+   }
+  },
+  "param_gb": 7.44
+ }
+}

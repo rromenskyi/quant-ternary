@@ -1,0 +1,218 @@
+{
+ "summary": {
+  "base": {
+   "perception": 73.2,
+   "rnnt": 2.39,
+   "llm": 66.15,
+   "tts": 58.9,
+   "codec": 11.95,
+   "total": 214.16,
+   "rtf": 2.677,
+   "spec": ""
+  },
+  "bf16": {
+   "perception": 28.97,
+   "rnnt": 1.55,
+   "llm": 59.99,
+   "tts": 59.44,
+   "codec": 11.88,
+   "total": 163.7,
+   "rtf": 2.046,
+   "spec": "--act-dtype bf16 --scales-dtype bf16"
+  },
+  "exact": {
+   "perception": 29.93,
+   "rnnt": 1.63,
+   "llm": 61.22,
+   "tts": 43.21,
+   "codec": 12.31,
+   "total": 150.18,
+   "rtf": 1.877,
+   "spec": "--act-dtype bf16 --scales-dtype bf16 --tts-mog-gather --compile-tts-codes"
+  },
+  "p8t8": {
+   "perception": 29.3,
+   "rnnt": 1.97,
+   "llm": 61.14,
+   "tts": 44.12,
+   "codec": 12.48,
+   "total": 152.57,
+   "rtf": 1.907,
+   "spec": "--act-dtype bf16 --scales-dtype bf16 --tts-mog-gather --compile-tts-codes --rtn stt_model.perception:8:64 --rtn tts_model.tts_model.backbone:8:64"
+  },
+  "p4t4": {
+   "perception": 21.8,
+   "rnnt": 1.62,
+   "llm": 60.62,
+   "tts": 33.5,
+   "codec": 11.55,
+   "total": 130.52,
+   "rtf": 1.632,
+   "spec": "--act-dtype bf16 --scales-dtype bf16 --tts-mog-gather --compile-tts-codes --rtn stt_model.perception:4:64 --rtn tts_model.tts_model.backbone:4:64"
+  }
+ },
+ "rounds": {
+  "base": [
+   {
+    "perception": 56.56350091200746,
+    "rnnt": 1.2498244293109404,
+    "llm": 56.41754293216817,
+    "tts": 42.4086265197462,
+    "codec": 8.66866665712544,
+    "total": 166.15192280561828
+   },
+   {
+    "perception": 73.20414941119346,
+    "rnnt": 2.3905759996577056,
+    "llm": 66.14977139072246,
+    "tts": 58.90249818056712,
+    "codec": 11.952614301716334,
+    "total": 214.1631541564814
+   },
+   {
+    "perception": 74.9196593032513,
+    "rnnt": 3.148972111589768,
+    "llm": 67.21489277569002,
+    "tts": 67.27269825462238,
+    "codec": 12.80131188361659,
+    "total": 227.82167558162814
+   }
+  ],
+  "bf16": [
+   {
+    "perception": 22.585371954311782,
+    "rnnt": 1.0676954638363574,
+    "llm": 53.41367619343253,
+    "tts": 46.02257959349492,
+    "codec": 9.33307757248472,
+    "total": 133.4623495820458
+   },
+   {
+    "perception": 28.96996877354789,
+    "rnnt": 1.5511730701238027,
+    "llm": 59.99169117250644,
+    "tts": 59.43614092564744,
+    "codec": 11.876776683921515,
+    "total": 163.70174205718178
+   },
+   {
+    "perception": 32.76995808161754,
+    "rnnt": 2.1676761414924197,
+    "llm": 62.38186309501008,
+    "tts": 68.81793137247715,
+    "codec": 12.705407769638388,
+    "total": 181.21154043354395
+   }
+  ],
+  "exact": [
+   {
+    "perception": 23.894793171219884,
+    "rnnt": 1.1485199266804984,
+    "llm": 55.109340976153305,
+    "tts": 33.804477623882974,
+    "codec": 10.143393948109246,
+    "total": 125.20119759146303
+   },
+   {
+    "perception": 29.932331529219965,
+    "rnnt": 1.629939340893864,
+    "llm": 61.22160774290986,
+    "tts": 43.20924975678174,
+    "codec": 12.310030613769092,
+    "total": 150.18372549392927
+   },
+   {
+    "perception": 33.86779042022467,
+    "rnnt": 2.47943628945744,
+    "llm": 62.66572186380954,
+    "tts": 49.20240385314066,
+    "codec": 13.072914192675585,
+    "total": 163.9303376462468
+   }
+  ],
+  "p8t8": [
+   {
+    "perception": 32.7152827881304,
+    "rnnt": 2.874258767833988,
+    "llm": 58.50418415845043,
+    "tts": 47.21210472052917,
+    "codec": 12.481770816307021,
+    "total": 156.19334920227308
+   },
+   {
+    "perception": 23.708369520403828,
+    "rnnt": 1.39050335265518,
+    "llm": 61.139349791868455,
+    "tts": 33.373248414564465,
+    "codec": 11.548360280678882,
+    "total": 132.4436019644696
+   },
+   {
+    "perception": 29.300105366393623,
+    "rnnt": 1.9724666019422277,
+    "llm": 62.26684742475353,
+    "tts": 44.12465683366035,
+    "codec": 12.758499140652608,
+    "total": 152.57457691212252
+   }
+  ],
+  "p4t4": [
+   {
+    "perception": 21.56142894476515,
+    "rnnt": 1.6162490454221636,
+    "llm": 60.38519639953259,
+    "tts": 32.2436351193841,
+    "codec": 11.513018111359356,
+    "total": 128.6751743669704
+   },
+   {
+    "perception": 21.798435066182932,
+    "rnnt": 1.521945785926244,
+    "llm": 60.621581183273946,
+    "tts": 33.49580941251,
+    "codec": 11.546866694355712,
+    "total": 130.52099444843515
+   },
+   {
+    "perception": 25.668366688050273,
+    "rnnt": 1.9068005802931594,
+    "llm": 65.48664345010526,
+    "tts": 39.9629537239568,
+    "codec": 13.351844687028514,
+    "total": 148.0919571545468
+   }
+  ]
+ },
+ "system": {
+  "gpu_util_pct_idle_samples": [
+   90,
+   9,
+   8
+  ],
+  "uptime": "22:11  up 5 days, 23:39, 11 users, load averages: 7.06 5.68 4.77",
+  "memory_pressure": [
+   "System-wide memory free percentage: 61%"
+  ],
+  "chip": "Apple M5",
+  "mlx": "0.32.2",
+  "python": "3.14.7"
+ },
+ "argv": [
+  "--out",
+  "results/ab_mac.json",
+  "--rounds",
+  "3",
+  "--ids",
+  "q01,q04",
+  "--variant",
+  "base=",
+  "--variant",
+  "bf16=--act-dtype bf16 --scales-dtype bf16",
+  "--variant",
+  "exact=--act-dtype bf16 --scales-dtype bf16 --tts-mog-gather --compile-tts-codes",
+  "--variant",
+  "p8t8=--act-dtype bf16 --scales-dtype bf16 --tts-mog-gather --compile-tts-codes --rtn stt_model.perception:8:64 --rtn tts_model.tts_model.backbone:8:64",
+  "--variant",
+  "p4t4=--act-dtype bf16 --scales-dtype bf16 --tts-mog-gather --compile-tts-codes --rtn stt_model.perception:4:64 --rtn tts_model.tts_model.backbone:4:64"
+ ]
+}

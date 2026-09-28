@@ -1,0 +1,8 @@
+# LLM variants from the pod (spliced into models/), all with the exact Mac-side speedups;
+# *_p4t4 adds RTN-4 perception + TTS backbone
+rtn4_exact   --model models/vc-rtn4  --act-dtype bf16 --tts-mog-gather --compile-tts-codes
+rtn4_p4t4    --model models/vc-rtn4  --act-dtype bf16 --tts-mog-gather --compile-tts-codes --rtn stt_model.perception:4:64 --rtn tts_model.tts_model.backbone:4:64
+gptq3_exact  --model models/vc-gptq3 --act-dtype bf16 --tts-mog-gather --compile-tts-codes
+gptq3_p4t4   --model models/vc-gptq3 --act-dtype bf16 --tts-mog-gather --compile-tts-codes --rtn stt_model.perception:4:64 --rtn tts_model.tts_model.backbone:4:64
+gptq4_exact  --model models/vc-gptq4 --act-dtype bf16 --tts-mog-gather --compile-tts-codes
+rtn3_exact   --model models/vc-rtn3  --act-dtype bf16 --tts-mog-gather --compile-tts-codes
