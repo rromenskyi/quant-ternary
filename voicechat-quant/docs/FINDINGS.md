@@ -117,6 +117,45 @@ Parity of the compiled paths is tested on the **CPU**: Metal's fp32 matmul
 rounds like tf32 (selected-means vs full projection: 1e-3 on the GPU,
 2e-7 on the CPU), which would hide an indexing mistake in the tolerance.
 
+## TTS pause while the model listens (2026-09-28, fork PR #4, LLMTray v0.8.3-beta.4)
+
+An exact skip doesn't exist. While the model listens (pad text token),
+its TTS codes never land on the codec's silence tokens or settle on a
+fixed point: 99 distinct codes in 222 frames. So the TTS state really
+evolves, and skipped frames can't be replayed later.
+
+The approximation: after `tts_idle_frames` quiet frames in a row, the TTS
+and codec pause and the frame's audio is zeros. A frame is quiet when the
+text and function tokens are pad and the decoded RMS is below 1e-3; while
+listening the output is under 1e-4, while speaking over 1e-2. The pause
+ends at the next text or function token, and the TTS resumes from where it
+stopped. Perception and the LLM run every frame regardless.
+
+Measured on the mixed model, cold:
+
+| run | off | on (5 frames) | frames skipped | quality |
+|---|---|---|---|---|
+| 20-question eval (`table_idle.md`) | 75.6 ms | **69.1 ms** (RTF 0.86) | 29% | 20/20, reply WER 0.043 (off: 0.049) |
+| one 4-turn session, 5 s pauses | 75.6 ms | **64.2 ms** | 54% | same text; Whisper hears the same speech |
+
+The runner (`--tts-idle-frames`, default 5) measures the warm-up rtf
+without the pause. That is the cost of a speaking frame, which is what
+decides whether duplex playback keeps up.
+
+## Echo cancellation (LLMTray v0.8.3-beta.4)
+
+- **AVAudioEngine's voice processing fails** on the MacBook Air (built-in
+  mic 48 kHz, speakers 96 kHz, macOS 27): its output node fails
+  `kAUInitialize` with -10875. Every variant fails: no tap, no player,
+  explicit devices, speakers at 48 kHz, inside a signed .app.
+- **The raw `kAudioUnitSubType_VoiceProcessingIO` unit works.** LLMTray
+  uses it, with the other apps' ducking turned off.
+- **Live test:** the Mac played a model reply while a person spoke over
+  it. Whisper heard only the person. The reply's echo in the mic dropped
+  from RMS 0.027 to 0.00013, about −46 dB.
+- **Simulating the user with `afplay` doesn't work.** The voice comes out
+  of the same speakers, so VPIO removes it too.
+
 ## Published v2: GPTQ-3 LLM + 8-bit speech (2026-09-28)
 
 [roman220220/NemotronLabs-VoiceChat-11B-gptq-mlx-mixed](https://huggingface.co/roman220220/NemotronLabs-VoiceChat-11B-gptq-mlx-mixed)

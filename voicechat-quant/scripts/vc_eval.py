@@ -94,7 +94,10 @@ class Timers:
 
 def run_question(model, q, audio_dir, out_dir, args, timers):
     speech = read_wav(audio_dir / f"{q['id']}.wav")
-    session = model.create_duplex_session(system_prompt=args.prompt, seed=args.seed, **({"tts_guidance": False} if args.no_tts_guidance else {}))
+    extra = {"tts_guidance": False} if args.no_tts_guidance else {}
+    if args.tts_idle_frames:
+        extra.update(tts_idle_frames=args.tts_idle_frames, tts_idle_rms=args.tts_idle_rms)
+    session = model.create_duplex_session(system_prompt=args.prompt, seed=args.seed, **extra)
     if args.profile:
         timers.instrument_session(session)
     timers.take()  # drop time spent in the session's prompt prefill
@@ -153,6 +156,7 @@ def run_question(model, q, audio_dir, out_dir, args, timers):
         "first_voiced_frame_after_speech": first_voice,
         "reply_latency_s": None if first_voice is None else round((first_voice - speech_frames) * 0.08, 2),
         "audio_s": round(len(wav) / session.output_sample_rate, 2),
+        "tts_idle_skipped": getattr(getattr(session, "_stream", session), "tts_idle_skipped", 0),
         # frame 0 includes one-off graph building; keep it but report stats without it
         "frame_ms": [{k: round(v * 1000, 2) for k, v in f.items()} for f in frames],
     }
@@ -201,6 +205,9 @@ def main():
     ap.add_argument("--no-profile", dest="profile", action="store_false")
     ap.add_argument("--warmup", type=int, default=1, help="warm-up questions not recorded")
     ap.add_argument("--no-tts-guidance", action="store_true", help="TTS without classifier-free guidance (batch 1)")
+    ap.add_argument("--tts-idle-frames", type=int, default=0,
+                    help="pause the TTS+codec after this many quiet frames until the next token (0: off)")
+    ap.add_argument("--tts-idle-rms", type=float, default=1e-3, help="decoded-speech RMS below which a frame is quiet")
     ap.add_argument("--tts-kv-chunk", type=int, default=None,
                     help="TTS backbone static K/V buffer growth in frames (0: eager caches; default: the fork's)")
     vc_variants.add_variant_args(ap)
