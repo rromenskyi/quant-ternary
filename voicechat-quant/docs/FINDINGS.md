@@ -117,6 +117,36 @@ Parity of the compiled paths is tested on the **CPU**: Metal's fp32 matmul
 rounds like tf32 (selected-means vs full projection: 1e-3 on the GPU,
 2e-7 on the CPU), which would hide an indexing mistake in the tolerance.
 
+## Published v2: GPTQ-3 LLM + 8-bit speech (2026-09-28)
+
+[roman220220/NemotronLabs-VoiceChat-11B-gptq-mlx-mixed](https://huggingface.co/roman220220/NemotronLabs-VoiceChat-11B-gptq-mlx-mixed)
+is public and has been LLMTray Voice Lab's default since v0.8.3-beta.3.
+It is the gptq3 splice plus 8-bit RTN (g64) on every Linear of three parts:
+the perception encoder (218), the TTS backbone (196) and the TTS MoG head (13).
+`scripts/bake_rtn.py` bakes these into the checkpoint's own tensors,
+without a load/save round trip, because the codec's sanitize would convert
+its layouts twice. The fork's loader then quantizes every layer that has
+`.scales`, with no flags. Size: 7.61 → 6.43 GB.
+
+**Thermal throttling decides the numbers here.** The base M5 is fanless.
+Back-to-back sessions (ABAB, `table_abab.md`) had the *same* gptq3 go from
+84.4 ms in the first run to 116.7 ms in the third, and its unchanged LLM
+from 38.9 to 49.4 ms. `gpu_busy_before` stayed at 7–11% and `pmset -g
+therm` recorded nothing. Whichever variant ran second looked worse. From
+now on, compare variants only after a cool-down (5 min idle before each
+run, reversed order); `table_cool.md`:
+
+| variant | perception | LLM | TTS | codec | **total** | RTF | peak GB | keyword acc | reply WER |
+|---|---|---|---|---|---|---|---|---|---|
+| mixed (this) | 15.9 | 40.7 | **18.8** | 6.5 | **83.3** | 1.04 | 7.95 | 1.00 | 0.049 |
+| gptq3 | 16.9 | 40.4 | 24.2 | 6.4 | 89.4 | 1.12 | 9.12 | 1.00 | 0.043 |
+
+In both runs the LLM (unchanged) matched (40.7 / 40.4), so the two runs
+were in the same thermal state. The gain is almost all in the TTS
+(−5.4 ms); perception gained −1 ms. Voice Lab's runner on the published
+files warms up at 80 ms per 80 ms frame (rtf 1.00). A long conversation
+heats the chip, so real sessions will run slower than this cold figure.
+
 ## Plan item 3: mixed 2/3-bit LLM — closed, quality loss (2026-09-28)
 
 GPTQ on the pod: a new A100 SXM pod, `uaaawubmr2qf66`, with an 80 GB

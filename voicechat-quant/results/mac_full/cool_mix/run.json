@@ -1,0 +1,56 @@
+{
+  "model": "models/vc-mix-all8",
+  "argv": [
+    "--model",
+    "models/vc-mix-all8",
+    "--out",
+    "results/mac_full/cool_mix"
+  ],
+  "variant": {
+    "param_gb": 6.429
+  },
+  "load_s": 1.6,
+  "questions": 20,
+  "frames": 1555,
+  "ms_per_frame": {
+    "codec": 6.52,
+    "llm": 40.74,
+    "perception": 15.86,
+    "rnnt": 0.68,
+    "total": 83.32,
+    "tts": 18.79,
+    "rest": 0.73
+  },
+  "frame_ms_p50": 77.3,
+  "frame_ms_p95": 115.1,
+  "rtf": 1.041,
+  "peak_memory_gb": 7.95,
+  "system_before": {
+    "gpu_util_pct_idle_samples": [
+      83,
+      9,
+      10
+    ],
+    "uptime": "18:04  up 6 days, 19:32, 8 users, load averages: 1.76 1.89 2.02",
+    "memory_pressure": [
+      "System-wide memory free percentage: 83%"
+    ],
+    "chip": "Apple M5",
+    "mlx": "0.32.2",
+    "python": "3.14.7"
+  },
+  "system_after": {
+    "gpu_util_pct_idle_samples": [
+      94,
+      11,
+      10
+    ],
+    "uptime": "18:07  up 6 days, 19:35, 8 users, load averages: 1.96 1.90 1.99",
+    "memory_pressure": [
+      "System-wide memory free percentage: 83%"
+    ],
+    "chip": "Apple M5",
+    "mlx": "0.32.2",
+    "python": "3.14.7"
+  }
+}
