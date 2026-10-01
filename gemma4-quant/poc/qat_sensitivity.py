@@ -28,6 +28,8 @@ import numpy as np
 from mlx.utils import tree_flatten, tree_unflatten
 from mlx_lm import load
 
+from qat_text import windows
+
 LINEAR = re.compile(r"^language_model\.model\.layers\.\d+\.(self_attn\.[qkvo]_proj|mlp\.(gate|up|down)_proj"
                     r"|per_layer_input_gate|per_layer_projection)$")
 EMBED = re.compile(r"^language_model\.model\.embed_tokens(_per_layer)?$")
@@ -48,24 +50,6 @@ def q4_0_module(linear: nn.Linear) -> nn.QuantizedLinear:
     m = nn.QuantizedLinear(cols, rows, bias=False, group_size=32, bits=4)
     m.weight, m.scales, m.biases = mx.array(packed), d16, d16 * -8.0
     return m
-
-
-def windows(tok, text: str, ctx: int, n: int, chat: bool = False) -> list[tuple[list[int], int]]:
-    """(tokens, first scored position) per window. Plain: BOS + text, as
-    llama.cpp's perplexity (Gemma without BOS is off the rails). --chat:
-    the text as the model's reply to "Continue this text." -- for a
-    chat-only checkpoint (the 12B QAT scores raw text like noise, in
-    transformers too); only the text's own tokens are scored."""
-    ids = tok.encode(text, add_special_tokens=False)
-    prefix = [tok.bos_token_id]
-    if chat:
-        prompt = tok.apply_chat_template([{"role": "user", "content": "Continue this text."}],
-                                         add_generation_prompt=True, tokenize=False)
-        prefix = tok.encode(prompt, add_special_tokens=False)
-        if prefix[0] != tok.bos_token_id:
-            prefix = [tok.bos_token_id] + prefix
-    step = ctx - len(prefix)
-    return [(prefix + ids[i: i + step], len(prefix) - 1) for i in range(0, len(ids) - step, step)][:n]
 
 
 def logprobs(model, tokens):
@@ -104,8 +88,7 @@ def main() -> None:
     args = ap.parse_args()
 
     model, tok = load(args.master)
-    text = open(args.text).read()
-    wins_all = windows(tok, text, args.ctx, max(args.windows, args.scan_windows), chat=args.chat)
+    wins_all = windows(tok, args.text, args.ctx, max(args.windows, args.scan_windows), chat=args.chat)
     scan_wins, eval_wins = wins_all[: args.scan_windows], wins_all[: args.windows]
     ref = []
     for w, s in eval_wins:

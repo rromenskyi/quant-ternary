@@ -20,23 +20,7 @@ import mlx.core as mx
 import numpy as np
 from mlx_lm import load
 
-
-def windows(tok, text: str, ctx: int, n: int, chat: bool = False) -> list[tuple[list[int], int]]:
-    """(tokens, first scored position) per window. Plain: BOS + text, as
-    llama.cpp's perplexity (Gemma without BOS is off the rails). --chat:
-    the text as the model's reply to "Continue this text." -- for a
-    chat-only checkpoint (the 12B QAT scores raw text like noise, in
-    transformers too); only the text's own tokens are scored."""
-    ids = tok.encode(text, add_special_tokens=False)
-    prefix = [tok.bos_token_id]
-    if chat:
-        prompt = tok.apply_chat_template([{"role": "user", "content": "Continue this text."}],
-                                         add_generation_prompt=True, tokenize=False)
-        prefix = tok.encode(prompt, add_special_tokens=False)
-        if prefix[0] != tok.bos_token_id:
-            prefix = [tok.bos_token_id] + prefix
-    step = ctx - len(prefix)
-    return [(prefix + ids[i: i + step], len(prefix) - 1) for i in range(0, len(ids) - step, step)][:n]
+from qat_text import windows
 
 
 def logprobs(model, tokens: list[int]) -> mx.array:
@@ -55,9 +39,8 @@ def main() -> None:
     ap.add_argument("models", nargs="+")
     args = ap.parse_args()
 
-    text = open(args.text).read()
     ref_model, tok = load(args.ref)
-    wins = windows(tok, text, args.ctx, args.windows, chat=args.chat)
+    wins = windows(tok, args.text, args.ctx, args.windows, chat=args.chat)
     print(f"{len(wins)} windows of {args.ctx} tokens", flush=True)
     ref_lp = []
     nll = 0.0
