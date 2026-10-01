@@ -366,3 +366,75 @@ fine-tunes (ipsupport-code LoRA), MoE models where JANG actually wins
   the pipeline falls back to an F16 mmproj.
 
 Nothing was published for E2B.
+
+## Gemma 4 QAT in MLX on the q4_0 grid (2026-09-30, in progress)
+
+The 2026-09-27 conclusion ("the vendor's QAT is already in MLX, don't
+quantize") was half right. The QAT is the thing to ship, but the MLX ports
+of it are not on the grid it was trained for. LLMTray's 8 GB pick was
+`mlx-community/gemma-4-e2b-it-4bit`, a plain RTN 4-bit with no QAT at all.
+
+### What the QAT release is (checked)
+
+- `google/gemma-4-*-it-qat-q4_0-gguf` is **llama.cpp's q4_0 of the
+  `-qat-q4_0-unquantized` master weights, bit for bit**. Every block's fp16
+  `d` and every code matched on E2B (`blk.0.attn_q`, `blk.0.ffn_down`,
+  `blk.20.attn_output`; then all 275 Q4_0 tensors in the converter).
+- The "unquantized" weights are therefore *not* on the grid themselves:
+  only ~26% of blocks round-trip unchanged (`qat_grid_check.py`). They are
+  the master weights QAT kept, and q4_0 of them is the model Google tuned.
+- Q4_0 in the GGUF = exactly the text decoder's Linears: q/k/v/o, MLP
+  gate/up/down, per-layer input gate and projection. 275 on E2B, i.e.
+  35 layers × 7 + 15 KV layers × 2. The embeddings are Q6_K. The
+  vision/audio towers are a separate F16 mmproj and were never QAT-trained
+  (0% of their blocks on the grid).
+
+### Why the community MLX ports miss
+
+- `mlx-community/gemma-4-*-it-qat-4bit`: affine 4-bit, **group 64**, and on
+  E2B **all 105 MLP Linears at 8-bit**. Group 64 can't hold two q4_0 blocks'
+  scales, so even the 4-bit part is refitted per group, off the QAT grid.
+  It is also not a 4-bit model: 4.33 GB (E2B), 28.8 GB (31B).
+- A plain `mlx_lm.convert -q --q-group-size 32` has the right group but
+  fits each group's min/max, not q4_0's `d = absmax_signed / -8`.
+
+### The conversion (`poc/qat_aligned_convert.py`)
+
+MLX affine 4-bit, group 32: `x = scale·q + bias`. With `scale = d`,
+`bias = -8d`, and q4_0's codes packed into uint32 (8 per word, value j at
+bits 4j), this is q4_0's grid exactly. The packing was checked with
+`mx.dequantize` (diff 0.0).
+- One deliberate loss: MLX keeps scales in the model dtype (bf16), so the
+  fp16 `d` is rounded to bf16. That is under 1/64 of a step per weight.
+  fp16 scales are accepted, but every quantized matmul then returns float32.
+- `--gguf` compares every q4_0 tensor's `d` and codes with Google's GGUF and
+  fails on any difference. E2B: 275/275 identical.
+- Everything else follows Google's split:
+  - embeddings: RTN 6-bit, group 64 (≈ Q6_K);
+  - vision/audio towers: RTN 8-bit, which halves Google's F16 mmproj;
+  - norms: copied.
+- E2B: **3.94 GB**. Google's GGUF + mmproj is 4.34 GB; mlx-community
+  qat-4bit is 4.33 GB.
+
+### E2B quality (`poc/qat_eval.py`, wikitext-2 test, 64 × 512, BOS per window)
+
+| model | size | PPL | KL to google bf16 | top-1 agree |
+|---|---|---|---|---|
+| google/gemma-4-E2B-it bf16 (not QAT) | 10 GB | 200.9 | — | — |
+| QAT master weights, bf16 | 10 GB | 63.6 | 0.293 | 80.0% |
+| **ours, q4_0 grid** | **3.94 GB** | 68.3 | **0.330** | **78.3%** |
+| mlx-community qat-4bit (MLP at 8-bit) | 4.33 GB | 63.7 | 0.363 | 76.8% |
+| mlx-community 4-bit RTN (LLMTray's 8 GB pick until now) | 3.6 GB | 231.6 | 0.646 | 69.1% |
+
+- Ours at 68.3 sits where Google's q4_0 GGUF measured (69, the 09-27 llama.cpp
+  run). It *is* that model.
+- mlx-community's lower PPL buys MLP at 8-bit with 0.4 GB more, yet it
+  agrees less with the original (KL, top-1).
+- Plain RTN 4-bit is far behind every QAT variant.
+
+A first run without BOS per window gave PPL in the thousands for every
+model: Gemma needs BOS at the start of each window, as llama.cpp's
+perplexity provides.
+
+Next: KL against the QAT master instead of the non-QAT original, at 128
+windows; E4B, 12B, 31B through the same converter; speed on the M5.
