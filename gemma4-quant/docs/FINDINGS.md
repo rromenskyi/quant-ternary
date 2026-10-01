@@ -497,6 +497,9 @@ windows. Built in memory from the master weights.
 | 0 (pure q4_0) | 0 | 3.40 GB | 70.9 | 0.054 | 89.2% |
 | **+50 MB** | 99 | 3.45 GB | **64.1** | **0.034** | **91.3%** |
 | +100 MB | 126 | 3.50 GB | 64.5 | 0.030 | 91.8% |
+| +200 MB | 166 | 3.60 GB | 65.7 | 0.025 | 92.8% |
+| +400 MB | 201 | 3.80 GB | 65.8 | 0.018 | 94.0% |
+| +800 MB | 245 | 4.20 GB | 65.6 | 0.012 | 95.4% |
 
 - With +50 MB the model beats mlx-community's qat-4bit on all three
   metrics: PPL 64.1 vs 66.2, KL half, top-1 91.3% vs 87.6%. It is still
@@ -506,8 +509,25 @@ windows. Built in memory from the master weights.
 - PPL below the master's (64.1 < 66.1) is noise in raw-text PPL. KL and
   top-1 are the measures of fidelity.
 
+Past +100 MB, KL and top-1 keep improving while PPL stays flat. +100…200 MB
+is the knee.
+
+### One pipeline for every size (`poc/qat_mlx_pipeline.sh`)
+
+`MODEL=E2B|E4B|12B|31B [BUDGET_MB=100] [BASELINES=...] [PUBLISH=1 HF_REPO=...]`.
+Steps:
+1. download Google's master weights and GGUF;
+2. scan;
+3. convert (q4_0 checked against the GGUF, plus the budget point's Linears
+   at 8-bit via `--raise-json/--raise-budget-mb`);
+4. eval against the QAT master;
+5. card, then publish.
+
+Every step resumes. The scanner keeps the master weights in host memory
+and builds one candidate's 8-bit version at a time, so a 31B fits an 80 GB
+GPU.
+
 Next:
-- the rest of the curve;
 - the chosen recipe written by the converter and re-measured from disk;
 - the same scan on E4B and 31B, where 31B also needs to fit a 32 GB Mac
   (~21 GB GPU limit);

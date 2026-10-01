@@ -16,6 +16,7 @@ Built in memory from the master weights; nothing is written but the JSON.
 from __future__ import annotations
 
 import argparse
+import gc
 import json
 import math
 import re
@@ -97,23 +98,44 @@ def main() -> None:
         ref.append(np.array(logprobs(model, w).astype(mx.float16)))
     print(f"reference: {len(eval_wins)} windows", flush=True)
 
+    # The master weights wait in host memory; the GPU holds the low-bit
+    # model and, during a probe, one candidate at high bits (a 31B's
+    # master + both versions of every Linear would not fit).
     leaves = dict(tree_flatten(model.leaf_modules(), is_leaf=nn.Module.is_module))
-    low, high, cost = {}, {}, {}
+    master, low, cost = {}, {}, {}
     for path, m in leaves.items():
         if LINEAR.match(path) and isinstance(m, nn.Linear):
-            low[path] = q4_0_module(m)
-            high[path] = nn.QuantizedLinear.from_linear(m, group_size=64, bits=args.high_bits)
+            lo = q4_0_module(m)
+            kind = "linear"
         elif EMBED.match(path) and isinstance(m, nn.Embedding):
-            low[path] = nn.QuantizedEmbedding.from_embedding(m, group_size=64, bits=args.embed_bits)
-            high[path] = nn.QuantizedEmbedding.from_embedding(m, group_size=64, bits=args.high_bits)
+            lo = nn.QuantizedEmbedding.from_embedding(m, group_size=64, bits=args.embed_bits)
+            kind = "embed"
         else:
             continue
-        mx.eval(low[path].parameters(), high[path].parameters())
-        cost[path] = nbytes(high[path]) - nbytes(low[path])
+        mx.eval(lo.parameters())
+        master[path] = (kind, np.array(m.weight.astype(mx.float16)))
+        low[path] = lo
+        model.update_modules(tree_unflatten([(path, lo)]))
+        # bits*n/8 + a scale and a bias (bf16) per group
+        n = master[path][1].size
+        cost[path] = n * args.high_bits / 8 + n / 64 * 4 - nbytes(lo)
+    gc.collect()
+    mx.clear_cache()
     print(f"{len(low)} candidates", flush=True)
 
+    def high(path: str):
+        kind, w = master[path]
+        w = mx.array(w).astype(mx.bfloat16)
+        if kind == "linear":
+            src = nn.Linear(w.shape[1], w.shape[0], bias=False)
+            src.weight = w
+            return nn.QuantizedLinear.from_linear(src, group_size=64, bits=args.high_bits)
+        src = nn.Embedding(w.shape[0], w.shape[1])
+        src.weight = w
+        return nn.QuantizedEmbedding.from_embedding(src, group_size=64, bits=args.high_bits)
+
     def build(raised: set[str]):
-        model.update_modules(tree_unflatten([(p, high[p] if p in raised else low[p]) for p in low]))
+        model.update_modules(tree_unflatten([(p, high(p) if p in raised else low[p]) for p in low]))
         return model
 
     base_size = sum(nbytes(m) for m in low.values())
@@ -121,7 +143,9 @@ def main() -> None:
     print(f"base (all q4_0 grid): scan KL {base_scan['kl']:.4f}", flush=True)
     gains = {}
     for i, p in enumerate(sorted(low)):
-        kl = measure(build({p}), scan_wins, ref)["kl"]
+        model.update_modules(tree_unflatten([(p, high(p))]))
+        kl = measure(model, scan_wins, ref)["kl"]
+        model.update_modules(tree_unflatten([(p, low[p])]))
         gains[p] = {"dkl": base_scan["kl"] - kl, "mb": cost[p] / 1e6}
         if i % 20 == 0:
             print(f"  {i}/{len(low)} {p}: dKL {gains[p]['dkl']:.5f} for {gains[p]['mb']:.1f} MB", flush=True)

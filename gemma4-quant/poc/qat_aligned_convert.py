@@ -115,6 +115,9 @@ def main() -> None:
     ap.add_argument("--other-bits", type=int, default=8, help="RTN bits for every other quantizable module (0 = keep float)")
     ap.add_argument("--other-group-size", type=int, default=64)
     ap.add_argument("--gguf", help="Google's q4_0 GGUF: every q4_0 tensor must match it")
+    ap.add_argument("--raise-json", help="qat_sensitivity.py's JSON: modules of the --raise-budget-mb curve point go to --raise-bits")
+    ap.add_argument("--raise-budget-mb", type=float)
+    ap.add_argument("--raise-bits", type=int, default=8)
     ap.add_argument("--drop-kv-shared-dead", action="store_true")
     ap.add_argument("--shard-size-gb", type=float, default=4.0)
     args = ap.parse_args()
@@ -134,12 +137,20 @@ def main() -> None:
     quantizable = quantizable_module_paths(config)
     q4_re, embed_re = re.compile(args.q4_0), re.compile(args.embed_pattern)
     gguf = GGUFCheck(args.gguf) if args.gguf else None
+    raised: set[str] = set()
+    if args.raise_json:
+        curve = json.loads(Path(args.raise_json).read_text())["curve"]
+        point = next(c for c in curve if c["budget_mb"] == args.raise_budget_mb)
+        raised = set(point["raised"])
+        print(f"raising {len(raised)} modules to {args.raise_bits}-bit (the +{args.raise_budget_mb:g} MB point)", flush=True)
 
     def kind(k: str) -> str:
         shape, dtype = shapes[k]
         if not (k.endswith(".weight") and len(shape) == 2 and dtype in ("BF16", "F16", "F32")
                 and module_path_of(k) in quantizable):
             return "copy"
+        if module_path_of(k) in raised:
+            return "raised"
         if q4_re.search(k) and shape[1] % GROUP == 0:
             return "q4_0"
         if embed_re.search(k):
@@ -157,7 +168,7 @@ def main() -> None:
     if cur:
         shards.append(cur)
 
-    weight_map, overrides, counts = {}, {}, {"q4_0": 0, "embed": 0, "other": 0, "copy": 0}
+    weight_map, overrides, counts = {}, {}, {"q4_0": 0, "raised": 0, "embed": 0, "other": 0, "copy": 0}
     handles = {p: safe_open(str(p), "pt") for p in files}
     for i, shard in enumerate(shards):
         name = f"model-{i + 1:05d}-of-{len(shards):05d}.safetensors"
@@ -171,8 +182,8 @@ def main() -> None:
                 if gguf:
                     gguf.check(k, d16, q)
                 tensors[k], tensors[base + ".scales"], tensors[base + ".biases"] = to_mlx_affine(d16, q)
-            elif how in ("embed", "other"):
-                bits = args.embed_bits if how == "embed" else args.other_bits
+            elif how in ("raised", "embed", "other"):
+                bits = {"raised": args.raise_bits, "embed": args.embed_bits, "other": args.other_bits}[how]
                 w = mx.array(t.to(torch.float32).numpy()).astype(mx.bfloat16)
                 # The widest group that divides the row; none (31B's vision
                 # MLP is 4304 wide): left float.
@@ -196,8 +207,9 @@ def main() -> None:
         print(f"  {name}: {len(tensors)} tensors", flush=True)
         del tensors
 
-    if gguf and gguf.checked != gguf.q4_0:
-        raise SystemExit(f"GGUF Q4_0 tensors not produced here: {sorted(gguf.q4_0 - gguf.checked)[:8]}")
+    covered = gguf.checked | {gguf.gguf_name(k) for k in keys if kind(k) == "raised"} - {None} if gguf else set()
+    if gguf and covered != gguf.q4_0:
+        raise SystemExit(f"GGUF Q4_0 tensors not produced here: {sorted(gguf.q4_0 - covered)[:8]}")
     total = sum((out / f).stat().st_size for f in set(weight_map.values()))
     (out / "model.safetensors.index.json").write_text(json.dumps({"metadata": {"total_size": total}, "weight_map": weight_map}, indent=1))
     for item in src.iterdir():
@@ -205,7 +217,8 @@ def main() -> None:
             shutil.copy2(item, out / item.name)
     config["quantization"] = {"group_size": GROUP, "bits": 4, "mode": "affine", **overrides}
     (out / "config.json").write_text(json.dumps(config, indent=2))
-    print(f"q4_0 (QAT grid): {counts['q4_0']}{' (all match the GGUF)' if gguf else ''}; embeddings {args.embed_bits}-bit: "
+    print(f"q4_0 (QAT grid): {counts['q4_0']}{' (all match the GGUF)' if gguf else ''}; raised to {args.raise_bits}-bit: {counts['raised']}; "
+          f"embeddings {args.embed_bits}-bit: "
           f"{counts['embed']}; other {args.other_bits}-bit: {counts['other']}; copied: {counts['copy']}; {total / 1e9:.2f} GB")
     print("QAT_ALIGNED_DONE")
 
