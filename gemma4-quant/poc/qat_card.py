@@ -10,9 +10,9 @@ every size, so the cards agree with each other and with FINDINGS.
 import argparse
 
 
-def row(label, size, metrics):
+def row(label, size, metrics, ppl_column=True):
     ppl, kl, top1 = metrics
-    return f"| {label} | {size} | {ppl} | {kl} | {top1}% |"
+    return f"| {label} | {size} | {ppl} | {kl} | {top1}% |" if ppl_column else f"| {label} | {size} | {kl} | {top1}% |"
 
 
 def main() -> None:
@@ -43,11 +43,15 @@ def main() -> None:
     base = f"google/gemma-4-{m}-it"
     qat = f"google/gemma-4-{m}-it-qat-q4_0-unquantized"
     ours = a.ours.split(",")
-    rows = [f"| QAT master weights, bf16 ([{qat}](https://huggingface.co/{qat})) | — | {a.master_ppl} | — | — |",
-            row(f"**this model**", f"**{a.size_gb} GB**", [f"**{x}**" for x in ours])]
+    ppl_column = not a.chat_only
+    rows = [row(f"**this model**", f"**{a.size_gb} GB**", [f"**{x}**" for x in ours], ppl_column)]
+    if ppl_column:
+        rows.insert(0, f"| QAT master weights, bf16 ([{qat}](https://huggingface.co/{qat})) | — | {a.master_ppl} | — | — |")
     for b in a.baseline:
         repo, size, metrics = b.split(":")
-        rows.append(row(f"[{repo}](https://huggingface.co/{repo})", f"{size} GB", metrics.split(",")))
+        rows.append(row(f"[{repo}](https://huggingface.co/{repo})", f"{size} GB", metrics.split(","), ppl_column))
+    header = ("| model | size | PPL | KL to QAT master | top-1 agree |\n|---|---|---|---|---|" if ppl_column
+              else "| model | size | KL to QAT master | top-1 agree |\n|---|---|---|---|")
     speed = ""
     if a.speed:
         lines = []
@@ -67,16 +71,11 @@ def main() -> None:
     if a.replaces:
         replaces = f"\n## This replaces an earlier release\n\n{a.replaces}\n"
     if a.chat_only:
-        measured_intro = """Wikitext-2 (test), 128 windows of 512 tokens, scored as the model's chat
-reply to "Continue this text.": this is a **chat-only checkpoint** -- the
-QAT master itself scores raw text like noise (perplexity in the
-thousands), so raw-text PPL says nothing here. KL divergence and top-1
-agreement are measured to the bf16 QAT master weights, the model this one
-reproduces, on the same chat-framed text."""
-        how_to_read = """How to read it:
-- **KL and top-1 measure faithfulness;** a lower KL is closer.
-- The PPL column is the chat-framed text's: compare it to the master's, not
-  to other models'."""
+        measured_intro = """KL divergence and top-1 agreement to the bf16 QAT master weights, the model
+this one reproduces: wikitext-2 (test), 128 windows of 512 tokens, as the
+model's chat reply."""
+        how_to_read = """A lower KL is closer. No perplexity here: on raw text this checkpoint, Google's
+own master included, scores in the thousands."""
     else:
         measured_intro = """Raw-text perplexity on wikitext-2 (test), 128 windows of 512 tokens, BOS at
 the start of each. KL divergence and top-1 agreement are measured to the bf16
@@ -151,8 +150,7 @@ included.{(chr(10) + chr(10) + a.memory_note) if a.memory_note else ""}
 
 {measured_intro}
 
-| model | size | PPL | KL to QAT master | top-1 agree |
-|---|---|---|---|---|
+{header}
 {chr(10).join(rows)}
 
 {how_to_read}
