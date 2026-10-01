@@ -132,6 +132,9 @@ def main() -> None:
         # bits*n/8 + a scale and a bias (bf16) per group
         n = master[path][1].size
         cost[path] = n * args.high_bits / 8 + n / 64 * 4 - nbytes(lo)
+    # The bf16 master modules are referenced only here now: drop them, or
+    # the GPU keeps the whole master (59 GB on a 31B) next to the low model.
+    del leaves, m
     gc.collect()
     mx.clear_cache()
     print(f"{len(low)} candidates", flush=True)
