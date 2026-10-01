@@ -527,6 +527,17 @@ Every step resumes. The scanner keeps the master weights in host memory
 and builds one candidate's 8-bit version at a time, so a 31B fits an 80 GB
 GPU.
 
+### E2B from disk (`MODEL=E2B BUDGET_MB=100`)
+
+| E2B | size | PPL | KL to QAT master | top-1 |
+|---|---|---|---|---|
+| QAT master bf16 | 10 GB | 66.1 | — | — |
+| **ours, q4_0 grid + 126 Linears 8-bit** | **4.04 GB** | **64.5** | **0.030** | **91.8%** |
+| mlx-community qat-4bit | 4.33 GB | 66.2 | 0.067 | 87.6% |
+
+- The converter wrote what the scan measured in memory: 64.48 vs 64.47.
+- The 149 Linears left at 4-bit still match the GGUF bit for bit.
+
 Next:
 - the chosen recipe written by the converter and re-measured from disk;
 - the same scan on E4B and 31B, where 31B also needs to fit a 32 GB Mac
