@@ -538,6 +538,19 @@ GPU.
 - The converter wrote what the scan measured in memory: 64.48 vs 64.47.
 - The 149 Linears left at 4-bit still match the GGUF bit for bit.
 
+### E2B speed on the M5 (`poc/qat_speed.py`, mlx-lm `be4b6c7`, 2 rounds, order alternated, 15 s idle before each)
+
+| E2B | decode | prefill | peak memory | PPL |
+|---|---|---|---|---|
+| **ours, q4_0 grid + 126 Linears 8-bit** | **67.5 tok/s** | 1224 tok/s | 4.13 GB | **64.5** |
+| mlx-community qat-4bit | 54.7 tok/s | 1052 tok/s | 4.42 GB | 66.2 |
+| mlx-community 4-bit RTN (LLMTray's 8 GB pick) | 83.7 tok/s | 1365 tok/s | 3.64 GB | 239.7 |
+
+- Ours is 23% faster than mlx-community's qat build, which has every MLP at
+  8-bit.
+- Ours is 19% slower than plain RTN, the price of group 32 and the raised
+  Linears, at a quarter of its PPL.
+
 ### Loading in LLMTray's runtime (mlx-lm fork `97b75f3`)
 
 - mlx-community's `gemma-4-E2B-it-qat-4bit` **doesn't load**: `Expected
