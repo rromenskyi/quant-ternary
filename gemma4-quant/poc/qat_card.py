@@ -31,9 +31,15 @@ def main() -> None:
     ap.add_argument("--speed-note", default="")
     ap.add_argument("--replaces", help="an earlier repo this one replaces, with why")
     ap.add_argument("--raised-note", default="", help="what the raised Linears are, from the scan")
+    ap.add_argument("--no-audio", action="store_true", help="the model has no audio tower (26B, 31B)")
+    ap.add_argument("--chat-only", action="store_true",
+                    help="a chat-only checkpoint (12B, 31B): raw-text PPL is noise, the eval scores the text as a chat reply")
+    ap.add_argument("--memory-note", default="", help="which Macs it fits")
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
     m = a.model
+    towers = "vision" if a.no_audio else "vision and audio"
+    modalities = "text + vision" if a.no_audio else "text + vision + audio"
     base = f"google/gemma-4-{m}-it"
     qat = f"google/gemma-4-{m}-it-qat-q4_0-unquantized"
     ours = a.ours.split(",")
@@ -60,6 +66,27 @@ def main() -> None:
     replaces = ""
     if a.replaces:
         replaces = f"\n## This replaces an earlier release\n\n{a.replaces}\n"
+    if a.chat_only:
+        measured_intro = """Wikitext-2 (test), 128 windows of 512 tokens, scored as the model's chat
+reply to "Continue this text.": this is a **chat-only checkpoint** -- the
+QAT master itself scores raw text like noise (perplexity in the
+thousands), so raw-text PPL says nothing here. KL divergence and top-1
+agreement are measured to the bf16 QAT master weights, the model this one
+reproduces, on the same chat-framed text."""
+        how_to_read = """How to read it:
+- **KL and top-1 measure faithfulness;** a lower KL is closer.
+- The PPL column is the chat-framed text's: compare it to the master's, not
+  to other models'."""
+    else:
+        measured_intro = """Raw-text perplexity on wikitext-2 (test), 128 windows of 512 tokens, BOS at
+the start of each. KL divergence and top-1 agreement are measured to the bf16
+QAT master weights, the model this one reproduces."""
+        how_to_read = """How to read it:
+- **KL and top-1 measure faithfulness;** a lower KL is closer.
+- PPL a little *below* the master's is within the noise of a raw-text test.
+- It also reflects how QAT works: the network was trained through the 4-bit
+  weights, so the q4_0 model is the one that was trained, and the bf16 master
+  is its shadow copy."""
     card = f"""---
 license: apache-2.0
 base_model: {qat}
@@ -71,14 +98,14 @@ tags:
   - qat
   - multimodal
   - vision
-  - audio
+{"" if a.no_audio else "  - audio"}
 ---
 
 <p align="center">
   <img src="llmtray-banner.png" alt="LLMTray" width="100%">
 </p>
 
-# Gemma 4 {m} — Google's QAT on its exact q4_0 grid, MLX (text + vision + audio)
+# Gemma 4 {m} — Google's QAT on its exact q4_0 grid, MLX ({modalities})
 
 > ### ▶ Run it locally in [LLMTray](https://www.ipsupport.us/llmtray/)
 > A free, native macOS app for local AI on Apple Silicon — chat, images,
@@ -93,8 +120,8 @@ llama.cpp's **q4_0**. This is that model in MLX, **on the very grid the QAT
 trained for**. The text decoder's 4-bit weights are identical, bit for bit,
 to Google's own [q4_0 GGUF](https://huggingface.co/google/gemma-4-{m}-it-qat-q4_0-gguf).
 On top of that, the {a.raised} Linears that lose the most at 4-bit are kept
-at 8-bit, which costs {a.budget_mb} MB. The vision and audio towers are
-included.
+at 8-bit, which costs {a.budget_mb} MB. The {towers} {"tower is" if a.no_audio else "towers are"}
+included.{(chr(10) + chr(10) + a.memory_note) if a.memory_note else ""}
 {replaces}
 ## How it's made
 
@@ -117,32 +144,24 @@ included.
   {a.raised} fit in +{a.budget_mb} MB. {a.raised_note}
 - **Everything else follows Google's own split:**
   - embeddings at 6-bit, as the GGUF's Q6_K;
-  - vision and audio towers, which were never QAT-trained, at 8-bit;
+  - the {towers} {"tower, which was" if a.no_audio else "towers, which were"} never QAT-trained, at 8-bit;
   - norms as they are.
 
 ## Measured
 
-Raw-text perplexity on wikitext-2 (test), 128 windows of 512 tokens, BOS at
-the start of each. KL divergence and top-1 agreement are measured to the bf16
-QAT master weights, the model this one reproduces.
+{measured_intro}
 
 | model | size | PPL | KL to QAT master | top-1 agree |
 |---|---|---|---|---|
 {chr(10).join(rows)}
 
-How to read it:
-- **KL and top-1 measure faithfulness;** a lower KL is closer.
-- PPL a little *below* the master's is within the noise of a raw-text test.
-- It also reflects how QAT works: the network was trained through the 4-bit
-  weights, so the q4_0 model is the one that was trained, and the bf16 master
-  is its shadow copy.
+{how_to_read}
 {speed}
 ### Checked
 
 - It answers in chat.
 - It names the animal in a photo.
-- It transcribes speech through the audio tower.
-- No large weight is left unquantized.
+{"" if a.no_audio else "- It transcribes speech through the audio tower." + chr(10)}- No large weight is left unquantized.
 - It loads in LLMTray's runtime ([ipsupport-llc/mlx-lm](https://github.com/ipsupport-llc/mlx-lm)).
 
 ## Usage
@@ -160,7 +179,7 @@ prompt = tokenizer.apply_chat_template(messages, add_generation_prompt=True, tok
 print(generate(model, tokenizer, prompt=prompt, max_tokens=200))
 ```
 
-Images and audio go through `mlx_lm.multimodal` in the same fork, which is
+{"Images go" if a.no_audio else "Images and audio go"} through `mlx_lm.multimodal` in the same fork, which is
 what LLMTray uses.
 
 ## Method / code
@@ -184,13 +203,13 @@ leaves your Mac.
 - **[IPSupport Code](https://ipsupport-llc.github.io/ipsupport-code/)** — your
   AI coding agent for real repositories: analyze, fix, test, report.
 
-Runs in LLMTray as a chat model, with vision and audio.
+Runs in LLMTray as a chat model, with {towers.replace(" and ", " and ")}.
 
 ## License
 
 Licensed under the **Apache License 2.0**, the same license as the base model — see [`LICENSE`](LICENSE).
 
-Modified from [{qat}](https://huggingface.co/{qat}) (the QAT release of [{base}](https://huggingface.co/{base})): quantized to MLX. The text decoder's Linears are on Google's q4_0 grid; {a.raised} of them, the embeddings and the vision/audio towers are at 6/8-bit. The weights and configuration files in this repo are therefore modified versions of the original, not the original files.
+Modified from [{qat}](https://huggingface.co/{qat}) (the QAT release of [{base}](https://huggingface.co/{base})): quantized to MLX. The text decoder's Linears are on Google's q4_0 grid; {a.raised} of them, the embeddings and the {towers} {"tower" if a.no_audio else "towers"} are at 6/8-bit. The weights and configuration files in this repo are therefore modified versions of the original, not the original files.
 """
     open(a.out, "w").write(card)
 
