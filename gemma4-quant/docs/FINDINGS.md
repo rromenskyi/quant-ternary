@@ -620,6 +620,39 @@ Pipeline trouble on the way, for the runbook:
 - The cgroup sat at its 250 GB memory limit (page cache, `memory.events`
   max 5912) with no OOM kill: not the cause.
 
+### Why the big Gemma 4 `-it` score raw text in the thousands (2026-10-01)
+
+Three independent implementations, the same 31B wikitext windows (512
+tokens, BOS):
+
+| implementation | weights | PPL |
+|---|---|---|
+| llama.cpp `llama-perplexity` (built on the pod, CPU) | Google's own q4_0 GGUF | 2468 |
+| HF transformers 5.17 | bf16 `-qat-q4_0-unquantized` master | 2640 |
+| mlx-lm (our fork) | the same master / our r400 build | 1786 / 1696 |
+
+- **Not our conversion, not mlx-lm**: Google's GGUF in llama.cpp and the
+  master in transformers score the same.
+- **The checkpoint**: it's every Gemma 4 with `attention_k_eq_v: True` (12B,
+  26B, 31B); E2B and E4B (`False`) score 44-66. 26B-A4B-it -- not even QAT,
+  our GPTQ build -- scores 73k on the same windows.
+- The config and weights agree (no `v_proj` in the full-attention layers, no
+  separate `lm_head`: tied, as configured).
+- **What it does on raw text**: it falls into attractor tokens. After
+  "Fraser Ayres , Sophie Stanton" it puts 0.58 on " same" and 0.31 on " own"
+  (" and" is the text); " own" and `<|channel>` come up everywhere; 6-8% of
+  the probability sits on control tokens. The start of a window is fine
+  ("= Robert Boulter =" -> " Robert", 0.72); then it drifts.
+- **In chat it's sound**: coherent answers, an accurate summary of a
+  1500-token wikitext passage.
+- So for these models a raw-text PPL is no quality measure, and the "chat"
+  framing ("Continue this text.") is only a little better (1592). KL and
+  top-1 to the master stay valid comparisons of a quantization; a PPL that
+  means something needs chat-formatted text (real assistant replies scored).
+- The chat-framed 31B scan was stopped at 100/411 (RunPod balance) and then
+  cancelled for this check; the raw-scan r400 build stands
+  (`31B-qat-mlx-r400-raw` on the pod volume).
+
 ### Published (2026-09-30)
 
 - **[roman220220/gemma-4-E2B-it-qat-mlx](https://huggingface.co/roman220220/gemma-4-E2B-it-qat-mlx)**:
