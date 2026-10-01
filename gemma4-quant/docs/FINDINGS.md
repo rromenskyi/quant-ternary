@@ -580,6 +580,46 @@ Next:
   (~21 GB GPU limit);
 - speed on the M5.
 
+### 31B (2026-10-01, pod `uaaawubmr2qf66`, A100 80 GB)
+
+`MODEL=31B BUDGET_MB=400`, raw-text scan (no `CHAT=1`), 128 × 512 windows.
+
+| build | size | PPL raw | KL vs master | top-1 agree |
+|---|---|---|---|---|
+| master (bf16, `-qat-q4_0-unquantized`) | 62 GB | 1786 | -- | -- |
+| q4_0 grid, nothing raised | 19.45 GB | 1734 | 0.1007 | 87.66% |
+| +50 MB (7 Linears 8-bit) | | 1742 | 0.0935 | 88.39% |
+| +100 MB (11) | | 1735 | 0.0932 | 88.45% |
+| +200 MB (19) | | 1742 | 0.0925 | 88.53% |
+| **+400 MB (36), from disk** | 19.85 GB | 1696 | **0.0905** | **88.62%** |
+| +800 MB (62) | | 1646 | 0.0827 | 89.30% |
+| +400 MB, `--chat` eval | | 1600 (master 1592) | 0.0789 | 89.72% |
+
+- **31B is chat-only like the 12B**: the master itself scores PPL ~1600-1800
+  on raw text, also with the `--chat` framing ("Continue this text.").
+  Raw-text PPL says nothing here; KL and top-1 against the master do.
+- **It answers sensibly** from the +400 MB build (mlx-lm on CUDA, chat
+  template): "The capital of France is Paris." with its thought channel;
+  a correct three-sentence Rayleigh explanation. Long-context output (a
+  1500-token prompt) and per-position PPL are still to check -- the pod was
+  stopped before that run (`/tmp/pos.py`, to redo).
+- The 8-bit raising buys less than on E2B/E4B: KL 0.101 -> 0.091 for 400 MB
+  (E4B: 0.041 -> 0.026 for 100 MB). The scan ran on raw text; for a
+  chat-only checkpoint `CHAT=1` should order the Linears better -- redo the
+  scan with it before publishing.
+- 19.85 GB of weights: over a 32 GB Mac's ~21 GB GPU limit once the KV
+  cache is added; it's a 48 GB+ model (or raise `iogpu.wired_limit_mb`).
+
+Pipeline trouble on the way, for the runbook:
+- **The volume quota (250 GB) ran out mid-convert** and the process died
+  without a word in the pipeline log twice (`mx.save_safetensors`: "Unable
+  to write ... bytes" only shows when run in the foreground). `df` shows the
+  whole MooseFS cluster (118 T free), not the quota: check with
+  `du -sh /workspace`. Freed: the old E4B GPTQ build, E4B r0, the E4B GGUF,
+  mlx-community baselines (all superseded or re-downloadable).
+- The cgroup sat at its 250 GB memory limit (page cache, `memory.events`
+  max 5912) with no OOM kill: not the cause.
+
 ### Published (2026-09-30)
 
 - **[roman220220/gemma-4-E2B-it-qat-mlx](https://huggingface.co/roman220220/gemma-4-E2B-it-qat-mlx)**:
