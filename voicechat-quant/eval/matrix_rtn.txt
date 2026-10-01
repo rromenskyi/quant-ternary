@@ -1,0 +1,8 @@
+# name  vc_eval.py variant flags   (all in-memory; see scripts/vc_variants.py)
+base
+bf16      --act-dtype bf16 --scales-dtype bf16
+bf16_p8   --act-dtype bf16 --scales-dtype bf16 --rtn stt_model.perception:8:64
+bf16_p4   --act-dtype bf16 --scales-dtype bf16 --rtn stt_model.perception:4:64
+bf16_t8   --act-dtype bf16 --scales-dtype bf16 --rtn tts_model.tts_model:8:64
+bf16_t4   --act-dtype bf16 --scales-dtype bf16 --rtn tts_model.tts_model:4:64
+bf16_p8t8 --act-dtype bf16 --scales-dtype bf16 --rtn stt_model.perception:8:64 --rtn tts_model.tts_model:8:64

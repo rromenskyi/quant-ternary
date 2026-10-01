@@ -1,0 +1,56 @@
+{
+  "model": "models/vc-mlp2",
+  "argv": [
+    "--model",
+    "models/vc-mlp2",
+    "--out",
+    "results/mac_full/mlp2"
+  ],
+  "variant": {
+    "param_gb": 7.169
+  },
+  "load_s": 1.7,
+  "questions": 20,
+  "frames": 1512,
+  "ms_per_frame": {
+    "codec": 5.74,
+    "llm": 35.61,
+    "perception": 16.22,
+    "rnnt": 0.65,
+    "total": 82.59,
+    "tts": 23.61,
+    "rest": 0.76
+  },
+  "frame_ms_p50": 83.1,
+  "frame_ms_p95": 90.6,
+  "rtf": 1.032,
+  "peak_memory_gb": 8.68,
+  "system_before": {
+    "gpu_util_pct_idle_samples": [
+      69,
+      8,
+      7
+    ],
+    "uptime": "0:23  up 6 days,  1:51, 6 users, load averages: 1.99 2.15 2.28",
+    "memory_pressure": [
+      "System-wide memory free percentage: 83%"
+    ],
+    "chip": "Apple M5",
+    "mlx": "0.32.2",
+    "python": "3.14.7"
+  },
+  "system_after": {
+    "gpu_util_pct_idle_samples": [
+      92,
+      0,
+      6
+    ],
+    "uptime": "0:25  up 6 days,  1:53, 6 users, load averages: 2.16 2.23 2.29",
+    "memory_pressure": [
+      "System-wide memory free percentage: 83%"
+    ],
+    "chip": "Apple M5",
+    "mlx": "0.32.2",
+    "python": "3.14.7"
+  }
+}

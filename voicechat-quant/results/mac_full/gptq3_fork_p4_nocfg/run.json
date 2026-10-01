@@ -1,0 +1,68 @@
+{
+  "model": "models/vc-gptq3",
+  "argv": [
+    "--model",
+    "models/vc-gptq3",
+    "--out",
+    "results/mac_full/gptq3_fork_p4_nocfg",
+    "--scales-dtype",
+    "bf16",
+    "--rtn",
+    "stt_model.perception:4:64",
+    "--no-tts-guidance"
+  ],
+  "variant": {
+    "scales_cast": 0,
+    "rtn": {
+      "stt_model.perception:4:64": {
+        "modules": 266,
+        "pointwise_convs_rewritten": 48
+      }
+    },
+    "param_gb": 6.727
+  },
+  "load_s": 2.6,
+  "questions": 20,
+  "frames": 1565,
+  "ms_per_frame": {
+    "codec": 8.55,
+    "llm": 48.13,
+    "perception": 16.13,
+    "rnnt": 0.99,
+    "total": 106.27,
+    "tts": 31.5,
+    "rest": 0.97
+  },
+  "frame_ms_p50": 103.2,
+  "frame_ms_p95": 155.0,
+  "rtf": 1.328,
+  "peak_memory_gb": 8.24,
+  "system_before": {
+    "gpu_util_pct_idle_samples": [
+      25,
+      27,
+      27
+    ],
+    "uptime": "23:33  up 6 days,  1:01, 10 users, load averages: 3.07 2.91 2.64",
+    "memory_pressure": [
+      "System-wide memory free percentage: 78%"
+    ],
+    "chip": "Apple M5",
+    "mlx": "0.32.2",
+    "python": "3.14.7"
+  },
+  "system_after": {
+    "gpu_util_pct_idle_samples": [
+      91,
+      7,
+      0
+    ],
+    "uptime": "23:36  up 6 days,  1:05, 10 users, load averages: 4.64 3.58 2.96",
+    "memory_pressure": [
+      "System-wide memory free percentage: 59%"
+    ],
+    "chip": "Apple M5",
+    "mlx": "0.32.2",
+    "python": "3.14.7"
+  }
+}

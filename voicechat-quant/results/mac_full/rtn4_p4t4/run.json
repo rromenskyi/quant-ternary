@@ -1,0 +1,74 @@
+{
+  "model": "models/vc-rtn4",
+  "argv": [
+    "--out",
+    "results/mac_full/rtn4_p4t4",
+    "--model",
+    "models/vc-rtn4",
+    "--act-dtype",
+    "bf16",
+    "--tts-mog-gather",
+    "--compile-tts-codes",
+    "--rtn",
+    "stt_model.perception:4:64",
+    "--rtn",
+    "tts_model.tts_model.backbone:4:64"
+  ],
+  "variant": {
+    "rtn": {
+      "stt_model.perception:4:64": {
+        "modules": 266,
+        "pointwise_convs_rewritten": 48
+      },
+      "tts_model.tts_model.backbone:4:64": {
+        "modules": 196,
+        "pointwise_convs_rewritten": 0
+      }
+    },
+    "param_gb": 6.836
+  },
+  "load_s": 2.9,
+  "questions": 20,
+  "frames": 1454,
+  "ms_per_frame": {
+    "codec": 10.11,
+    "llm": 56.89,
+    "perception": 17.85,
+    "rnnt": 1.06,
+    "total": 112.43,
+    "tts": 25.53,
+    "rest": 0.99
+  },
+  "frame_ms_p50": 109.8,
+  "frame_ms_p95": 131.7,
+  "rtf": 1.405,
+  "peak_memory_gb": 8.36,
+  "system_before": {
+    "gpu_util_pct_idle_samples": [
+      8,
+      6,
+      8
+    ],
+    "uptime": "22:48  up 6 days, 17 mins, 10 users, load averages: 2.71 2.47 2.68",
+    "memory_pressure": [
+      "System-wide memory free percentage: 67%"
+    ],
+    "chip": "Apple M5",
+    "mlx": "0.32.2",
+    "python": "3.14.7"
+  },
+  "system_after": {
+    "gpu_util_pct_idle_samples": [
+      93,
+      0,
+      8
+    ],
+    "uptime": "22:52  up 6 days, 20 mins, 10 users, load averages: 2.33 2.89 2.86",
+    "memory_pressure": [
+      "System-wide memory free percentage: 70%"
+    ],
+    "chip": "Apple M5",
+    "mlx": "0.32.2",
+    "python": "3.14.7"
+  }
+}

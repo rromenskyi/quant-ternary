@@ -1,0 +1,208 @@
+{
+ "summary": {
+  "variant": "down2",
+  "n": 20,
+  "perception_ms": 15.93,
+  "rnnt_ms": 0.64,
+  "llm_ms": 37.54,
+  "tts_ms": 23.46,
+  "codec_ms": 5.7,
+  "rest_ms": 0.73,
+  "total_ms": 84.0,
+  "p95_ms": 93.3,
+  "rtf": 1.05,
+  "peak_gb": 8.9,
+  "param_gb": 7.388,
+  "user_wer": 0.02,
+  "keyword_acc": 0.9,
+  "reply_wer": 0.045,
+  "reply_latency_s": 0.57,
+  "gpu_busy_before": [
+   35,
+   9,
+   8
+  ]
+ },
+ "per_question": [
+  {
+   "id": "q01",
+   "user_wer": 0.0,
+   "keyword": true,
+   "reply_wer": 0.0,
+   "text": "The capital of France is Paris.",
+   "whisper": "The capital of France is Paris.",
+   "latency_s": 0.64
+  },
+  {
+   "id": "q02",
+   "user_wer": 0.0,
+   "keyword": true,
+   "reply_wer": 0.0,
+   "text": "Spiders have eight legs.",
+   "whisper": "Spiders have eight legs.",
+   "latency_s": 0.64
+  },
+  {
+   "id": "q03",
+   "user_wer": 0.0,
+   "keyword": true,
+   "reply_wer": 0.0,
+   "text": "Mars is known as the Red Planet due to its reddish appearance.",
+   "whisper": "Mars is known as the red planet due to its reddish appearance.",
+   "latency_s": 0.64
+  },
+  {
+   "id": "q04",
+   "user_wer": 0.0,
+   "keyword": true,
+   "reply_wer": 0.0,
+   "text": "Romeo and Juliet was written by the English playwright and poet William Shakespeare.",
+   "whisper": "Romeo and Juliet was written by the English playwright and poet William Shakespeare.",
+   "latency_s": 0.56
+  },
+  {
+   "id": "q05",
+   "user_wer": 0.0,
+   "keyword": true,
+   "reply_wer": 0.0,
+   "text": "The largest ocean on Earth is the Pacific Ocean.",
+   "whisper": "The largest ocean on Earth is the Pacific Ocean.",
+   "latency_s": 0.32
+  },
+  {
+   "id": "q06",
+   "user_wer": 0.0,
+   "keyword": true,
+   "reply_wer": 0.0,
+   "text": "Plants absorb carbon dioxide from the air.",
+   "whisper": "Plants absorb carbon dioxide from the air.",
+   "latency_s": 0.56
+  },
+  {
+   "id": "q07",
+   "user_wer": 0.0,
+   "keyword": true,
+   "reply_wer": 0.0,
+   "text": "There are seven days in a week.",
+   "whisper": "There are seven days in a week.",
+   "latency_s": 0.56
+  },
+  {
+   "id": "q08",
+   "user_wer": 0.0,
+   "keyword": true,
+   "reply_wer": 0.0,
+   "text": "The capital of Japan is Tokyo.",
+   "whisper": "The capital of Japan is Tokyo.",
+   "latency_s": 0.48
+  },
+  {
+   "id": "q09",
+   "user_wer": 0.111,
+   "keyword": true,
+   "reply_wer": 0.0,
+   "text": "The boiling point of water is one hundred degrees Celsius.",
+   "whisper": "The boiling point of water is 100 degrees Celsius.",
+   "latency_s": 0.64
+  },
+  {
+   "id": "q10",
+   "user_wer": 0.0,
+   "keyword": false,
+   "reply_wer": 0.0,
+   "text": "The jaguar is often called the \"king of the jungle.\"",
+   "whisper": "The jaguar is often called the king of the jungle.",
+   "latency_s": 0.48
+  },
+  {
+   "id": "q11",
+   "user_wer": 0.0,
+   "keyword": true,
+   "reply_wer": 0.0,
+   "text": "You get green when you mix blue and yellow.",
+   "whisper": "You get green when you mix blue and yellow.",
+   "latency_s": 0.64
+  },
+  {
+   "id": "q12",
+   "user_wer": 0.0,
+   "keyword": true,
+   "reply_wer": 0.269,
+   "text": "The tallest mountain in the world is Mount Everest, which is about twenty eight thousand two hundred and eight feet tall. It is located in Asia.",
+   "whisper": "The tallest mountain in the world is Mount Everest, which is about 28,208 feet tall. It is located in Asia.",
+   "latency_s": 0.4
+  },
+  {
+   "id": "q13",
+   "user_wer": 0.0,
+   "keyword": true,
+   "reply_wer": 0.0,
+   "text": "There are seven continents.",
+   "whisper": "There are seven continents.",
+   "latency_s": 0.56
+  },
+  {
+   "id": "q14",
+   "user_wer": 0.0,
+   "keyword": false,
+   "reply_wer": 0.0,
+   "text": "Water freezes at zero degrees Fahrenheit.",
+   "whisper": "water freezes at zero degrees Fahrenheit",
+   "latency_s": 0.48
+  },
+  {
+   "id": "q15",
+   "user_wer": 0.0,
+   "keyword": true,
+   "reply_wer": 0.0,
+   "text": "The Mona Lisa was painted by the famous Renaissance artist, Leonardo da Vinci.",
+   "whisper": "The Mona Lisa was painted by the famous Renaissance artist, Leonardo da Vinci.",
+   "latency_s": 0.56
+  },
+  {
+   "id": "q16",
+   "user_wer": 0.0,
+   "keyword": true,
+   "reply_wer": 0.143,
+   "text": "The chemical symbol for gold is Au.",
+   "whisper": "The chemical symbol for gold is Ao.",
+   "latency_s": 0.8
+  },
+  {
+   "id": "q17",
+   "user_wer": 0.0,
+   "keyword": true,
+   "reply_wer": 0.0,
+   "text": "Jupiter is the largest planet in our solar system.",
+   "whisper": "Jupiter is the largest planet in our solar system.",
+   "latency_s": 0.72
+  },
+  {
+   "id": "q18",
+   "user_wer": 0.0,
+   "keyword": true,
+   "reply_wer": 0.0,
+   "text": "The Pyramids of Giza are located in Egypt.",
+   "whisper": "The pyramids of Giza are located in Egypt.",
+   "latency_s": 0.56
+  },
+  {
+   "id": "q19",
+   "user_wer": 0.333,
+   "keyword": true,
+   "reply_wer": 0.0,
+   "text": "Portuguese is spoken in Brazil.",
+   "whisper": "Portuguese is spoken in Brazil.",
+   "latency_s": 0.64
+  },
+  {
+   "id": "q20",
+   "user_wer": 0.0,
+   "keyword": true,
+   "reply_wer": 0.0,
+   "text": "There are sixty minutes in an hour.",
+   "whisper": "There are 60 minutes in an hour.",
+   "latency_s": 0.56
+  }
+ ]
+}

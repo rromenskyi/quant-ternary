@@ -1,0 +1,606 @@
+{
+ "id": "q15",
+ "question": "Who painted the Mona Lisa?",
+ "user_transcript": "Who painted the Mona Lisa",
+ "assistant_text": "The Mona Lisa Lisa was painted by Leonardo da Vinci.",
+ "speech_frames": 21,
+ "frames": 74,
+ "first_text_frame": 24,
+ "first_voiced_frame_after_speech": 28,
+ "reply_latency_s": 0.56,
+ "audio_s": 5.92,
+ "frame_ms": [
+  {
+   "perception": 14.94,
+   "rnnt": 0.62,
+   "llm": 36.22,
+   "tts": 21.79,
+   "codec": 5.79,
+   "total": 80.09
+  },
+  {
+   "perception": 13.63,
+   "rnnt": 0.5,
+   "llm": 38.15,
+   "tts": 21.53,
+   "codec": 5.4,
+   "total": 79.78
+  },
+  {
+   "perception": 13.73,
+   "rnnt": 0.48,
+   "llm": 36.63,
+   "tts": 21.56,
+   "codec": 5.49,
+   "total": 78.52
+  },
+  {
+   "perception": 14.09,
+   "rnnt": 0.52,
+   "llm": 37.15,
+   "tts": 21.41,
+   "codec": 5.45,
+   "total": 79.28
+  },
+  {
+   "perception": 14.17,
+   "rnnt": 0.48,
+   "llm": 36.99,
+   "tts": 22.14,
+   "codec": 5.47,
+   "total": 79.88
+  },
+  {
+   "perception": 14.3,
+   "rnnt": 0.54,
+   "llm": 37.06,
+   "tts": 22.49,
+   "codec": 5.59,
+   "total": 80.64
+  },
+  {
+   "perception": 23.67,
+   "rnnt": 0.76,
+   "llm": 38.33,
+   "tts": 27.93,
+   "codec": 6.16,
+   "total": 97.76
+  },
+  {
+   "perception": 20.36,
+   "rnnt": 0.8,
+   "llm": 38.56,
+   "tts": 28.14,
+   "codec": 5.96,
+   "total": 94.73
+  },
+  {
+   "perception": 19.03,
+   "rnnt": 2.24,
+   "llm": 38.36,
+   "tts": 24.61,
+   "codec": 5.86,
+   "total": 90.88
+  },
+  {
+   "perception": 16.94,
+   "rnnt": 1.9,
+   "llm": 39.04,
+   "tts": 24.2,
+   "codec": 5.59,
+   "total": 88.36
+  },
+  {
+   "perception": 15.38,
+   "rnnt": 0.52,
+   "llm": 38.59,
+   "tts": 23.19,
+   "codec": 5.72,
+   "total": 84.12
+  },
+  {
+   "perception": 16.18,
+   "rnnt": 1.18,
+   "llm": 37.62,
+   "tts": 25.97,
+   "codec": 5.97,
+   "total": 87.7
+  },
+  {
+   "perception": 18.5,
+   "rnnt": 0.62,
+   "llm": 38.07,
+   "tts": 26.23,
+   "codec": 6.08,
+   "total": 90.32
+  },
+  {
+   "perception": 18.21,
+   "rnnt": 0.71,
+   "llm": 38.62,
+   "tts": 27.32,
+   "codec": 6.21,
+   "total": 92.05
+  },
+  {
+   "perception": 18.02,
+   "rnnt": 1.5,
+   "llm": 39.09,
+   "tts": 27.77,
+   "codec": 6.24,
+   "total": 93.55
+  },
+  {
+   "perception": 19.56,
+   "rnnt": 2.12,
+   "llm": 38.44,
+   "tts": 26.35,
+   "codec": 5.79,
+   "total": 93.08
+  },
+  {
+   "perception": 16.59,
+   "rnnt": 1.16,
+   "llm": 37.14,
+   "tts": 23.76,
+   "codec": 5.87,
+   "total": 85.3
+  },
+  {
+   "perception": 16.78,
+   "rnnt": 0.65,
+   "llm": 37.73,
+   "tts": 26.58,
+   "codec": 6.01,
+   "total": 88.57
+  },
+  {
+   "perception": 18.03,
+   "rnnt": 1.96,
+   "llm": 38.52,
+   "tts": 26.79,
+   "codec": 6.14,
+   "total": 92.29
+  },
+  {
+   "perception": 19.14,
+   "rnnt": 1.23,
+   "llm": 39.2,
+   "tts": 23.61,
+   "codec": 5.92,
+   "total": 89.89
+  },
+  {
+   "perception": 16.78,
+   "rnnt": 0.61,
+   "llm": 39.72,
+   "tts": 23.93,
+   "codec": 5.58,
+   "total": 87.36
+  },
+  {
+   "perception": 15.15,
+   "rnnt": 0.49,
+   "llm": 37.32,
+   "tts": 22.55,
+   "codec": 5.5,
+   "total": 81.66
+  },
+  {
+   "perception": 14.48,
+   "rnnt": 0.44,
+   "llm": 37.26,
+   "tts": 21.53,
+   "codec": 5.44,
+   "total": 79.77
+  },
+  {
+   "perception": 15.22,
+   "rnnt": 0.48,
+   "llm": 37.01,
+   "tts": 23.13,
+   "codec": 5.6,
+   "total": 82.11
+  },
+  {
+   "perception": 15.89,
+   "rnnt": 0.5,
+   "llm": 37.15,
+   "tts": 22.72,
+   "codec": 5.45,
+   "total": 82.36
+  },
+  {
+   "perception": 14.41,
+   "rnnt": 0.41,
+   "llm": 36.22,
+   "tts": 21.76,
+   "codec": 5.41,
+   "total": 78.87
+  },
+  {
+   "perception": 15.74,
+   "rnnt": 0.43,
+   "llm": 36.13,
+   "tts": 21.47,
+   "codec": 5.5,
+   "total": 79.95
+  },
+  {
+   "perception": 14.67,
+   "rnnt": 0.44,
+   "llm": 36.74,
+   "tts": 21.7,
+   "codec": 5.47,
+   "total": 79.63
+  },
+  {
+   "perception": 16.26,
+   "rnnt": 0.54,
+   "llm": 37.18,
+   "tts": 24.54,
+   "codec": 6.02,
+   "total": 85.42
+  },
+  {
+   "perception": 21.48,
+   "rnnt": 0.86,
+   "llm": 38.97,
+   "tts": 28.68,
+   "codec": 6.33,
+   "total": 97.37
+  },
+  {
+   "perception": 19.09,
+   "rnnt": 0.73,
+   "llm": 39.85,
+   "tts": 27.1,
+   "codec": 6.12,
+   "total": 93.89
+  },
+  {
+   "perception": 18.39,
+   "rnnt": 0.68,
+   "llm": 38.58,
+   "tts": 25.95,
+   "codec": 5.93,
+   "total": 90.36
+  },
+  {
+   "perception": 17.62,
+   "rnnt": 0.61,
+   "llm": 39.76,
+   "tts": 23.54,
+   "codec": 5.64,
+   "total": 87.87
+  },
+  {
+   "perception": 16.11,
+   "rnnt": 0.53,
+   "llm": 36.66,
+   "tts": 23.53,
+   "codec": 5.91,
+   "total": 83.41
+  },
+  {
+   "perception": 17.56,
+   "rnnt": 0.61,
+   "llm": 37.71,
+   "tts": 24.94,
+   "codec": 6.0,
+   "total": 87.68
+  },
+  {
+   "perception": 18.75,
+   "rnnt": 0.71,
+   "llm": 38.25,
+   "tts": 25.4,
+   "codec": 5.99,
+   "total": 89.94
+  },
+  {
+   "perception": 18.14,
+   "rnnt": 0.75,
+   "llm": 38.67,
+   "tts": 26.53,
+   "codec": 7.04,
+   "total": 92.02
+  },
+  {
+   "perception": 18.23,
+   "rnnt": 0.75,
+   "llm": 38.77,
+   "tts": 26.51,
+   "codec": 5.99,
+   "total": 91.08
+  },
+  {
+   "perception": 18.94,
+   "rnnt": 0.72,
+   "llm": 38.63,
+   "tts": 26.04,
+   "codec": 5.61,
+   "total": 90.71
+  },
+  {
+   "perception": 16.63,
+   "rnnt": 0.57,
+   "llm": 37.58,
+   "tts": 25.0,
+   "codec": 5.78,
+   "total": 86.2
+  },
+  {
+   "perception": 16.66,
+   "rnnt": 0.55,
+   "llm": 37.38,
+   "tts": 25.01,
+   "codec": 6.04,
+   "total": 86.44
+  },
+  {
+   "perception": 18.24,
+   "rnnt": 0.67,
+   "llm": 39.51,
+   "tts": 26.8,
+   "codec": 6.04,
+   "total": 92.17
+  },
+  {
+   "perception": 19.01,
+   "rnnt": 0.74,
+   "llm": 38.89,
+   "tts": 25.98,
+   "codec": 6.06,
+   "total": 91.52
+  },
+  {
+   "perception": 18.33,
+   "rnnt": 0.64,
+   "llm": 39.0,
+   "tts": 28.94,
+   "codec": 5.91,
+   "total": 93.74
+  },
+  {
+   "perception": 17.2,
+   "rnnt": 0.59,
+   "llm": 37.58,
+   "tts": 23.63,
+   "codec": 5.64,
+   "total": 85.31
+  },
+  {
+   "perception": 16.58,
+   "rnnt": 0.57,
+   "llm": 37.3,
+   "tts": 24.62,
+   "codec": 5.93,
+   "total": 85.83
+  },
+  {
+   "perception": 18.27,
+   "rnnt": 0.67,
+   "llm": 39.37,
+   "tts": 26.34,
+   "codec": 6.05,
+   "total": 92.1
+  },
+  {
+   "perception": 18.54,
+   "rnnt": 0.76,
+   "llm": 38.86,
+   "tts": 28.2,
+   "codec": 6.25,
+   "total": 93.55
+  },
+  {
+   "perception": 19.51,
+   "rnnt": 0.71,
+   "llm": 39.03,
+   "tts": 27.1,
+   "codec": 6.0,
+   "total": 93.27
+  },
+  {
+   "perception": 18.69,
+   "rnnt": 0.75,
+   "llm": 38.41,
+   "tts": 26.11,
+   "codec": 5.88,
+   "total": 90.72
+  },
+  {
+   "perception": 16.77,
+   "rnnt": 0.57,
+   "llm": 37.36,
+   "tts": 23.73,
+   "codec": 5.62,
+   "total": 84.63
+  },
+  {
+   "perception": 16.62,
+   "rnnt": 0.57,
+   "llm": 37.3,
+   "tts": 24.17,
+   "codec": 6.01,
+   "total": 85.46
+  },
+  {
+   "perception": 18.4,
+   "rnnt": 0.73,
+   "llm": 38.83,
+   "tts": 26.61,
+   "codec": 6.01,
+   "total": 91.38
+  },
+  {
+   "perception": 19.26,
+   "rnnt": 0.69,
+   "llm": 40.62,
+   "tts": 24.96,
+   "codec": 5.89,
+   "total": 92.27
+  },
+  {
+   "perception": 17.79,
+   "rnnt": 0.62,
+   "llm": 38.42,
+   "tts": 26.38,
+   "codec": 5.87,
+   "total": 89.86
+  },
+  {
+   "perception": 16.86,
+   "rnnt": 0.55,
+   "llm": 36.96,
+   "tts": 23.7,
+   "codec": 5.94,
+   "total": 84.8
+  },
+  {
+   "perception": 17.42,
+   "rnnt": 0.66,
+   "llm": 38.45,
+   "tts": 25.87,
+   "codec": 5.96,
+   "total": 89.14
+  },
+  {
+   "perception": 18.48,
+   "rnnt": 0.67,
+   "llm": 38.69,
+   "tts": 25.88,
+   "codec": 5.95,
+   "total": 90.52
+  },
+  {
+   "perception": 19.13,
+   "rnnt": 0.72,
+   "llm": 38.39,
+   "tts": 27.68,
+   "codec": 6.15,
+   "total": 92.92
+  },
+  {
+   "perception": 19.68,
+   "rnnt": 0.8,
+   "llm": 39.14,
+   "tts": 29.22,
+   "codec": 6.31,
+   "total": 96.16
+  },
+  {
+   "perception": 21.2,
+   "rnnt": 0.76,
+   "llm": 38.31,
+   "tts": 25.86,
+   "codec": 6.39,
+   "total": 93.36
+  },
+  {
+   "perception": 17.54,
+   "rnnt": 0.57,
+   "llm": 37.44,
+   "tts": 23.9,
+   "codec": 6.71,
+   "total": 86.87
+  },
+  {
+   "perception": 16.58,
+   "rnnt": 0.61,
+   "llm": 38.76,
+   "tts": 24.87,
+   "codec": 6.01,
+   "total": 87.66
+  },
+  {
+   "perception": 18.27,
+   "rnnt": 0.68,
+   "llm": 38.72,
+   "tts": 27.24,
+   "codec": 6.0,
+   "total": 91.73
+  },
+  {
+   "perception": 20.76,
+   "rnnt": 0.74,
+   "llm": 39.15,
+   "tts": 25.48,
+   "codec": 5.98,
+   "total": 92.93
+  },
+  {
+   "perception": 18.92,
+   "rnnt": 0.69,
+   "llm": 37.59,
+   "tts": 26.05,
+   "codec": 6.47,
+   "total": 90.47
+  },
+  {
+   "perception": 17.36,
+   "rnnt": 0.54,
+   "llm": 37.91,
+   "tts": 23.21,
+   "codec": 5.87,
+   "total": 85.6
+  },
+  {
+   "perception": 17.78,
+   "rnnt": 0.62,
+   "llm": 38.25,
+   "tts": 25.35,
+   "codec": 5.9,
+   "total": 88.68
+  },
+  {
+   "perception": 18.74,
+   "rnnt": 0.69,
+   "llm": 38.58,
+   "tts": 26.74,
+   "codec": 6.13,
+   "total": 91.76
+  },
+  {
+   "perception": 21.04,
+   "rnnt": 0.68,
+   "llm": 38.6,
+   "tts": 28.02,
+   "codec": 6.03,
+   "total": 95.37
+  },
+  {
+   "perception": 27.3,
+   "rnnt": 0.75,
+   "llm": 38.2,
+   "tts": 26.28,
+   "codec": 6.25,
+   "total": 99.59
+  },
+  {
+   "perception": 16.31,
+   "rnnt": 0.77,
+   "llm": 39.72,
+   "tts": 25.89,
+   "codec": 5.99,
+   "total": 89.59
+  },
+  {
+   "perception": 15.01,
+   "rnnt": 0.59,
+   "llm": 37.58,
+   "tts": 24.0,
+   "codec": 6.69,
+   "total": 84.6
+  },
+  {
+   "perception": 14.23,
+   "rnnt": 0.57,
+   "llm": 37.26,
+   "tts": 24.28,
+   "codec": 5.94,
+   "total": 83.14
+  }
+ ]
+}

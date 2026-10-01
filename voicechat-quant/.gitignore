@@ -1,0 +1,7 @@
+calib/
+pod_results/
+models/
+release/
+results/**/*.wav
+results/**/_warmup/
+__pycache__/

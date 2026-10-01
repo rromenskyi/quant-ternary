@@ -1,0 +1,75 @@
+{
+  "model": "/Users/roman220/.cache/huggingface/hub/models--mlx-community--NemotronLabs-VoiceChat-11B-4bit/snapshots/dffd203fef7a380081da89479c55848e50b98413",
+  "argv": [
+    "--out",
+    "results/mac_full/p8t8",
+    "--act-dtype",
+    "bf16",
+    "--scales-dtype",
+    "bf16",
+    "--tts-mog-gather",
+    "--compile-tts-codes",
+    "--rtn",
+    "stt_model.perception:8:64",
+    "--rtn",
+    "tts_model.tts_model.backbone:8:64"
+  ],
+  "variant": {
+    "scales_cast": 246,
+    "rtn": {
+      "stt_model.perception:8:64": {
+        "modules": 266,
+        "pointwise_convs_rewritten": 48
+      },
+      "tts_model.tts_model.backbone:8:64": {
+        "modules": 196,
+        "pointwise_convs_rewritten": 0
+      }
+    },
+    "param_gb": 7.44
+  },
+  "load_s": 4.6,
+  "questions": 20,
+  "frames": 1427,
+  "ms_per_frame": {
+    "codec": 12.22,
+    "llm": 61.8,
+    "perception": 25.51,
+    "rnnt": 1.67,
+    "total": 139.05,
+    "tts": 36.33,
+    "rest": 1.52
+  },
+  "frame_ms_p50": 137.2,
+  "frame_ms_p95": 163.7,
+  "rtf": 1.738,
+  "peak_memory_gb": 8.96,
+  "system_before": {
+    "gpu_util_pct_idle_samples": [
+      7,
+      8,
+      7
+    ],
+    "uptime": "21:56  up 5 days, 23:24, 10 users, load averages: 12.66 6.61 4.63",
+    "memory_pressure": [
+      "System-wide memory free percentage: 81%"
+    ],
+    "chip": "Apple M5",
+    "mlx": "0.32.2",
+    "python": "3.14.7"
+  },
+  "system_after": {
+    "gpu_util_pct_idle_samples": [
+      88,
+      9,
+      12
+    ],
+    "uptime": "22:00  up 5 days, 23:28, 10 users, load averages: 4.41 5.42 4.60",
+    "memory_pressure": [
+      "System-wide memory free percentage: 81%"
+    ],
+    "chip": "Apple M5",
+    "mlx": "0.32.2",
+    "python": "3.14.7"
+  }
+}
