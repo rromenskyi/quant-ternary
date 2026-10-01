@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import gc
 import json
+import os
 import math
 import re
 
@@ -157,14 +158,30 @@ def main() -> None:
     base_size = sum(nbytes(m) for m in low.values())
     base_scan = measure(build(set()), scan_wins, ref)
     print(f"base (all q4_0 grid): scan KL {base_scan['kl']:.4f}", flush=True)
+    # The scan takes hours on a 31B and a pod can be stopped under it: the
+    # gains so far go to <json>.partial every 20 probes, and a rerun with
+    # the same scan (same base KL: windows, reference, --chat) goes on from
+    # there.
+    partial = args.json + ".partial"
     gains = {}
+    if os.path.exists(partial):
+        saved = json.load(open(partial))
+        if abs(saved.get("base_kl", float("nan")) - base_scan["kl"]) < 1e-9:
+            gains = {p: g for p, g in saved["gains"].items() if p in low}
+            print(f"resuming: {len(gains)}/{len(low)} probes from {partial}", flush=True)
+        else:
+            print(f"{partial} is another scan's (base KL {saved.get('base_kl')}): starting over", flush=True)
     for i, p in enumerate(sorted(low)):
+        if p in gains:
+            continue
         model.update_modules(tree_unflatten([(p, high(p))]))
         kl = measure(model, scan_wins, ref)["kl"]
         model.update_modules(tree_unflatten([(p, low[p])]))
         gains[p] = {"dkl": base_scan["kl"] - kl, "mb": cost[p] / 1e6}
         if i % 20 == 0:
             print(f"  {i}/{len(low)} {p}: dKL {gains[p]['dkl']:.5f} for {gains[p]['mb']:.1f} MB", flush=True)
+            json.dump({"base_kl": base_scan["kl"], "gains": gains}, open(partial + ".tmp", "w"))
+            os.replace(partial + ".tmp", partial)
     order = sorted(gains, key=lambda p: gains[p]["dkl"] / max(gains[p]["mb"], 1e-6), reverse=True)
 
     curve = [{"budget_mb": 0, "raised": [], "size_gb": base_size / 1e9, **measure(build(set()), eval_wins, ref)}]
@@ -181,6 +198,8 @@ def main() -> None:
         curve.append({"budget_mb": budget, "raised": raised, "size_gb": (base_size + used * 1e6) / 1e9, **r})
         print(f"budget {budget} MB ({len(raised)} raised, +{used:.0f} MB): ppl {r['ppl']:.3f} KL {r['kl']:.4f} top-1 {r['top1']:.2%}", flush=True)
     json.dump({"gains": gains, "order": order, "curve": curve}, open(args.json, "w"), indent=1)
+    if os.path.exists(partial):
+        os.remove(partial)
 
 
 if __name__ == "__main__":
