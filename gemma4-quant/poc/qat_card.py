@@ -43,7 +43,7 @@ def main() -> None:
     base = f"google/gemma-4-{m}-it"
     qat = f"google/gemma-4-{m}-it-qat-q4_0-unquantized"
     ours = a.ours.split(",")
-    ppl_column = not a.chat_only
+    ppl_column = True
     rows = [row(f"**this model**", f"**{a.size_gb} GB**", [f"**{x}**" for x in ours], ppl_column)]
     if ppl_column:
         rows.insert(0, f"| QAT master weights, bf16 ([{qat}](https://huggingface.co/{qat})) | — | {a.master_ppl} | — | — |")
@@ -71,11 +71,14 @@ def main() -> None:
     if a.replaces:
         replaces = f"\n## This replaces an earlier release\n\n{a.replaces}\n"
     if a.chat_only:
-        measured_intro = """KL divergence and top-1 agreement to the bf16 QAT master weights, the model
-this one reproduces: wikitext-2 (test), 128 windows of 512 tokens, as the
-model's chat reply."""
-        how_to_read = """A lower KL is closer. No perplexity here: on raw text this checkpoint, Google's
-own master included, scores in the thousands."""
+        measured_intro = """Wikitext-2 (test), 128 windows of 512 tokens, BOS at the start of each. KL
+divergence and top-1 agreement are measured to the bf16 QAT master weights,
+the model this one reproduces."""
+        how_to_read = """How to read it:
+- **KL and top-1 measure faithfulness;** a lower KL is closer.
+- PPL in the thousands is the checkpoint, not the quantization: it's
+  chat-only, and Google's own master scores raw text the same way. This
+  build scores it a little *better* than the master."""
     else:
         measured_intro = """Raw-text perplexity on wikitext-2 (test), 128 windows of 512 tokens, BOS at
 the start of each. KL divergence and top-1 agreement are measured to the bf16
