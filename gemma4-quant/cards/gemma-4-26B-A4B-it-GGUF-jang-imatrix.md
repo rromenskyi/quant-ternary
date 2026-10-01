@@ -13,7 +13,21 @@ tags:
   - vision
 ---
 
+<p align="center">
+  <img src="llmtray-banner.png" alt="LLMTray" width="100%">
+</p>
+
 # Gemma 4 26B-A4B (MoE) — GGUF, imatrix + JANG-mixed, text + vision
+
+> ### ▶ GGUF build for ollama / llama.cpp
+> This is the **GGUF** build (ollama / llama.cpp). If you use
+> [LLMTray](https://www.ipsupport.us/llmtray/) — IPSupport's local AI app for Apple Silicon, which runs
+> MLX — use the MLX sibling
+> [roman220220/gemma-4-26B-A4B-it-gptq-mlx-jang](https://huggingface.co/roman220220/gemma-4-26B-A4B-it-gptq-mlx-jang) instead.
+>
+> [![Download LLMTray](https://img.shields.io/badge/Download-LLMTray%20for%20Mac-2f7d4f?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/ipsupport-llc/llmtray/releases/latest/download/LLMTray-Full.dmg)
+> [![GitHub stars](https://img.shields.io/github/stars/ipsupport-llc/llmtray?style=for-the-badge&logo=github)](https://github.com/ipsupport-llc/llmtray)
+
 
 A GGUF quantization of
 [google/gemma-4-26B-A4B-it](https://huggingface.co/google/gemma-4-26B-A4B-it)
@@ -126,3 +140,27 @@ llama-mtmd-cli -m gemma4-26b-a4b-jang-iq3s.gguf \
 ## Method / code
 
 - Pipeline: [rromenskyi/quant-ternary/gemma4-quant](https://github.com/rromenskyi/quant-ternary/tree/main/gemma4-quant) (`gemma4_26b_gguf_pipeline.sh`, `gemma4_26b_fix_tokenizer.py`)
+
+## The IPSupport local-AI stack
+
+Local-first AI tools for macOS by [IPSupport](https://www.ipsupport.us) — nothing
+leaves your Mac.
+
+- **[LLMTray](https://www.ipsupport.us/llmtray/)** — your local AI
+  workstation for macOS: chat with local LLMs, generate and edit images, make
+  music, run agents, and serve an OpenAI-compatible API. Downloads models from
+  Hugging Face in-app, with per-model profiles.
+- **[IPSupport Code](https://ipsupport-llc.github.io/ipsupport-code/)** — your
+  AI coding agent for real repositories: analyze, fix, test, report.
+
+This is the GGUF build (ollama / llama.cpp). For the MLX build LLMTray runs, see [roman220220/gemma-4-26B-A4B-it-gptq-mlx-jang](https://huggingface.co/roman220220/gemma-4-26B-A4B-it-gptq-mlx-jang).
+
+## License
+
+Licensed under the **Apache License 2.0**, the same license as the base model — see [`LICENSE`](LICENSE).
+
+Modified from [google/gemma-4-26B-A4B-it](https://huggingface.co/google/gemma-4-26B-A4B-it): converted to GGUF and quantized with an importance matrix and per-tensor types (attention `Q5_K`, dense MLP `Q3_K_M`, routed experts `IQ3_S`); the vision tower and projector were converted to a separate `Q8_0` GGUF (some tensors F16). The weights and configuration files in this repo are therefore modified versions of the original, not the original files.
+
+`gemma4-26b-assistant-q8_0.gguf` is Google's MTP drafter [google/gemma-4-26B-A4B-it-assistant](https://huggingface.co/google/gemma-4-26B-A4B-it-assistant) (also Apache 2.0) converted to GGUF `Q8_0`.
+
+Gemma 4 is released by Google under Apache 2.0 ([Gemma 4 license terms](https://ai.google.dev/gemma/docs/gemma_4_license)).

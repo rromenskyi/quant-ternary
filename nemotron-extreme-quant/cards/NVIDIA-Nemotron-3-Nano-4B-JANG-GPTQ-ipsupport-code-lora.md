@@ -1,7 +1,7 @@
 ---
 base_model: nvidia/NVIDIA-Nemotron-3-Nano-4B-BF16
 license: other
-license_name: openmdw-1.1
+license_name: nvidia-nemotron-open-model-license
 license_link: LICENSE
 tags:
   - mlx
@@ -12,7 +12,22 @@ tags:
   - coding-agent
 ---
 
+<p align="center">
+  <img src="ipsupport-code-banner.png" alt="IPSupport Code" width="100%">
+</p>
+
 # NVIDIA-Nemotron-3-Nano-4B, ipsupport-code LoRA (MLX)
+
+> ### ▶ A coding-agent model — run it in [LLMTray](https://www.ipsupport.us/llmtray/), drive it with [IPSupport Code](https://ipsupport-llc.github.io/ipsupport-code/)
+> This model is fine-tuned for **IPSupport Code**, a local AI coding agent for
+> real repositories (analyze · fix · test · report). It is **not** used
+> standalone: **run it in LLMTray**, which serves it over an OpenAI-compatible
+> API, then point IPSupport Code at that endpoint. Tool-calling is trained in
+> (see "Tool calling is trained in" below).
+>
+> [![Download LLMTray](https://img.shields.io/badge/Download-LLMTray%20for%20Mac-2f7d4f?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/ipsupport-llc/llmtray/releases/latest/download/LLMTray-Full.dmg)
+> [![GitHub stars](https://img.shields.io/github/stars/ipsupport-llc/llmtray?style=for-the-badge&logo=github)](https://github.com/ipsupport-llc/llmtray)
+
 
 `nvidia/NVIDIA-Nemotron-3-Nano-4B-BF16` fine-tuned for
 **[ipsupport-code](https://github.com/ipsupport-llc/ipsupport-code)**
@@ -103,10 +118,30 @@ Given tools in a general chat UI, it may still call them for small talk. The 30B
 
 See [FINDINGS §2.5](https://github.com/rromenskyi/quant-ternary/blob/main/nemotron-extreme-quant/docs/FINDINGS.md).
 
+## The IPSupport local-AI stack
+
+Local-first AI tools for macOS by [IPSupport](https://www.ipsupport.us) — nothing
+leaves your Mac.
+
+- **[LLMTray](https://www.ipsupport.us/llmtray/)** — your local AI
+  workstation for macOS: chat with local LLMs, generate and edit images, make
+  music, run agents, and serve an OpenAI-compatible API. Downloads models from
+  Hugging Face in-app, with per-model profiles.
+- **[IPSupport Code](https://ipsupport-llc.github.io/ipsupport-code/)** — your
+  AI coding agent for real repositories: analyze, fix, test, report.
+
+Run this model in LLMTray — it serves an OpenAI-compatible API — then point
+IPSupport Code at that endpoint. That pairing is how it's meant to run.
+
 ## License
 
-Distributed under NVIDIA's **OpenMDW License Agreement v1.1** (same
-license as the base model) -- see `LICENSE` in this repo.
+Governed by the **NVIDIA Nemotron Open Model License**, the same license as the base model — see [`LICENSE`](LICENSE) (official text: [nvidia.com](https://www.nvidia.com/en-us/agreements/enterprise-software/nvidia-nemotron-open-model-license/)).
+
+Licensed by NVIDIA Corporation under the NVIDIA Nemotron Model License.
+
+Modified from [nvidia/NVIDIA-Nemotron-3-Nano-4B-BF16](https://huggingface.co/nvidia/NVIDIA-Nemotron-3-Nano-4B-BF16): fine-tuned with a LoRA (`lora_r=32`, `lora_alpha=64`, `q_proj/k_proj/v_proj/o_proj` only) on ipsupport-code tool-calling data, merged, and quantized to 8-bit (group size 64) with stock `mlx_lm.convert`.
+
+`configuration_nemotron_h.py` and `modeling_nemotron_h.py` are unmodified copies from the base repo and are licensed under the Apache License 2.0 per their file headers — see [`LICENSE-APACHE-2.0.txt`](LICENSE-APACHE-2.0.txt).
 
 ## Usage
 

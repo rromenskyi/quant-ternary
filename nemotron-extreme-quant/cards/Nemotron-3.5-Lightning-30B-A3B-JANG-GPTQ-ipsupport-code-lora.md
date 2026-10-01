@@ -15,7 +15,21 @@ tags:
   - coding-agent
 ---
 
+<p align="center">
+  <img src="ipsupport-code-banner.png" alt="IPSupport Code" width="100%">
+</p>
+
 # Nemotron-3.5-Lightning-30B-A3B, JANG bit-allocation + GPTQ calibration + ipsupport-code coding-agent LoRA (MLX)
+
+> ### ▶ A coding-agent model — run it in [LLMTray](https://www.ipsupport.us/llmtray/), drive it with [IPSupport Code](https://ipsupport-llc.github.io/ipsupport-code/)
+> This model is fine-tuned for **IPSupport Code**, a local AI coding agent for
+> real repositories (analyze · fix · test · report). It is **not** used
+> standalone: **run it in LLMTray**, which serves it over an OpenAI-compatible
+> API, then point IPSupport Code at that endpoint. Tool-calling is trained in
+> (see "Tool calling is trained in" below).
+>
+> [![Download LLMTray](https://img.shields.io/badge/Download-LLMTray%20for%20Mac-2f7d4f?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/ipsupport-llc/llmtray/releases/latest/download/LLMTray-Full.dmg)
+> [![GitHub stars](https://img.shields.io/github/stars/ipsupport-llc/llmtray?style=for-the-badge&logo=github)](https://github.com/ipsupport-llc/llmtray)
 
 NVIDIA's **Nemotron-3.5-Lightning-30B-A3B**, quantized to MLX using the
 **JANG component-type bit allocation** (reverse-engineered from
@@ -99,12 +113,27 @@ Occasionally (3/20) it also closes its `<think>` block twice and repeats the ans
 What helps if you use it as a chat model with tools attached:
 
 - **A system rule** such as *"Only call a tool when the user's latest message explicitly asks you to perform that action; for greetings, small talk and questions, answer in text"* plus a tool description that says the same. This cut tool calls on questions from 14/20 to 4–6/20. Greetings stay at 7–11/20.
-  [LLMTray](https://github.com/ipsupport-llc/llmtray) sends this rule by default.
+  [LLMTray](https://www.ipsupport.us/llmtray/) sends this rule by default.
 - **Lower temperature**: 0.6 cut greetings to 1/10 in one run.
 - **Don't attach tools the conversation doesn't need.**
 - **For plain chat without tools**, the base quant without the LoRA doesn't have this habit.
 
 Details and methodology: [FINDINGS §2.5](https://github.com/rromenskyi/quant-ternary/blob/main/nemotron-extreme-quant/docs/FINDINGS.md).
+
+## The IPSupport local-AI stack
+
+Local-first AI tools for macOS by [IPSupport](https://www.ipsupport.us) — nothing
+leaves your Mac.
+
+- **[LLMTray](https://www.ipsupport.us/llmtray/)** — your local AI
+  workstation for macOS: chat with local LLMs, generate and edit images, make
+  music, run agents, and serve an OpenAI-compatible API. Downloads models from
+  Hugging Face in-app, with per-model profiles.
+- **[IPSupport Code](https://ipsupport-llc.github.io/ipsupport-code/)** — your
+  AI coding agent for real repositories: analyze, fix, test, report.
+
+Run this model in LLMTray — it serves an OpenAI-compatible API — then point
+IPSupport Code at that endpoint. That pairing is how it's meant to run.
 
 ## License
 

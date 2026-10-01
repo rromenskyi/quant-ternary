@@ -13,17 +13,27 @@ tags:
   - jang
 ---
 
+<p align="center">
+  <img src="llmtray-banner.png" alt="LLMTray" width="100%">
+</p>
+
 # Gemma 4 E4B — GPTQ, JANG-mixed precision, full multimodal (text + vision + audio), MLX
+
+> ### ▶ Run it locally in [LLMTray](https://www.ipsupport.us/llmtray/)
+> A free, native macOS app for local AI on Apple Silicon — chat, images,
+> music, agents and an OpenAI-compatible API. Point it at this model; nothing
+> leaves your Mac.
+>
+> [![Download LLMTray](https://img.shields.io/badge/Download-LLMTray%20for%20Mac-2f7d4f?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/ipsupport-llc/llmtray/releases/latest/download/LLMTray-Full.dmg)
+> [![GitHub stars](https://img.shields.io/github/stars/ipsupport-llc/llmtray?style=for-the-badge&logo=github)](https://github.com/ipsupport-llc/llmtray)
+
 
 A JANG-style mixed-precision MLX quantization of
 [google/gemma-4-E4B-it](https://huggingface.co/google/gemma-4-E4B-it) using
 **GPTQ Hessian-based error correction** across all three real components
 (text decoder, vision tower, audio tower) — attention projections at 8-bit,
-feed-forward projections at 4-bit, and every embedding table plus every
-Linear the calibration doesn't cover (e.g. the audio tower's relative-position
-projections) quantized to 8-bit RTN. The one weight kept in bf16 on purpose
-is `vision_tower.patch_embedder.input_proj` (0.6M params): mlx-lm casts the
-pixels to that layer's weight dtype, so quantizing it breaks vision.
+feed-forward projections at 4-bit, and every embedding table quantized to
+8-bit RTN. **Nothing in this checkpoint is left in bf16.**
 
 ## This replaces an earlier, buggy 8-bit release
 
@@ -133,3 +143,25 @@ fork) — full working examples in the
 ~6.3GB (down from 16GB bf16, and down from the earlier, buggily-larger
 ~11GB "8-bit" release that had an unquantized vision tower and ~7.2GB of
 unquantized embeddings).
+
+## The IPSupport local-AI stack
+
+Local-first AI tools for macOS by [IPSupport](https://www.ipsupport.us) — nothing
+leaves your Mac.
+
+- **[LLMTray](https://www.ipsupport.us/llmtray/)** — your local AI
+  workstation for macOS: chat with local LLMs, generate and edit images, make
+  music, run agents, and serve an OpenAI-compatible API. Downloads models from
+  Hugging Face in-app, with per-model profiles.
+- **[IPSupport Code](https://ipsupport-llc.github.io/ipsupport-code/)** — your
+  AI coding agent for real repositories: analyze, fix, test, report.
+
+Runs in LLMTray as a chat model, with vision and audio.
+
+## License
+
+Licensed under the **Apache License 2.0**, the same license as the base model — see [`LICENSE`](LICENSE).
+
+Modified from [google/gemma-4-E4B-it](https://huggingface.co/google/gemma-4-E4B-it): the text decoder, vision tower and audio tower were GPTQ-quantized (attention 8-bit, feed-forward 4-bit, group size 64), all embedding and per-layer-projection tables were quantized to 8-bit RTN, and the model was converted to MLX. The weights and configuration files in this repo are therefore modified versions of the original, not the original files.
+
+Gemma 4 is released by Google under Apache 2.0 ([Gemma 4 license terms](https://ai.google.dev/gemma/docs/gemma_4_license)).
