@@ -174,9 +174,17 @@ def main() -> None:
             elif how in ("embed", "other"):
                 bits = args.embed_bits if how == "embed" else args.other_bits
                 w = mx.array(t.to(torch.float32).numpy()).astype(mx.bfloat16)
-                tensors[k], tensors[base + ".scales"], tensors[base + ".biases"] = mx.quantize(
-                    w, group_size=args.other_group_size, bits=bits, mode="affine")
-                overrides[module_path_of(k)] = {"group_size": args.other_group_size, "bits": bits}
+                # The widest group that divides the row; none (31B's vision
+                # MLP is 4304 wide): left float.
+                group = next((g for g in (args.other_group_size, 32) if w.shape[-1] % g == 0), None)
+                if group is None:
+                    tensors[k] = w
+                    counts[how] -= 1
+                    counts["copy"] += 1
+                else:
+                    tensors[k], tensors[base + ".scales"], tensors[base + ".biases"] = mx.quantize(
+                        w, group_size=group, bits=bits, mode="affine")
+                    overrides[module_path_of(k)] = {"group_size": group, "bits": bits}
             else:
                 arr = mx.array(t.to(torch.float32).numpy())
                 tensors[k] = arr.astype({torch.bfloat16: mx.bfloat16, torch.float16: mx.float16}.get(t.dtype, mx.float32))

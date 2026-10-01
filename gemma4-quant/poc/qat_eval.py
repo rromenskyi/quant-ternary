@@ -3,8 +3,9 @@ for MLX checkpoints of one model -- the QAT conversions against each other.
 
   python qat_eval.py --text wiki.test.raw --ref E2B-unq E2B-qat-mlx mlx-community/gemma-4-E2B-it-qat-4bit ...
 
-Non-overlapping windows of --ctx tokens (the first --windows of them), the
-same token ids for every model (the reference's tokenizer). PPL counts every
+Non-overlapping windows of --ctx tokens, each starting with BOS (the first
+--windows of them), the same token ids for every model (the reference's
+tokenizer). The reference's log-probabilities wait in host memory (fp16). PPL counts every
 next-token prediction in a window; KL(ref || model) averages over the same
 positions, with the reference's logits computed once per window.
 """
@@ -16,6 +17,7 @@ import json
 import math
 
 import mlx.core as mx
+import numpy as np
 from mlx_lm import load
 
 
@@ -52,9 +54,9 @@ def main() -> None:
     nll = 0.0
     for w in wins:
         lp = logprobs(ref_model, w)
-        mx.eval(lp)
-        ref_lp.append(lp)
         nll -= mx.take_along_axis(lp[:-1], mx.array(w[1:])[:, None], axis=-1).sum().item()
+        # Host memory, fp16: 128 windows of a 262k vocabulary don't fit a GPU.
+        ref_lp.append(np.array(lp.astype(mx.float16)))
     count = sum(len(w) - 1 for w in wins)
     results = {args.ref: {"ppl": math.exp(nll / count), "kl": 0.0, "top1": 1.0}}
     print(f"{args.ref}: ppl {results[args.ref]['ppl']:.3f}", flush=True)
@@ -65,6 +67,7 @@ def main() -> None:
         model, _ = load(path)
         nll, kl, agree = 0.0, 0.0, 0
         for w, rlp in zip(wins, ref_lp):
+            rlp = mx.array(rlp).astype(mx.float32)
             lp = logprobs(model, w)
             nll -= mx.take_along_axis(lp[:-1], mx.array(w[1:])[:, None], axis=-1).sum().item()
             kl += (mx.exp(rlp[:-1]) * (rlp[:-1] - lp[:-1])).sum().item()

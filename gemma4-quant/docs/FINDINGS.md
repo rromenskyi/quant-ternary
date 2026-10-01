@@ -436,5 +436,79 @@ A first run without BOS per window gave PPL in the thousands for every
 model: Gemma needs BOS at the start of each window, as llama.cpp's
 perplexity provides.
 
-Next: KL against the QAT master instead of the non-QAT original, at 128
-windows; E4B, 12B, 31B through the same converter; speed on the M5.
+### All four models (2026-09-30)
+
+| model | q4_0 tensors = GGUF | ours | mlx-community qat-4bit |
+|---|---|---|---|
+| E2B | 275/275 | 3.94 GB | 4.33 GB |
+| E4B | 342/342 | 5.85 GB | 6.80 GB |
+| 12B (`gemma4_unified`) | 328/328 | 7.74 GB | 10.99 GB |
+| 31B | 410/410 | 20.21 GB | 28.8 GB |
+
+The 31B vision MLP is 4304 wide, divisible by neither 64 nor 32. Such
+tensors stay bf16: the converter now picks the widest group that divides
+the row, or none. The 12B's vision/audio projections aren't quantizable
+modules in mlx-lm, so they're copied (mlx-lm drops them at load).
+
+### Against the QAT master weights (128 × 512, BOS per window)
+
+KL and top-1 agreement are measured to the bf16 QAT master weights, the
+model the quantization should reproduce. The non-QAT original is a
+different checkpoint: even the master weights are 0.29 KL away from it
+(E2B), so that reference mostly measured the QAT fine-tune itself.
+
+| E2B | size | PPL | KL to QAT master | top-1 |
+|---|---|---|---|---|
+| QAT master bf16 | 10 GB | 66.1 | — | — |
+| ours, q4_0 grid | 3.94 GB | 70.9 | **0.054** | **89.1%** |
+| mlx-community qat-4bit (MLP 8-bit) | 4.33 GB | **66.2** | 0.067 | 87.6% |
+| mlx-community 4-bit RTN | 3.6 GB | 239.7 | 0.853 | 66.3% |
+
+| E4B | size | PPL | KL to QAT master | top-1 |
+|---|---|---|---|---|
+| QAT master bf16 | 15 GB | 42.4 | — | — |
+| **ours, q4_0 grid** | **5.85 GB** | **44.3** | **0.041** | **90.5%** |
+| mlx-community qat-4bit | 6.80 GB | 45.4 | 0.055 | 89.0% |
+| ours, GPTQ JANG (from the non-QAT original; LLMTray's 16 GB pick) | 6.8 GB | 82.3 | 0.369 | 78.3% |
+
+- E4B: the grid conversion beats mlx-community on every metric with 1 GB less.
+- The old GPTQ's KL isn't comparable, since it was made from another
+  checkpoint. Its PPL and agreement are still well behind.
+- E2B: closer to the master (KL, top-1), but higher PPL. That gap is what
+  the sensitivity scan below closes.
+- 12B: suspect, not used. The master itself scores PPL 684, and KL is 0.55
+  for both quantizations. The `gemma4_unified` text path in the pinned
+  mlx-lm doesn't behave on raw text; investigate before trusting any 12B
+  number.
+
+### QAT + a few Linears at 8-bit (`poc/qat_sensitivity.py`, E2B)
+
+Each of the 277 candidates was raised to 8-bit (group 64) on its own, from
+the all-q4_0 model:
+- 275 text Linears;
+- the 2 embeddings, 6 → 8 bit.
+
+Each one was scored by the KL it removes on 16 windows, per MB it adds,
+then taken greedily under a size budget and measured on the full 128
+windows. Built in memory from the master weights.
+
+| budget | raised | text part | PPL | KL | top-1 |
+|---|---|---|---|---|---|
+| 0 (pure q4_0) | 0 | 3.40 GB | 70.9 | 0.054 | 89.2% |
+| **+50 MB** | 99 | 3.45 GB | **64.1** | **0.034** | **91.3%** |
+| +100 MB | 126 | 3.50 GB | 64.5 | 0.030 | 91.8% |
+
+- With +50 MB the model beats mlx-community's qat-4bit on all three
+  metrics: PPL 64.1 vs 66.2, KL half, top-1 91.3% vs 87.6%. It is still
+  ~0.35 GB lighter.
+- What earns the bits isn't the big MLPs, which mlx-community raised
+  wholesale, but ~100 small sensitive Linears.
+- PPL below the master's (64.1 < 66.1) is noise in raw-text PPL. KL and
+  top-1 are the measures of fidelity.
+
+Next:
+- the rest of the curve;
+- the chosen recipe written by the converter and re-measured from disk;
+- the same scan on E4B and 31B, where 31B also needs to fit a 32 GB Mac
+  (~21 GB GPU limit);
+- speed on the M5.
