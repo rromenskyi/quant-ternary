@@ -8,6 +8,7 @@
 #   MODEL=31B BUDGET_MB=400 ./qat_mlx_pipeline.sh   # another size budget
 #   MODEL=E4B BASELINES="mlx-community/gemma-4-E4B-it-qat-4bit" ./qat_mlx_pipeline.sh
 #   MODEL=E2B PUBLISH=1 HF_REPO=roman220220/... ./qat_mlx_pipeline.sh
+#   MODEL=12B CHAT=1 ./qat_mlx_pipeline.sh          # chat-only checkpoint: score the text as its reply
 #
 # Everything model-specific comes from MODEL: Google's repos are
 # google/gemma-4-$MODEL-it-qat-q4_0-{unquantized,gguf}.
@@ -30,6 +31,7 @@ BUDGETS_MB="${BUDGETS_MB:-50 100 200 400 800}"
 SCAN_WINDOWS="${SCAN_WINDOWS:-16}"
 EVAL_WINDOWS="${EVAL_WINDOWS:-128}"
 BASELINES="${BASELINES:-}"
+CHAT_ARG=(); [ "${CHAT:-0}" = 1 ] && CHAT_ARG=(--chat)
 QAT="${QAT:-$WORK/qat}"
 TEXT="${TEXT:-$QAT/wiki.test.raw}"
 CARD="${CARD:-$HERE/../cards/gemma-4-$MODEL-it-qat-mlx.md}"
@@ -63,7 +65,7 @@ else
   # shellcheck disable=SC2086  # BUDGETS_MB is a list
   run_step scan "8-bit sensitivity, budgets $BUDGETS_MB MB" \
     "$PY" "$HERE/qat_sensitivity.py" --master "$SRC" --text "$TEXT" --scan-windows "$SCAN_WINDOWS" \
-      --windows "$EVAL_WINDOWS" --budgets-mb $BUDGETS_MB --json "$SCAN_JSON"
+      --windows "$EVAL_WINDOWS" --budgets-mb $BUDGETS_MB --json "$SCAN_JSON" "${CHAT_ARG[@]}"
 fi
 
 if [ -f "$OUT/model.safetensors.index.json" ] && [ "$OUT/config.json" -nt "$SCAN_JSON" ]; then
@@ -81,7 +83,7 @@ for repo in $BASELINES; do
   BASE_DIRS+=("$dir")
 done
 run_step eval "vs the QAT master, $EVAL_WINDOWS windows" \
-  "$PY" "$HERE/qat_eval.py" --text "$TEXT" --ref "$SRC" --windows "$EVAL_WINDOWS" --json "$OUT/eval.json" "$OUT" "${BASE_DIRS[@]}"
+  "$PY" "$HERE/qat_eval.py" --text "$TEXT" --ref "$SRC" --windows "$EVAL_WINDOWS" --json "$OUT/eval.json" "${CHAT_ARG[@]}" "$OUT" "${BASE_DIRS[@]}"
 
 if [ -f "$CARD" ]; then
   run_step card "$(basename "$CARD") -> README.md" cp "$CARD" "$OUT/README.md"

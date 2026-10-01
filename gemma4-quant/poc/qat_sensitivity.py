@@ -49,10 +49,22 @@ def q4_0_module(linear: nn.Linear) -> nn.QuantizedLinear:
     return m
 
 
-def windows(tok, text: str, ctx: int, n: int) -> list[list[int]]:
+def windows(tok, text: str, ctx: int, n: int, chat: bool = False) -> list[tuple[list[int], int]]:
+    """(tokens, first scored position) per window. Plain: BOS + text, as
+    llama.cpp's perplexity (Gemma without BOS is off the rails). --chat:
+    the text as the model's reply to "Continue this text." -- for a
+    chat-only checkpoint (the 12B QAT scores raw text like noise, in
+    transformers too); only the text's own tokens are scored."""
     ids = tok.encode(text, add_special_tokens=False)
-    step = ctx - 1
-    return [[tok.bos_token_id] + ids[i: i + step] for i in range(0, len(ids) - step, step)][:n]
+    prefix = [tok.bos_token_id]
+    if chat:
+        prompt = tok.apply_chat_template([{"role": "user", "content": "Continue this text."}],
+                                         add_generation_prompt=True, tokenize=False)
+        prefix = tok.encode(prompt, add_special_tokens=False)
+        if prefix[0] != tok.bos_token_id:
+            prefix = [tok.bos_token_id] + prefix
+    step = ctx - len(prefix)
+    return [(prefix + ids[i: i + step], len(prefix) - 1) for i in range(0, len(ids) - step, step)][:n]
 
 
 def logprobs(model, tokens):
@@ -62,13 +74,13 @@ def logprobs(model, tokens):
 
 def measure(model, wins, ref):
     nll = kl = agree = 0.0
-    for w, r in zip(wins, ref):
+    for (w, s), r in zip(wins, ref):
         r = mx.array(r).astype(mx.float32)
-        lp = logprobs(model, w)
-        nll -= mx.take_along_axis(lp[:-1], mx.array(w[1:])[:, None], axis=-1).sum().item()
-        kl += (mx.exp(r[:-1]) * (r[:-1] - lp[:-1])).sum().item()
-        agree += (mx.argmax(r[:-1], -1) == mx.argmax(lp[:-1], -1)).sum().item()
-    n = sum(len(w) - 1 for w in wins)
+        lp = logprobs(model, w)[s:-1]
+        nll -= mx.take_along_axis(lp, mx.array(w[s + 1:])[:, None], axis=-1).sum().item()
+        kl += (mx.exp(r) * (r - lp)).sum().item()
+        agree += (mx.argmax(r, -1) == mx.argmax(lp, -1)).sum().item()
+    n = sum(len(w) - 1 - s for w, s in wins)
     return {"ppl": math.exp(nll / n), "kl": kl / n, "top1": agree / n}
 
 
@@ -86,16 +98,17 @@ def main() -> None:
     ap.add_argument("--embed-bits", type=int, default=6)
     ap.add_argument("--high-bits", type=int, default=8)
     ap.add_argument("--budgets-mb", type=float, nargs="+", default=[50, 100, 200, 400])
+    ap.add_argument("--chat", action="store_true", help="score the text as the model's chat reply (chat-only checkpoints)")
     ap.add_argument("--json", required=True)
     args = ap.parse_args()
 
     model, tok = load(args.master)
     text = open(args.text).read()
-    wins_all = windows(tok, text, args.ctx, max(args.windows, args.scan_windows))
+    wins_all = windows(tok, text, args.ctx, max(args.windows, args.scan_windows), chat=args.chat)
     scan_wins, eval_wins = wins_all[: args.scan_windows], wins_all[: args.windows]
     ref = []
-    for w in eval_wins:
-        ref.append(np.array(logprobs(model, w).astype(mx.float16)))
+    for w, s in eval_wins:
+        ref.append(np.array(logprobs(model, w)[s:-1].astype(mx.float16)))
     print(f"reference: {len(eval_wins)} windows", flush=True)
 
     # The master weights wait in host memory; the GPU holds the low-bit

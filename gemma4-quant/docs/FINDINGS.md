@@ -538,6 +538,29 @@ GPU.
 - The converter wrote what the scan measured in memory: 64.48 vs 64.47.
 - The 149 Linears left at 4-bit still match the GGUF bit for bit.
 
+### Loading in LLMTray's runtime (mlx-lm fork `97b75f3`)
+
+- mlx-community's `gemma-4-E2B-it-qat-4bit` **doesn't load**: `Expected
+  shape (128, 3, 3, 1) but received (128, 3, 1, 3)` for
+  `audio_tower.subsample_conv_projection.layer0.conv.weight`.
+- Ours failed the same way at first: the converter tagged its files
+  `{"format": "mlx"}`, so sanitize() took the raw (torch-layout) audio convs
+  as already in MLX layout. The pod's fork (`be4b6c7`) loaded them anyway.
+  Fixed: no format tag, the convention the GPTQ splice always followed.
+  Now it loads and answers in LLMTray's runtime.
+
+### 12B: a chat-only checkpoint, not an mlx-lm bug
+
+The 12B QAT master scores raw text like noise: PPL 684. After "The capital
+of France is" its top tokens are digits; after "... Paris. The capital of
+Germany is" it says " Paris". **transformers gives the same tokens**, with
+BOS, on the same weights, so this is the checkpoint, not mlx-lm's
+`gemma4_unified`. With the chat template the first token is `<|channel>`,
+as it should be.
+- Raw-text PPL/KL are meaningless for it.
+- `--chat` (eval and scan, `CHAT=1` in the pipeline) scores the text as the
+  model's reply to "Continue this text.", over the text's own tokens only.
+
 Next:
 - the chosen recipe written by the converter and re-measured from disk;
 - the same scan on E4B and 31B, where 31B also needs to fit a 32 GB Mac

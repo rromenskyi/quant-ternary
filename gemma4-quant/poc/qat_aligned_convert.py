@@ -203,7 +203,10 @@ def main() -> None:
                 if tk in tensors:
                     weight_map[tk] = name
         mx.eval(*tensors.values())
-        mx.save_safetensors(str(out / name), tensors, metadata={"format": "mlx"})
+        # No {"format": "mlx"}: raw tensors (the audio tower's convs) keep
+        # the checkpoint's layout, and mlx-lm's sanitize() only moves them
+        # into MLX's when the file doesn't claim to be MLX already.
+        mx.save_safetensors(str(out / name), tensors)
         print(f"  {name}: {len(tensors)} tensors", flush=True)
         del tensors
 

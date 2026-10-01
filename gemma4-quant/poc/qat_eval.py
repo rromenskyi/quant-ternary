@@ -21,14 +21,22 @@ import numpy as np
 from mlx_lm import load
 
 
-def windows(tokenizer, text: str, ctx: int, n: int) -> list[list[int]]:
-    """Each window starts with BOS, as llama.cpp's perplexity does: Gemma
-    without it is off the rails (PPL in the thousands)."""
-    ids = tokenizer.encode(text, add_special_tokens=False)
-    bos = tokenizer.bos_token_id
-    step = ctx - 1
-    out = [[bos] + ids[i: i + step] for i in range(0, len(ids) - step, step)]
-    return out[:n]
+def windows(tok, text: str, ctx: int, n: int, chat: bool = False) -> list[tuple[list[int], int]]:
+    """(tokens, first scored position) per window. Plain: BOS + text, as
+    llama.cpp's perplexity (Gemma without BOS is off the rails). --chat:
+    the text as the model's reply to "Continue this text." -- for a
+    chat-only checkpoint (the 12B QAT scores raw text like noise, in
+    transformers too); only the text's own tokens are scored."""
+    ids = tok.encode(text, add_special_tokens=False)
+    prefix = [tok.bos_token_id]
+    if chat:
+        prompt = tok.apply_chat_template([{"role": "user", "content": "Continue this text."}],
+                                         add_generation_prompt=True, tokenize=False)
+        prefix = tok.encode(prompt, add_special_tokens=False)
+        if prefix[0] != tok.bos_token_id:
+            prefix = [tok.bos_token_id] + prefix
+    step = ctx - len(prefix)
+    return [(prefix + ids[i: i + step], len(prefix) - 1) for i in range(0, len(ids) - step, step)][:n]
 
 
 def logprobs(model, tokens: list[int]) -> mx.array:
@@ -42,22 +50,23 @@ def main() -> None:
     ap.add_argument("--ref", required=True, help="reference checkpoint (bf16): its tokenizer and logits")
     ap.add_argument("--ctx", type=int, default=512)
     ap.add_argument("--windows", type=int, default=64)
+    ap.add_argument("--chat", action="store_true", help="score the text as the model's chat reply (chat-only checkpoints)")
     ap.add_argument("--json")
     ap.add_argument("models", nargs="+")
     args = ap.parse_args()
 
     text = open(args.text).read()
     ref_model, tok = load(args.ref)
-    wins = windows(tok, text, args.ctx, args.windows)
+    wins = windows(tok, text, args.ctx, args.windows, chat=args.chat)
     print(f"{len(wins)} windows of {args.ctx} tokens", flush=True)
     ref_lp = []
     nll = 0.0
-    for w in wins:
-        lp = logprobs(ref_model, w)
-        nll -= mx.take_along_axis(lp[:-1], mx.array(w[1:])[:, None], axis=-1).sum().item()
+    for w, s in wins:
+        lp = logprobs(ref_model, w)[s:-1]
+        nll -= mx.take_along_axis(lp, mx.array(w[s + 1:])[:, None], axis=-1).sum().item()
         # Host memory, fp16: 128 windows of a 262k vocabulary don't fit a GPU.
         ref_lp.append(np.array(lp.astype(mx.float16)))
-    count = sum(len(w) - 1 for w in wins)
+    count = sum(len(w) - 1 - s for w, s in wins)
     results = {args.ref: {"ppl": math.exp(nll / count), "kl": 0.0, "top1": 1.0}}
     print(f"{args.ref}: ppl {results[args.ref]['ppl']:.3f}", flush=True)
     del ref_model
@@ -66,12 +75,12 @@ def main() -> None:
     for path in args.models:
         model, _ = load(path)
         nll, kl, agree = 0.0, 0.0, 0
-        for w, rlp in zip(wins, ref_lp):
+        for (w, s), rlp in zip(wins, ref_lp):
             rlp = mx.array(rlp).astype(mx.float32)
-            lp = logprobs(model, w)
-            nll -= mx.take_along_axis(lp[:-1], mx.array(w[1:])[:, None], axis=-1).sum().item()
-            kl += (mx.exp(rlp[:-1]) * (rlp[:-1] - lp[:-1])).sum().item()
-            agree += (mx.argmax(rlp[:-1], -1) == mx.argmax(lp[:-1], -1)).sum().item()
+            lp = logprobs(model, w)[s:-1]
+            nll -= mx.take_along_axis(lp, mx.array(w[s + 1:])[:, None], axis=-1).sum().item()
+            kl += (mx.exp(rlp) * (rlp - lp)).sum().item()
+            agree += (mx.argmax(rlp, -1) == mx.argmax(lp, -1)).sum().item()
         results[path] = {"ppl": math.exp(nll / count), "kl": kl / count, "top1": agree / count}
         r = results[path]
         print(f"{path}: ppl {r['ppl']:.3f}  KL {r['kl']:.4f}  top-1 agree {r['top1']:.2%}", flush=True)
