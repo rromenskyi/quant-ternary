@@ -726,7 +726,8 @@ MLX's words; scales to bf16): 2.57 GB, 122.5 tok/s and 2.43 GB peak on the M5
 - MLX: 3.10 GB (r100 4.04), PPL 36.44, KL 0.0242, top-1 92.48% (128 chat
   windows; r100 36.38 / 0.0226 / 92.73%). -0.94 GB for KL +0.0016.
 - GGUF (llama.cpp, raw wikitext, 32 chunks of 512, against our bf16 GGUF of
-  the master, PPL 43.63): text `Q4_0`, `per_layer_token_embd` `Q4_K`,
+  the master, PPL 42.84 in the KL run's scoring -- the ratios below are to
+  it; plain `llama-perplexity` puts it at 43.63): text `Q4_0`, `per_layer_token_embd` `Q4_K`,
   `token_embd` `Q6_K`, the raised Linears `Q8_0` via `--tensor-type`
   (`gguf_types.py` maps the MLX scan's modules to GGUF names).
   | GGUF | size | PPL | to bf16 |
@@ -824,9 +825,9 @@ MLX's words; scales to bf16): 2.57 GB, 122.5 tok/s and 2.43 GB peak on the M5
 ### Published (2026-09-30)
 
 - **[roman220220/gemma-4-E2B-it-qat-mlx](https://huggingface.co/roman220220/gemma-4-E2B-it-qat-mlx)**:
-  new repo, 4.07 GB, +100 MB recipe (126 Linears at 8-bit).
+  new repo, 4.07 GB with its tokenizer (weights 4.04 GB), +100 MB recipe (126 Linears at 8-bit).
 - **[roman220220/gemma-4-E4B-it-qat-mlx](https://huggingface.co/roman220220/gemma-4-E4B-it-qat-mlx)**:
-  5.99 GB, +100 MB recipe (114 Linears at 8-bit). It replaced the GPTQ JANG
+  5.99 GB with its tokenizer (weights 5.95 GB), +100 MB recipe (114 Linears at 8-bit). It replaced the GPTQ JANG
   build **in its own repo**, which was renamed from
   `gemma-4-E4B-it-gptq-mlx-jang`:
   - every old file was deleted in the upload commit;

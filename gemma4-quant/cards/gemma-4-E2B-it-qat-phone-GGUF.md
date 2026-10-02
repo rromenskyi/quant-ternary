@@ -36,11 +36,13 @@ unquantized model**:
 
 | GGUF | size | PPL | PPL vs bf16 |
 |---|---|---|---|
-| bf16 of the QAT master weights | 9.27 GB | 43.63 | — |
+| bf16 of the QAT master weights | 9.27 GB | 42.84 | — |
 | Google's `gemma-4-E2B_q4_0-it.gguf` | 3.35 GB | 46.47 | +8.5% |
 | **this build** | **2.86 GB** | **42.24** | **−1.4%** |
 
-llama.cpp `llama-perplexity`, raw wikitext-2 (test), 32 chunks of 512 tokens.
+llama.cpp `llama-perplexity --kl-divergence` against the bf16 GGUF, raw
+wikitext-2 (test), 32 chunks of 512 tokens; all three PPLs in that one
+scoring (`llama-perplexity` on its own puts the bf16 at 43.63).
 A PPL slightly under the bf16 one is within the noise of this test: the QAT
 model was trained through its 4-bit weights.
 
