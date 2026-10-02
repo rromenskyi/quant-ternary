@@ -42,10 +42,11 @@ A GGUF build of the same recipe, for llama.cpp / ollama / phone apps:
 It starts from [our q4_0-grid build](https://huggingface.co/roman220220/gemma-4-E2B-it-qat-mlx)
 and squeezes only what the measurements said was free:
 
-- **The text decoder stays on Google's QAT grid.** Its 4-bit Linears are
-  identical, bit for bit, to Google's own
-  [q4_0 GGUF](https://huggingface.co/google/gemma-4-E2B-it-qat-q4_0-gguf): the
-  grid the quantization-aware training trained for.
+- **The text decoder stays on Google's QAT grid.** Its 4-bit Linears carry
+  the very codes of Google's own
+  [q4_0 GGUF](https://huggingface.co/google/gemma-4-E2B-it-qat-q4_0-gguf),
+  block for block (only the scales are rounded from fp16 to bf16): the grid
+  the quantization-aware training trained for.
 - **The 126 Linears that lose most at 4-bit stay at 8-bit** (+100 MB, chosen
   by measured KL per MB). Dropping them doubles the KL; they stay.
 - **The per-layer embeddings go from 6 to 4 bits.** Half of E2B is its

@@ -59,8 +59,20 @@ if [ ! -f "$TEXT" ]; then
     $PY -c \"import glob, pyarrow.parquet as pq; open('$TEXT', 'w').write(''.join(pq.read_table(glob.glob('$QAT/wikitext/wikitext-2-raw-v1/test-*.parquet')[0]).column('text').to_pylist()))\""
 fi
 
+# A finished scan is reused only if it was made the way this run would
+# make it (raw text or chat, windows, raised width): an old raw-text scan
+# must not pick a CHAT=1 build's Linears.
 if [ -f "$SCAN_JSON" ]; then
-  skip_step scan "$SCAN_JSON exists"
+  if ! "$PY" -c "
+import json, sys
+s = json.load(open(sys.argv[1])).get('settings')
+want = {'chat': sys.argv[2] == '1', 'scan_windows': int(sys.argv[3]), 'windows': int(sys.argv[4])}
+sys.exit(0 if s and all(s.get(k) == v for k, v in want.items()) else 1)
+" "$SCAN_JSON" "${CHAT:-0}" "$SCAN_WINDOWS" "$EVAL_WINDOWS"; then
+    echo "$SCAN_JSON was made with other settings (or before they were recorded): move it aside to scan again" >&2
+    exit 1
+  fi
+  skip_step scan "$SCAN_JSON exists, same settings"
 else
   # shellcheck disable=SC2086  # BUDGETS_MB is a list
   run_step scan "8-bit sensitivity, budgets $BUDGETS_MB MB" \

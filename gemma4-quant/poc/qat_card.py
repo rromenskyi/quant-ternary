@@ -123,8 +123,9 @@ tags:
 
 Google trained Gemma 4 {m} with quantization-aware training (QAT) for
 llama.cpp's **q4_0**. This is that model in MLX, **on the very grid the QAT
-trained for**. The text decoder's 4-bit weights are identical, bit for bit,
-to Google's own [q4_0 GGUF](https://huggingface.co/google/gemma-4-{m}-it-qat-q4_0-gguf).
+trained for**. The text decoder's 4-bit codes are the very ones in Google's own
+[q4_0 GGUF](https://huggingface.co/google/gemma-4-{m}-it-qat-q4_0-gguf), block for block; only their scales are rounded
+from fp16 to bf16 (MLX's scale type).
 On top of that, the {a.raised} Linears that lose the most at 4-bit are kept
 at 8-bit, which costs {a.budget_mb} MB. The {towers} {"tower is" if a.no_audio else "towers are"}
 included.{(chr(10) + chr(10) + a.memory_note) if a.memory_note else ""}

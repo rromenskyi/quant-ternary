@@ -146,14 +146,19 @@ def main() -> None:
     # the same scan (same base KL: windows, reference, --chat) goes on from
     # there.
     partial = args.json + ".partial"
+    # What a scan's gains depend on: a rerun with any of it changed (the
+    # raised width, say, which the base KL doesn't see) starts over.
+    settings = {"master": os.path.abspath(args.master), "text": os.path.abspath(args.text), "ctx": args.ctx,
+                "scan_windows": args.scan_windows, "windows": args.windows, "embed_bits": args.embed_bits,
+                "high_bits": args.high_bits, "chat": bool(args.chat)}
     gains = {}
     if os.path.exists(partial):
         saved = json.load(open(partial))
-        if abs(saved.get("base_kl", float("nan")) - base_scan["kl"]) < 1e-9:
+        if saved.get("settings") == settings and abs(saved.get("base_kl", float("nan")) - base_scan["kl"]) < 1e-9:
             gains = {p: g for p, g in saved["gains"].items() if p in low}
             print(f"resuming: {len(gains)}/{len(low)} probes from {partial}", flush=True)
         else:
-            print(f"{partial} is another scan's (base KL {saved.get('base_kl')}): starting over", flush=True)
+            print(f"{partial} is another scan's (settings {saved.get('settings')}, base KL {saved.get('base_kl')}): starting over", flush=True)
     for i, p in enumerate(sorted(low)):
         if p in gains:
             continue
@@ -163,7 +168,7 @@ def main() -> None:
         gains[p] = {"dkl": base_scan["kl"] - kl, "mb": cost[p] / 1e6}
         if i % 20 == 0:
             print(f"  {i}/{len(low)} {p}: dKL {gains[p]['dkl']:.5f} for {gains[p]['mb']:.1f} MB", flush=True)
-            json.dump({"base_kl": base_scan["kl"], "gains": gains}, open(partial + ".tmp", "w"))
+            json.dump({"settings": settings, "base_kl": base_scan["kl"], "gains": gains}, open(partial + ".tmp", "w"))
             os.replace(partial + ".tmp", partial)
     order = sorted(gains, key=lambda p: gains[p]["dkl"] / max(gains[p]["mb"], 1e-6), reverse=True)
 
@@ -180,7 +185,7 @@ def main() -> None:
         r = measure(build(set(raised)), eval_wins, ref)
         curve.append({"budget_mb": budget, "raised": raised, "size_gb": (base_size + used * 1e6) / 1e9, **r})
         print(f"budget {budget} MB ({len(raised)} raised, +{used:.0f} MB): ppl {r['ppl']:.3f} KL {r['kl']:.4f} top-1 {r['top1']:.2%}", flush=True)
-    json.dump({"gains": gains, "order": order, "curve": curve}, open(args.json, "w"), indent=1)
+    json.dump({"settings": settings, "gains": gains, "order": order, "curve": curve}, open(args.json, "w"), indent=1)
     if os.path.exists(partial):
         os.remove(partial)
 

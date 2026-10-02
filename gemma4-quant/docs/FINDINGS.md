@@ -737,6 +737,19 @@ MLX's words; scales to bf16): 2.57 GB, 122.5 tok/s and 2.43 GB peak on the M5
     QAT grid); the gain is the `Q8_0` Linears, PLE `Q4_K` costs ~nothing.
   - llama-perplexity's KLD lines didn't match the grep; only PPL recorded.
 
+### Review of the pipeline (2026-10-02, Codex on PR #18)
+
+- `qat_mlx_pipeline.sh` reused any `<MODEL>-sens.json`: a raw-text scan
+  could pick a `CHAT=1` build's Linears. The scan JSON (and its `.partial`)
+  now records its settings (master, text, ctx, windows, embed/raised bits,
+  chat); the pipeline reuses it only if chat and the window counts match --
+  an older scan without settings is refused (move it aside).
+- The resume compared only the base KL, which a different `--high-bits`
+  doesn't change: it now needs the same settings too.
+- The cards said the 4-bit weights are "identical, bit for bit" to Google's
+  GGUF; the codes are, the fp16 scales are rounded to bf16. Fixed in
+  `qat_card.py`, the five MLX cards here and on the Hub.
+
 ### Published: 12B, text + vision + audio (2026-10-02)
 
 - **[roman220220/gemma-4-12B-it-qat-mlx](https://huggingface.co/roman220220/gemma-4-12B-it-qat-mlx)**:
