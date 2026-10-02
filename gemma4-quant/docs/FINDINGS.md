@@ -684,6 +684,43 @@ scan again, from scratch (`CHAT=1`, 128 eval windows, resumable now):
   measure.
 - Pod time: the scan ran 22:19-06:02 UTC on an A100 (~$12).
 
+### E2B for phones (2026-10-02)
+
+**Our recipe, step by step** (`mobile_sweep.sh`, 128 chat windows, master PPL 36.04):
+
+| build | PPL | KL | top-1 |
+|---|---|---|---|
+| published r100 (4.04 GB) | 36.38 | 0.0227 | 92.73% |
+| r0 (no 8-bit Linears) | 37.52 | 0.0382 | 90.40% |
+| r0 + PLE 4-bit | 37.70 | 0.0397 | 90.31% |
+| + token embeddings 4-bit | 37.85 | 0.0480 | 89.27% |
+| + towers 4-bit | 37.89 | 0.0481 | 89.28% |
+| + PLE 3-bit | 37.73 | 0.0586 | 88.29% |
+
+- The +100 MB of 8-bit Linears halve E2B's KL: keep them.
+- **PLE 6 -> 4 bit is almost free** (KL +0.0015, ~0.6 GB): half of E2B's
+  size is its per-layer embeddings (1.91 GB at 6-bit).
+- Token embeddings below 6-bit cost (they're tied to the output head);
+  PLE 3-bit costs. The towers don't show in a text eval.
+
+**Google's mobile QAT** (`google/gemma-4-E2B-it-qat-mobile-transformers`,
+"wNa8o8"): per-row symmetric int2/int4/int8, MLP layers 15+ and the token
+embeddings / an untied lm_head at 2-bit, attention 4-bit, PLE 4-bit, the
+audio tower 2-bit; static int8 activation scales on every Linear and KV-cache
+scales. `qat_mobile_convert.py` maps it onto MLX exactly (the packed bytes are
+MLX's words; scales to bf16): 2.57 GB, 122.5 tok/s and 2.43 GB peak on the M5
+(our q4_0 E2B: 70.3 tok/s, 3.80 GB).
+- The conversion matches transformers: KL 0.0021, top-1 97.4% (bf16
+  activations both), PPL 65.03 vs 65.06 (32 windows).
+- **But it needs its int8 activations**: transformers with them 41.26, without
+  65.06 (KL 0.86 between the two); without them the audio tower hears nothing
+  ("Please provide the audio file..."); vision still works.
+- So it's a scheme for a phone NPU runtime (Google ships it as LiteRT-LM).
+  In MLX it would need activation fake-quant in the model code, in llama.cpp
+  there's none -- and even with it, 41 vs our recipes' ~36.5. Not published;
+  our own recipe (PLE 4-bit, 8-bit Linears kept, towers 4-bit) is the phone
+  build, in MLX and GGUF.
+
 ### Published: 31B (2026-10-02)
 
 - **[roman220220/gemma-4-31B-it-qat-mlx](https://huggingface.co/roman220220/gemma-4-31B-it-qat-mlx)**:
