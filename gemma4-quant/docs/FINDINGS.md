@@ -737,6 +737,43 @@ MLX's words; scales to bf16): 2.57 GB, 122.5 tok/s and 2.43 GB peak on the M5
     QAT grid); the gain is the `Q8_0` Linears, PLE `Q4_K` costs ~nothing.
   - llama-perplexity's KLD lines didn't match the grep; only PPL recorded.
 
+### Published: 12B, text + vision + audio (2026-10-02)
+
+- **[roman220220/gemma-4-12B-it-qat-mlx](https://huggingface.co/roman220220/gemma-4-12B-it-qat-mlx)**:
+  7.89 GB, `MODEL=12B CHAT=1 BUDGET_MB=200` (44 Linears at 8-bit: 43
+  attention -- 17 V, 15 K, 10 O, 1 Q -- and 1 MLP). 128 chat windows:
+  | build | size | PPL | KL | top-1 |
+  |---|---|---|---|---|
+  | master | -- | 22.26 | -- | -- |
+  | +0 MB | 7.63 GB | 22.92 | 0.0307 | 92.78% |
+  | **+200 MB (from disk)** | **7.89 GB** | **22.77** | **0.0253** | **93.44%** |
+  | +800 MB (scan) | | 22.56 | 0.0198 | 94.14% |
+  | mlx-community qat-4bit | 10.99 GB | 22.82 | 0.0259 | 93.35% |
+  | mlx-community 4bit (no QAT) | 6.74 GB | 26.70 | 0.340 | 78.78% |
+  - Same faithfulness as mlx-community's QAT build at 3.1 GB less (theirs
+    keeps all 144 MLP Linears at 8-bit), ~1.5x faster decode on the M5
+    (14.8 vs 9.8 tok/s, 9.2 vs 6.4 in a throttled pair), peak 8.1 vs 11.2 GB.
+- **Multimodal.** The 12B is `gemma4_unified`: no towers -- raw 48 px patches
+  through a `vision_embedder` (LN -> Linear -> LN, + factorized 2D posemb, LN)
+  and raw 640-sample audio frames, each via embed_vision / embed_audio. Our
+  mlx-lm fork loaded it text-only and dropped those weights; ported in
+  ipsupport-llc/mlx-lm#22 (`17ab9af`), LLMTray runtime pin bumped (#214).
+  - Bug found on the way: the pixels were cast to `patch_dense.weight.dtype`,
+    uint32 once quantized -- every pixel became 0 ("no animals in this
+    picture"). Features now match mlx-vlm's on the same checkpoint (cos >=
+    0.9998, bf16); preprocessing identical.
+  - The 12B uses bidirectional attention within an image; without the image
+    spans set (`set_vision_spans`, as the server does) an encoder-free model's
+    patches never see each other. `gemma4_smoke_test.py` sets them now.
+  - The converter quantizes the three projections at 8-bit (`other`) once the
+    fork has them -- the pod's venv must carry the fork before `convert`.
+- Smoke (M5): text; vision "There is a red fox in this picture."; audio: it
+  recognizes the spoken pangram but discusses it instead of transcribing
+  (the smoke check looks at the whole output); peak 8.4 GB.
+- Pod volume: freed ~55 GB (31B build/GGUF, E2B bf16 GGUF/KLD, phone builds,
+  old raw 12B build); the existing mlx-community 12B copy was renamed to the
+  pipeline's baseline dir instead of downloaded again.
+
 ### Published: E2B phone (2026-10-02)
 
 - **[roman220220/gemma-4-E2B-it-qat-phone-mlx](https://huggingface.co/roman220220/gemma-4-E2B-it-qat-phone-mlx)**:
