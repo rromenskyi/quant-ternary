@@ -536,7 +536,7 @@ GPU.
 | mlx-community qat-4bit | 4.33 GB | 66.2 | 0.067 | 87.6% |
 
 - The converter wrote what the scan measured in memory: 64.48 vs 64.47.
-- The 149 Linears left at 4-bit still match the GGUF bit for bit.
+- The 149 Linears left at 4-bit still carry the GGUF's codes (scales rounded to bf16).
 
 ### E2B speed on the M5 (`poc/qat_speed.py`, mlx-lm `be4b6c7`, 2 rounds, order alternated, 15 s idle before each)
 
@@ -743,7 +743,8 @@ MLX's words; scales to bf16): 2.57 GB, 122.5 tok/s and 2.43 GB peak on the M5
 - `qat_mlx_pipeline.sh` reused any `<MODEL>-sens.json`: a raw-text scan
   could pick a `CHAT=1` build's Linears. The scan JSON (and its `.partial`)
   now records its settings (master, text, ctx, windows, embed/raised bits,
-  chat); the pipeline reuses it only if chat and the window counts match --
+  chat); the pipeline reuses it only if chat, the window counts, the master
+  and the text match --
   an older scan without settings is refused (move it aside).
 - The resume compared only the base KL, which a different `--high-bits`
   doesn't change: it now needs the same settings too.

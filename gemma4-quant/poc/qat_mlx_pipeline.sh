@@ -66,9 +66,11 @@ if [ -f "$SCAN_JSON" ]; then
   if ! "$PY" -c "
 import json, sys
 s = json.load(open(sys.argv[1])).get('settings')
-want = {'chat': sys.argv[2] == '1', 'scan_windows': int(sys.argv[3]), 'windows': int(sys.argv[4])}
+import os
+want = {'chat': sys.argv[2] == '1', 'scan_windows': int(sys.argv[3]), 'windows': int(sys.argv[4]),
+        'master': os.path.abspath(sys.argv[5]), 'text': os.path.abspath(sys.argv[6])}
 sys.exit(0 if s and all(s.get(k) == v for k, v in want.items()) else 1)
-" "$SCAN_JSON" "${CHAT:-0}" "$SCAN_WINDOWS" "$EVAL_WINDOWS"; then
+" "$SCAN_JSON" "${CHAT:-0}" "$SCAN_WINDOWS" "$EVAL_WINDOWS" "$SRC" "$TEXT"; then
     echo "$SCAN_JSON was made with other settings (or before they were recorded): move it aside to scan again" >&2
     exit 1
   fi
