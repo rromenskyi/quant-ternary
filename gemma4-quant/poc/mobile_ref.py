@@ -53,6 +53,14 @@ def kl(p_list, q_list):
     for p, q in zip(p_list, q_list):
         tot += (np.exp(p) * (p - q)).sum(); n += p.shape[0]; agree += (p.argmax(-1) == q.argmax(-1)).sum()
     return tot / n, agree / n
+def ppl(lp_list):
+    nll = n = 0
+    for (w, s), lp in zip(wins, lp_list):
+        tgt = np.array(w[s + 1:])
+        nll -= lp[np.arange(len(tgt)), tgt].sum(); n += len(tgt)
+    return math.exp(nll / n)
+for name, lp in (("transformers, int8 activations (as trained)", with_srq), ("transformers, bf16 activations", no_srq), ("mlx (bf16 activations)", ours)):
+    print(f"PPL {name}: {ppl(lp):.2f}", flush=True)
 res = {}
 for name, a, b in (("mlx vs transformers, activations bf16", no_srq, ours),
                    ("mlx vs transformers, int8 activations (NPU)", with_srq, ours),
