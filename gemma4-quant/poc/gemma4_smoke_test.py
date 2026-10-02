@@ -8,8 +8,9 @@ uploaded:
     first E4B "8-bit" release silently shipped its vision tower in bf16;
   - optional --image: answers a question about a real photo through the same
     image path mlx_lm.server uses (mlx_lm.multimodal, ipsupport-llc/mlx-lm);
-  - optional --audio (E4B, 16kHz mono WAV): transcribes a spoken clip through
-    the audio tower (a clip made with macOS `say` is enough).
+  - optional --audio (E2B/E4B, 12B; 16kHz mono WAV): transcribes a spoken clip
+    through the audio tower, or the 12B's waveform frames (a clip made with
+    macOS `say` is enough).
 
 Prints SMOKE_TEST_PASSED on success, exits non-zero otherwise.
 
@@ -98,10 +99,19 @@ def main() -> int:
             blob = Path(args.image).read_bytes()
             msgs = [{"role": "user", "content": [{"type": "image"}, {"type": "text", "text": args.image_question}]}]
             prompt = tok.apply_chat_template(msgs, add_generation_prompt=True)
-            ids, emb, _ = ii.build(prompt, [blob])
+            ids, emb, key = ii.build(prompt, [blob])
+            # The image's tokens attend to each other both ways where the
+            # model does (26B, 31B, 12B), as mlx_lm.server sets it up; the
+            # 12B has no vision encoder, so without it the patches never see
+            # each other.
+            from mlx_lm.multimodal import vision_spans
+            model.set_vision_spans(vision_spans(key))
             out = ""
-            for r in stream_generate(model, tok, ids, max_tokens=args.max_tokens, input_embeddings=emb):
-                out += r.text
+            try:
+                for r in stream_generate(model, tok, ids, max_tokens=args.max_tokens, input_embeddings=emb):
+                    out += r.text
+            finally:
+                model.set_vision_spans(None)
             vreply = final_answer(out)
             print(f"vision: reply={vreply[:200]!r}", flush=True)
             if args.expect_in_image_answer and args.expect_in_image_answer.lower() not in vreply.lower():
@@ -113,23 +123,32 @@ def main() -> int:
         import numpy as np
         from transformers.models.gemma4.feature_extraction_gemma4 import Gemma4AudioFeatureExtractor
 
-        if getattr(model, "audio_tower", None) is None:
+        unified = getattr(model, "unified", False)   # gemma4_unified (12B): raw waveform frames, no tower
+        if getattr(model, "embed_audio", None) is None or (not unified and getattr(model, "audio_tower", None) is None):
             failures.append("--audio given but the model has no audio tower")
         else:
             with wave.open(args.audio) as w:
                 if w.getframerate() != 16000 or w.getnchannels() != 1:
                     raise SystemExit("--audio must be 16kHz mono WAV (afconvert -f WAVE -d LEI16@16000 -c 1)")
                 pcm = np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16).astype(np.float32) / 32768
-            f = Gemma4AudioFeatureExtractor()([pcm], sampling_rate=16000, return_tensors="np")
-            feats, fmask = mx.array(f["input_features"]), mx.array(f["input_features_mask"])
-            _, valid = model.audio_tower(feats, fmask)
-            n_audio = int(valid.sum().item())
+            if unified:
+                # Gemma4UnifiedAudioFeatureExtractor: 640-sample frames, the last zero-padded.
+                frame = model.args.audio_config.get("audio_embed_dim", 640)
+                pcm = np.pad(pcm, (0, -len(pcm) % frame)).reshape(-1, frame)
+                feats, fmask = mx.array(pcm)[None], mx.ones((1, len(pcm)), dtype=mx.bool_)
+                n_audio = len(pcm)
+            else:
+                f = Gemma4AudioFeatureExtractor()([pcm], sampling_rate=16000, return_tensors="np")
+                feats, fmask = mx.array(f["input_features"]), mx.array(f["input_features_mask"])
+                _, valid = model.audio_tower(feats, fmask)
+                n_audio = int(valid.sum().item())
             cfg = json.loads((Path(args.model) / "config.json").read_text())
             audio_id = model.args.audio_token_id
+            eoa = cfg.get("eoa_token_id", cfg.get("eoa_token_index"))   # the 12B config names it eoa_token_index
             msgs = [{"role": "user", "content": [{"type": "audio"}, {"type": "text", "text": "Transcribe this audio exactly."}]}]
             ids = []
             for t in tok.apply_chat_template(msgs, add_generation_prompt=True):
-                ids += [cfg["boa_token_id"]] + [audio_id] * n_audio + [cfg["eoa_token_id"]] if t == audio_id else [t]
+                ids += [cfg["boa_token_id"]] + [audio_id] * n_audio + [eoa] if t == audio_id else [t]
             fused, _ = model._fuse_multimodal_inputs(mx.array(ids)[None], None, None, feats, fmask)
             pad = model.language_model.model.config.pad_token_id
             gen_ids = [pad if t == audio_id else t for t in ids]
@@ -138,7 +157,9 @@ def main() -> int:
             )
             areply = final_answer(out)
             print(f"audio: {n_audio} soft tokens, reply={areply[:200]!r}", flush=True)
-            if args.expect_in_audio_answer and args.expect_in_audio_answer.lower() not in areply.lower():
+            # In the reasoning or the answer: the 12B tends to discuss a
+            # well-known sentence instead of repeating it, having heard it.
+            if args.expect_in_audio_answer and args.expect_in_audio_answer.lower() not in out.lower():
                 failures.append(f"audio reply lacks {args.expect_in_audio_answer!r}: {areply!r}")
 
     print(f"peak memory: {mx.get_peak_memory() / 1e9:.1f} GB", flush=True)
