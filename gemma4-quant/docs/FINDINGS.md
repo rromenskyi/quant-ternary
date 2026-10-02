@@ -653,6 +653,37 @@ tokens, BOS):
   cancelled for this check; the raw-scan r400 build stands
   (`31B-qat-mlx-r400-raw` on the pod volume).
 
+### 31B, chat-framed scan with the thinking channel closed (2026-10-02)
+
+The `--chat` framing left the model's turn open for its reasoning; with
+`enable_thinking=False` (`<|channel>thought\n<channel|>`) it scores the text
+as the reply (`qat_text.py`). Same wikitext windows, 26B: raw 67363, the old
+`--chat` 82867, the fixed one 26.7; E4B: raw 46.5, fixed 22.6. Then the 31B
+scan again, from scratch (`CHAT=1`, 128 eval windows, resumable now):
+
+| build | PPL | KL to master | top-1 |
+|---|---|---|---|
+| master (bf16) | 26.94 | -- | -- |
+| q4_0 grid, nothing raised | 27.69 | 0.0213 | 94.89% |
+| +50 MB (6 Linears 8-bit) | 27.80 | 0.0211 | 94.87% |
+| +100 MB (12) | 27.77 | 0.0209 | 94.87% |
+| +200 MB (20) | 27.70 | 0.0205 | 94.89% |
+| **+400 MB (35), from disk** | **27.82** | **0.0206** | **94.93%** |
+| +800 MB (64) | 27.76 | 0.0194 | 95.10% |
+
+- The real faithfulness of the build: KL 0.02, top-1 95% -- E4B's league,
+  not the 0.09 / 88.6% the broken framing reported.
+- **8-bit Linears buy little on the 31B**: the whole curve sits within KL
+  0.019-0.021; Google's q4_0 grid is already close to the master. The
+  raw-text scan's r400 measured KL 0.0222, top-1 94.87% (PPL 24.1 vs the
+  master's 23.2, 32 windows): about the same.
+- PPL across different models isn't comparable with this test: the
+  instruct models are badly calibrated, the bigger more confident, so the
+  mean is carried by confident misses (26B's median token PPL 3.16 vs E4B's
+  5.84, while its mean PPL is higher). Against its own master it is a fair
+  measure.
+- Pod time: the scan ran 22:19-06:02 UTC on an A100 (~$12).
+
 ### Published (2026-09-30)
 
 - **[roman220220/gemma-4-E2B-it-qat-mlx](https://huggingface.co/roman220220/gemma-4-E2B-it-qat-mlx)**:
