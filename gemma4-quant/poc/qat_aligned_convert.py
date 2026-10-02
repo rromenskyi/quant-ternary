@@ -112,6 +112,9 @@ def main() -> None:
     ap.add_argument("--q4-0", default=TEXT_LINEARS, metavar="REGEX", help="raw keys that get q4_0 (the QAT-trained Linears)")
     ap.add_argument("--embed-pattern", default=EMBEDDINGS, metavar="REGEX")
     ap.add_argument("--embed-bits", type=int, default=6)
+    ap.add_argument("--ple-bits", type=int, default=None,
+                    help="bits of E2B/E4B's per-layer embeddings (embed_tokens_per_layer, ~half of E2B's size); "
+                         "default: --embed-bits")
     ap.add_argument("--other-bits", type=int, default=8, help="RTN bits for every other quantizable module (0 = keep float)")
     ap.add_argument("--other-group-size", type=int, default=64)
     ap.add_argument("--gguf", help="Google's q4_0 GGUF: every q4_0 tensor must match it")
@@ -154,7 +157,7 @@ def main() -> None:
         if q4_re.search(k) and shape[1] % GROUP == 0:
             return "q4_0"
         if embed_re.search(k):
-            return "embed"
+            return "ple" if "embed_tokens_per_layer" in k else "embed"
         return "other" if args.other_bits else "copy"
 
     nbytes = lambda k: math.prod(shapes[k][0]) * 2
@@ -168,7 +171,7 @@ def main() -> None:
     if cur:
         shards.append(cur)
 
-    weight_map, overrides, counts = {}, {}, {"q4_0": 0, "raised": 0, "embed": 0, "other": 0, "copy": 0}
+    weight_map, overrides, counts = {}, {}, {"q4_0": 0, "raised": 0, "embed": 0, "ple": 0, "other": 0, "copy": 0}
     handles = {p: safe_open(str(p), "pt") for p in files}
     for i, shard in enumerate(shards):
         name = f"model-{i + 1:05d}-of-{len(shards):05d}.safetensors"
@@ -182,8 +185,9 @@ def main() -> None:
                 if gguf:
                     gguf.check(k, d16, q)
                 tensors[k], tensors[base + ".scales"], tensors[base + ".biases"] = to_mlx_affine(d16, q)
-            elif how in ("raised", "embed", "other"):
-                bits = {"raised": args.raise_bits, "embed": args.embed_bits, "other": args.other_bits}[how]
+            elif how in ("raised", "embed", "ple", "other"):
+                ple_bits = args.embed_bits if args.ple_bits is None else args.ple_bits
+                bits = {"raised": args.raise_bits, "embed": args.embed_bits, "ple": ple_bits, "other": args.other_bits}[how]
                 w = mx.array(t.to(torch.float32).numpy()).astype(mx.bfloat16)
                 # The widest group that divides the row; none (31B's vision
                 # MLP is 4304 wide): left float.
@@ -222,7 +226,7 @@ def main() -> None:
     (out / "config.json").write_text(json.dumps(config, indent=2))
     print(f"q4_0 (QAT grid): {counts['q4_0']}{' (all match the GGUF)' if gguf else ''}; raised to {args.raise_bits}-bit: {counts['raised']}; "
           f"embeddings {args.embed_bits}-bit: "
-          f"{counts['embed']}; other {args.other_bits}-bit: {counts['other']}; copied: {counts['copy']}; {total / 1e9:.2f} GB")
+          f"{counts['embed']}; per-layer embeddings {args.embed_bits if args.ple_bits is None else args.ple_bits}-bit: {counts['ple']}; other {args.other_bits}-bit: {counts['other']}; copied: {counts['copy']}; {total / 1e9:.2f} GB")
     print("QAT_ALIGNED_DONE")
 
 
