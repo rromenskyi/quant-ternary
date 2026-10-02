@@ -684,6 +684,23 @@ scan again, from scratch (`CHAT=1`, 128 eval windows, resumable now):
   measure.
 - Pod time: the scan ran 22:19-06:02 UTC on an A100 (~$12).
 
+### Published: 31B (2026-10-02)
+
+- **[roman220220/gemma-4-31B-it-qat-mlx](https://huggingface.co/roman220220/gemma-4-31B-it-qat-mlx)**:
+  20.65 GB, +400 MB recipe from the chat scan (35 Linears at 8-bit, almost
+  all attention K/V); PPL 27.82 vs the master's 26.94, KL 0.0206, top-1
+  94.93% (128 chat-framed windows).
+- `gemma4_smoke_test.py` passed before upload: text; vision ("There is a red
+  fox in this picture."); peak 23.0 GB on the A100. Its unquantized check
+  needed `--keep-float` for the vision tower's 27 MLP down projections
+  (width 4304: not a multiple of MLX's group sizes; ~270 MB bf16, said on
+  the card).
+- On the pod: Pillow was missing from the venv (transformers' Gemma 4 image
+  processor needs it), and the HF token lives on the container disk, which a
+  pod restart wipes -- copy it again over ssh stdin before any upload.
+- `qat_card.py` grew `--no-audio`, `--chat-only`, `--memory-note`,
+  `--float-note` for it.
+
 ### Published (2026-09-30)
 
 - **[roman220220/gemma-4-E2B-it-qat-mlx](https://huggingface.co/roman220220/gemma-4-E2B-it-qat-mlx)**:

@@ -35,6 +35,7 @@ def main() -> None:
     ap.add_argument("--chat-only", action="store_true",
                     help="a chat-only checkpoint (12B, 31B): raw-text PPL is noise, the eval scores the text as a chat reply")
     ap.add_argument("--memory-note", default="", help="which Macs it fits")
+    ap.add_argument("--float-note", default="", help="the weights left in float on purpose, for the Checked list")
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
     m = a.model
@@ -71,14 +72,17 @@ def main() -> None:
     if a.replaces:
         replaces = f"\n## This replaces an earlier release\n\n{a.replaces}\n"
     if a.chat_only:
-        measured_intro = """Wikitext-2 (test), 128 windows of 512 tokens, BOS at the start of each. KL
-divergence and top-1 agreement are measured to the bf16 QAT master weights,
-the model this one reproduces."""
+        measured_intro = """Wikitext-2 (test), 128 windows of 512 tokens, scored as the model's chat
+reply (the chat template, the thinking channel closed). KL divergence and
+top-1 agreement are measured to the bf16 QAT master weights, the model this
+one reproduces."""
         how_to_read = """How to read it:
 - **KL and top-1 measure faithfulness;** a lower KL is closer.
-- PPL in the thousands is the checkpoint, not the quantization: it's
-  chat-only, and Google's own master scores raw text the same way. This
-  build scores it a little *better* than the master."""
+- Why as a chat reply: on raw text this checkpoint, Google's own master and
+  q4_0 GGUF included, scores in the thousands -- it reads text outside a chat
+  turn as its own reasoning. Framed as its reply, it's the model it is.
+- PPL compares this build with its master, not with other models: instruct
+  models' confidence differs by size."""
     else:
         measured_intro = """Raw-text perplexity on wikitext-2 (test), 128 windows of 512 tokens, BOS at
 the start of each. KL divergence and top-1 agreement are measured to the bf16
@@ -162,7 +166,7 @@ included.{(chr(10) + chr(10) + a.memory_note) if a.memory_note else ""}
 
 - It answers in chat.
 - It names the animal in a photo.
-{"" if a.no_audio else "- It transcribes speech through the audio tower." + chr(10)}- No large weight is left unquantized.
+{"" if a.no_audio else "- It transcribes speech through the audio tower." + chr(10)}{("- No large weight is left unquantized but " + a.float_note + ".") if a.float_note else "- No large weight is left unquantized."}
 - It loads in LLMTray's runtime ([ipsupport-llc/mlx-lm](https://github.com/ipsupport-llc/mlx-lm)).
 
 ## Usage
