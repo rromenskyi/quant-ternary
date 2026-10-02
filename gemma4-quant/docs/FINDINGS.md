@@ -721,6 +721,39 @@ MLX's words; scales to bf16): 2.57 GB, 122.5 tok/s and 2.43 GB peak on the M5
   our own recipe (PLE 4-bit, 8-bit Linears kept, towers 4-bit) is the phone
   build, in MLX and GGUF.
 
+**The phone build** (`e2b_phone.sh`: PLE 4-bit, token embeddings 6-bit, the
++100 MB 8-bit Linears, towers 4-bit):
+- MLX: 3.10 GB (r100 4.04), PPL 36.44, KL 0.0242, top-1 92.48% (128 chat
+  windows; r100 36.38 / 0.0226 / 92.73%). -0.94 GB for KL +0.0016.
+- GGUF (llama.cpp, raw wikitext, 32 chunks of 512, against our bf16 GGUF of
+  the master, PPL 43.63): text `Q4_0`, `per_layer_token_embd` `Q4_K`,
+  `token_embd` `Q6_K`, the raised Linears `Q8_0` via `--tensor-type`
+  (`gguf_types.py` maps the MLX scan's modules to GGUF names).
+  | GGUF | size | PPL | to bf16 |
+  |---|---|---|---|
+  | Google's `gemma-4-E2B_q4_0-it.gguf` | 3.35 GB | 46.47 | x1.085 |
+  | **ours** | **2.86 GB** | **42.24** | **x0.986** |
+  - all 149 of our `Q4_0` tensors are byte-identical to Google's (the same
+    QAT grid); the gain is the `Q8_0` Linears, PLE `Q4_K` costs ~nothing.
+  - llama-perplexity's KLD lines didn't match the grep; only PPL recorded.
+
+### Published: E2B phone (2026-10-02)
+
+- **[roman220220/gemma-4-E2B-it-qat-phone-mlx](https://huggingface.co/roman220220/gemma-4-E2B-it-qat-phone-mlx)**:
+  3.10 GB. `gemma4_smoke_test.py` on the M5 passed with the 4-bit towers:
+  text; vision "A red fox is in this picture."; audio word for word; peak
+  4.2 GB. Decode 70.2 tok/s, peak 3.26 GB (the q4_0-grid build: 70.3 tok/s,
+  3.80 GB) -- the PLE bits save memory, not time.
+- **[roman220220/gemma-4-E2B-it-qat-phone-GGUF](https://huggingface.co/roman220220/gemma-4-E2B-it-qat-phone-GGUF)**:
+  2.86 GB text + Google's `gemma-4-E2B-it-mmproj.gguf` unchanged (0.99 GB).
+  llama.cpp CPU build on the pod (`-DGGML_CUDA=ON` failed: no nvcc in PATH):
+  text, vision (a fox as "a small mammal with reddish-orange fur") and audio
+  (word for word) through `llama-mtmd-cli --jinja`.
+- Cards: `cards/gemma-4-E2B-it-qat-phone-{mlx,GGUF}.md`, hand-written
+  (`qat_card.py` is the q4_0-grid card).
+- The pod's host had no free GPU for ~3 h after the stop (a 0-GPU resume is
+  refused too); a retry loop restarted it.
+
 ### Published: 31B (2026-10-02)
 
 - **[roman220220/gemma-4-31B-it-qat-mlx](https://huggingface.co/roman220220/gemma-4-31B-it-qat-mlx)**:
