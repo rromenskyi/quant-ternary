@@ -1,6 +1,6 @@
 # IPSupport quantization whitepaper
 
-**[IPSupport-quantization-whitepaper.pdf](IPSupport-quantization-whitepaper.pdf)** — *Frontier Models on a Laptop Budget*: how IPSupport LLC quantizes language, vision, speech, image and music models for Apple Silicon, across all 23 public releases.
+**[IPSupport-quantization-whitepaper.pdf](IPSupport-quantization-whitepaper.pdf)** — *Any Model. Your Hardware. Your Data.*: how IPSupport LLC compresses and fine-tunes open models (language, vision, speech, image, music) to run on less hardware, faster, and on the client's own tasks, across all 23 public releases.
 
 Every number in it comes from a project's `docs/FINDINGS.md` or model card in this repo; nothing is estimated.
 

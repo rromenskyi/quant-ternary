@@ -21,6 +21,7 @@
 \usepackage{enumitem,titlesec,fancyhdr,tikz,amsmath}
 \usepackage[hidelinks]{hyperref}
 \usepackage{caption}
+\usepackage{float}
 \usetikzlibrary{calc}
 
 % ---- palette -------------------------------------------------------------
@@ -57,10 +58,10 @@
 \fancyhf{}
 \renewcommand{\headrulewidth}{0pt}
 \fancyhead[L]{\interbold\small IPSupport\,\textcolor{brand}{LLC}}
-\fancyhead[R]{\small\itshape\color{ink2}Frontier Models on a Laptop Budget}
+\fancyhead[R]{\small\itshape\color{ink2}Any Model, Your Hardware, Your Data}
 \fancyfoot[C]{\small\color{ink2}\thepage}
 
-\hypersetup{pdftitle={Frontier Models on a Laptop Budget},pdfauthor={IPSupport LLC}}
+\hypersetup{pdftitle={Any Model, Your Hardware, Your Data},pdfauthor={IPSupport LLC}}
 
 \begin{document}
 
@@ -83,11 +84,11 @@
   \node[anchor=center] at ($(current page.north)+(0,-1.55in)$)
      {\interblack\fontsize{26}{28}\selectfont IPSupport\textcolor{brand}{\,LLC}};
   \node[anchor=center,text width=6.6in,align=center] at ($(current page.north)+(0,-3.0in)$)
-     {\interblack\fontsize{34}{38}\selectfont Frontier\hspace{0.3em}Models\\[2pt] on\hspace{0.3em}a\hspace{0.3em}Laptop\hspace{0.3em}Budget};
+     {\interblack\fontsize{34}{38}\selectfont Any\hspace{0.3em}Model.\\[2pt] Your\hspace{0.3em}Hardware.\hspace{0.3em}Your\hspace{0.3em}Data.};
   \node[anchor=center,text width=5.4in,align=center] at ($(current page.north)+(0,-4.35in)$)
-     {\large\color{ink2}How we quantize language, vision, speech, image and music models for Apple~Silicon --- 23~open releases, every number reproducible.};
+     {\large\color{ink2}How we compress and fine-tune open models --- language, vision, speech, image and music --- to run on less hardware, faster, and on the client's own tasks. 23~open releases, every number reproducible.};
   % KPI row
-  \foreach \x/\kbig/\ksub in {-2.25/23/{open model releases},0/{−15\%}/{smaller than Google's own\\E2B GGUF, and closer to bf16},2.25/{2.1×}/{faster real-time voice\\on a fanless laptop}} {
+  \foreach \x/\kbig/\ksub in {-2.25/{3.9×}/{less memory: Nemotron 30B\\at +2.5\% perplexity},0/{2.1×}/{faster full-duplex voice,\\20/20 answers right},2.25/{0}/{malformed tool calls after\\fine-tuning to our agent}} {
     \node[anchor=north,text width=2.1in,align=center,text=white] at ($(current page.north)+(\x in,-6.75in)$)
       {{\interbold\fontsize{26}{28}\selectfont \kbig}\\[6pt]{\small\color{rule}\ksub}};
   }
@@ -98,11 +99,13 @@
 
 % ======================================================================
 \tableofcontents
-\vspace{6pt}
+\clearpage
 
 \section{Executive Summary}
 
-Big open models do not fit a laptop as shipped. A 31B checkpoint is 62\,GB in bf16; the fanless MacBook we target has a 19\,GB GPU budget. Quantization closes that gap --- but done naively it quietly costs the things users actually notice: facts, code that compiles, a voice that answers on time. This paper describes how IPSupport quantizes models so that it does not.
+IPSupport takes an open model and fits it to a client's hardware, speed target and data. We \textbf{compress} it, so it needs a fraction of the GPU memory and answers faster, and we \textbf{fine-tune} it on the client's own tasks and formats. Nothing in the method is tied to a model size: quantization and calibration run one layer at a time and resume from checkpoints, so the limit is disk and rented GPU-hours, not GPU memory. The largest checkpoints we have shipped so far are a 31B dense and a 30B mixture-of-experts model.
+
+The savings are concrete. Gemma 4 31B goes from 62\,GB to 20.65\,GB and Nemotron 30B-A3B from 65.8\,GB to 16.7\,GB: a model that needed a data-center GPU runs on one consumer card or a laptop. Done naively, compression quietly costs the things users notice --- facts, code that compiles, a voice that answers on time. This paper shows how we avoid that, on 23 models we released openly.
 
 Our toolkit has four parts, each validated on real checkpoints and real tasks:
 \begin{itemize}
@@ -116,24 +119,26 @@ Highlights, all published as open weights:
 \begin{itemize}
   \item \textbf{Gemma 4 31B in 20.65\,GB} (from 62\,GB), KL 0.021 and 94.9\% top-1 agreement with the QAT master --- 8\,GB smaller than the community MLX build.
   \item \textbf{Gemma 4 12B at the same fidelity as the community QAT build with 3.1\,GB less}, 1.5× faster decode, now with vision and audio after we ported the model to our MLX fork.
-  \item \textbf{A phone-sized Gemma 4 E2B GGUF that is 15\% smaller than Google's own and closer to bf16} (PPL ratio 0.986 vs.\ 1.085), with Google's exact 4-bit codes.
-  \item \textbf{Nemotron 3.5 Lightning 30B-A3B: PPL 5.24 at 4.24 bits/weight}, beating the third-party release whose bit map we reverse-engineered (5.43); bf16 is 5.11.
+  \item \textbf{A phone-sized Gemma 4 E2B GGUF built on Google's QAT}: Google's exact 4-bit codes plus a few scanned 8-bit Linears, 2.86\,GB at a PPL ratio of 0.986 to bf16 (Google's q4\_0: 3.35\,GB, 1.085).
+  \item \textbf{Nemotron 3.5 Lightning 30B-A3B: PPL 5.24 in 16.7\,GB} (from 65.8\,GB), beating the third-party release whose bit map we reverse-engineered (5.43); bf16 is 5.11.
   \item \textbf{NemotronLabs VoiceChat 11B in real time on a base M5}: 185\,ms → 87.7\,ms per 80\,ms duplex frame, 20/20 answers right.
+  \item \textbf{Fine-tuned to an agent's tools}: a LoRA taught Nemotron the tool names and call format of our coding agent IPSupport Code --- zero malformed tool calls in real sessions --- and the model was then quantized on the agent's own transcripts.
   \item \textbf{Diffusion and music}: GPTQ cuts velocity error 17--25\% at equal size on FLUX.2 klein and ACE-Step 1.5; Z-Image Turbo keeps its composition at 4~bits where plain rounding drifts.
 \end{itemize}
 
 Every claim here is backed by a script and a log in our public repository~\cite{repo}; Appendix~A lists all 23 releases.
 
 % ======================================================================
+\clearpage
 \section{Portfolio at a Glance}
 
-\begin{table}[h]
+\begin{table}[H]
 \centering\small
 \caption{Model families we quantized and published. Sizes are weights on disk.}
 \rowcolors{2}{trow}{white}
 \begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{1.55in}>{\raggedright\arraybackslash}p{1.15in}L}
 \rowcolor{thead}\hd{Family} & \hd{Formats} & \hd{Headline result}\\
-Gemma 4 (E2B, E4B, 12B, 26B-A4B, 31B) & MLX, GGUF, MTP drafter & 31B in 20.65\,GB; 12B at community-QAT fidelity with 3.1\,GB less; phone E2B GGUF beats Google's own \\
+Gemma 4 (E2B, E4B, 12B, 26B-A4B, 31B) & MLX, GGUF, MTP drafter & 31B in 20.65\,GB; 12B at community-QAT fidelity with 3.1\,GB less; phone E2B GGUF in 2.86\,GB on Google's QAT codes \\
 Nemotron 3.5 Lightning 30B-A3B & MLX (+MTP head) & PPL 5.24 at 4.24\,bpw vs.\ bf16 5.11; self-speculative MTP preserved \\
 Nemotron 3 Nano 4B & MLX & coding-agent LoRA (attention-only), 8-bit, 4.0\,GB from 7.5\,GB \\
 NemotronLabs VoiceChat 11B & MLX & real-time duplex on a base M5 (87.7\,ms / 80\,ms frame) \\
@@ -146,6 +151,7 @@ ACE-Step 1.5 sft & MLX & GPTQ 4-bit: −25\% velocity error vs.\ RTN, singable l
 All targets are \textbf{Apple Silicon} (MLX, via our forks of \repo{mlx-lm} and \repo{mlx-audio}) and \textbf{llama.cpp / ollama} (GGUF). Our MLX releases are built to run in \textbf{LLMTray}, our local AI runtime for macOS --- \emph{run local models, serve an OpenAI-compatible API, connect your coding agents and apps}.
 
 % ======================================================================
+\clearpage
 \section{Methods}
 
 \subsection{GPTQ: second-order error compensation}
@@ -184,7 +190,7 @@ Implemented once and verified bit-exact against \texttt{mx.quantize} before any 
 
 A third-party release of Nemotron 30B-A3B (JANG\_2L-CRACK) beat our early mixes. Its \texttt{config.json} revealed why: bits assigned purely by \emph{component type}, not by layer depth. We adopted the map and ran it through our calibrated GPTQ instead of plain rounding:
 
-\begin{table}[h]
+\begin{table}[H]
 \centering\small
 \caption{The JANG component map (Nemotron 30B-A3B). Average 4.237 bits/weight.}
 \rowcolors{2}{trow}{white}
@@ -218,7 +224,7 @@ g_\ell=\frac{\mathrm{KL}_{\text{base}}-\mathrm{KL}_{\text{base}+\ell}}{\Delta\ma
 \]
 measured on 16 held-out windows against the bf16 master. Candidates are then taken greedily in descending $g_\ell$ under a budget $B$, and the chosen build is re-measured on 128 windows from disk. On E2B the build written to disk reproduces the scan's in-memory measurement to the second decimal (PPL 64.48 vs.\ 64.47). What earns the bits is not the large MLPs --- which the community build raises wholesale --- but about a hundred small, sensitive attention and per-layer projections.
 
-\begin{figure}[h]
+\begin{figure}[H]
 \centering
 \includegraphics[width=\linewidth]{figures/fig_e2b_budget.pdf}
 \caption{Gemma 4 E2B: KL to the QAT master vs.\ megabytes added by the greedy scan. Fifty megabytes, placed by the scan, beat a build that spends 390\,MB raising every MLP (128 windows × 512 tokens).}
@@ -234,17 +240,18 @@ Perplexity alone misled us repeatedly, so every release is judged by the metric 
 \end{itemize}
 
 % ======================================================================
+\clearpage
 \section{Results}
 
 \subsection{Gemma 4}
 
-\begin{figure}[h]
+\begin{figure}[H]
 \centering
 \includegraphics[width=\linewidth]{figures/fig_gemma_size.pdf}
 \caption{Gemma 4 QAT builds: weights on disk, ours vs.\ \repo{mlx-community/gemma-4-*-it-qat-4bit}. KL is to the bf16 QAT master within each model (E2B/E4B raw-text windows, 12B/31B chat-framed); the community 31B was not measured.}
 \end{figure}
 
-\begin{table}[h]
+\begin{table}[H]
 \centering\small
 \caption{Gemma 4 fidelity to the QAT master (128 windows × 512 tokens). Best in bold.}
 \rowcolors{2}{trow}{white}
@@ -271,7 +278,7 @@ E4B & \textbf{ours, q4\_0 grid} & \best{5.85\,GB} & \best{44.3} & \best{0.041} &
 
 \paragraph{E2B for phones.} Half of E2B's size is its per-layer embeddings. Dropping them from 6 to 4 bits costs almost nothing (KL $+0.0015$, ≈0.6\,GB saved); the scanned 8-bit Linears are kept because they halve KL. Google also ships a ``mobile'' QAT (int2/4/8 weights); we converted it exactly to MLX (2.57\,GB, 122.5\,tok/s) but it needs its int8 \emph{activations} --- without them PPL rises from 41 to 65 and the audio tower goes deaf --- so it suits an NPU runtime, not MLX or llama.cpp.
 
-\begin{table}[h]
+\begin{table}[H]
 \centering\small
 \caption{Gemma 4 E2B phone builds. GGUF: llama.cpp, 32 chunks of 512, against our bf16 GGUF of the master (PPL 42.84).}
 \rowcolors{2}{trow}{white}
@@ -290,29 +297,31 @@ Google \repo{gemma-4-E2B\_q4\_0-it.gguf} & 3.35\,GB & 46.47 & ×1.085 & --- \\
 
 \subsection{Nemotron 3.5 Lightning 30B-A3B and Nemotron 3 Nano 4B}
 
-\begin{figure}[h]
+\begin{figure}[tb]
 \centering
 \includegraphics[width=\linewidth]{figures/fig_nemotron_ppl.pdf}
 \caption{Nemotron 3.5 Lightning 30B-A3B, wikitext-2 perplexity vs.\ bits per weight (20 × 512 tokens). The JANG component map run through our grid-exact GPTQ lands closest to bf16.}
 \end{figure}
 
-\begin{table}[h]
+\begin{table}[H]
 \centering\small
-\caption{Nemotron 30B-A3B (hybrid Mamba-2 / attention / 128-expert MoE, 52 layers).}
+\caption{Nemotron 30B-A3B (hybrid Mamba-2 / attention / 128-expert MoE, 52 layers). The PPL column relative to bf16 is the one to read: uniform 3-bit is an extreme quant.}
 \rowcolors{2}{trow}{white}
-\begin{tabular}{lrrr}
-\rowcolor{thead}\hd{Build} & \hd{PPL} & \hd{Size} & \hd{bits/weight}\\
-bf16 (reference) & 5.11 & --- & 16\\
-\textbf{JANG map + our GPTQ} & \best{5.24} & --- & 4.237\\
-JANG\_2L-CRACK (third party, presumed RTN) & 5.43 & 16\,GB & ≈3.73 (their label)\\
-uniform 3-bit, our GPTQ & 6.24 & 13.8\,GB & 3.5\\
-uniform 3-bit, naive rounding & 6.54 & 13\,GB & 3.5\\
+\begin{tabular}{lrrrr}
+\rowcolor{thead}\hd{Build} & \hd{PPL} & \hd{vs.\ bf16} & \hd{Size} & \hd{bits/weight}\\
+bf16 (reference) & 5.11 & --- & 65.8\,GB & 16\\
+\textbf{JANG map + our GPTQ (recommended)} & \best{5.24} & \best{+2.5\%} & \best{16.7\,GB} & 4.237\\
+JANG\_2L-CRACK (third party, presumed RTN) & 5.43 & +6.3\% & 16\,GB & ≈3.73 (their label)\\
+uniform 3-bit, our GPTQ (extreme) & 6.24 & +22\% & 13.8\,GB & 3.5\\
+uniform 3-bit, naive rounding (extreme) & 6.54 & +28\% & 13\,GB & 3.5\\
 \end{tabular}
 \end{table}
 
-\paragraph{Speed is set by the bit map's structure, not its average.} Uniform 3-bit decodes at 65--69\,tok/s; both JANG builds, ours and the third party's, at 42--43\,tok/s despite different calibration and average bits. JANG spends its bits on the dense components that every token touches, so ``cheap on disk'' and ``cheap per token'' are opposite properties on this architecture: a real Pareto frontier, and we ship both ends.
+\paragraph{Speed is set by the bit map's structure, not its average.} Uniform 3-bit decodes at 65--69\,tok/s; both JANG builds, ours and the third party's, at 42--43\,tok/s despite different calibration and average bits. JANG spends its bits on the dense components that every token touches, so ``cheap on disk'' and ``cheap per token'' are opposite properties on this architecture. But speed is the only thing uniform 3-bit wins: it is an \textbf{extreme quant}, +22\% perplexity over bf16 against JANG's +2.5\%, and in real use its answers degrade markedly. We keep it on the Hub as the latency end of the frontier and recommend the JANG build for anything that has to be right.
 
-\paragraph{A coding-agent LoRA, honestly evaluated.} Both Nemotrons carry a LoRA for IPSupport Code, our local coding agent. Two findings came only from running the code: training attention and MLP adapters \emph{together} on the 4B dropped C++ compile-and-run from 6/9 to 0/9 at any rank or length, while either half alone matched the base --- so the shipped adapter is attention-only. And GPTQ, calibrated on text with no C++ in it, scored 2/9 where plain 8-bit rounding scored 4/9 (bf16: 6/9): calibration preserves what the calibration set contains. The 4B ships with the method that won.
+\paragraph{Why a LoRA: our agent's tools.} Both Nemotrons carry a LoRA for \textbf{IPSupport Code}, our local coding agent, and it exists to fix one concrete failure: driving the agent, the base model kept getting our tools wrong --- wrong tool names, wrong parameter names, malformed JSON in the call. We trained on the real sessions where it failed, plus synthetic conversations covering the same patterns, merged the adapter into bf16, and only then quantized, calibrating GPTQ on the agent's own tool-call transcripts. Result in real use: \textbf{zero malformed tool calls across a session}, and on held-out tool-call data PPL 2.464 → 2.379 (−3.5\%) for +0.8\% on generic prose --- the intended trade for a model that lives inside an agent.
+
+\paragraph{\dots and what it taught us.} Two findings came only from running the code the model wrote: training attention and MLP adapters \emph{together} on the 4B dropped C++ compile-and-run from 6/9 to 0/9 at any rank or length, while either half alone matched the base --- so the shipped 4B adapter is attention-only. And GPTQ, calibrated on text with no C++ in it, scored 2/9 where plain 8-bit rounding scored 4/9 (bf16: 6/9): calibration preserves what the calibration set contains, so the 4B ships with the method that won. The fine-tune also leaves a reflex: given tools in a plain chat, the 30B reaches for one on a greeting 10 times in 20 (the base: 0). Right for an agent, wrong for small talk; LLMTray sends a system rule that cuts it on questions from 14/20 to 4--6/20, and the cards say so.
 
 \paragraph{Keeping the MTP head.} The 30B ships a 1.34B-parameter multi-token-prediction head that every public quant had silently dropped: transformers discards \texttt{mtp.*} on load, before any merge or quantization runs. We extract it from the untouched checkpoint and splice it back into the finished MLX model; self-speculative decoding is bit-exact against greedy. Along the way we fixed two decoding bugs in the MTP path~\cite{fork}: a fused single-step SSM kernel that corrupted the Mamba state on every rejected draft, and an unchunked prefill that made 400-token prompts run out of memory (now flat at 18.4\,GB up to 4000 tokens).
 
@@ -320,7 +329,7 @@ uniform 3-bit, naive rounding & 6.54 & 13\,GB & 3.5\\
 
 VoiceChat is a full duplex voice model: a streaming FastConformer encoder, the Nemotron Nano 9B hybrid LLM, a T5Gemma TTS and a 22\,kHz codec. It must produce one 80\,ms audio frame in under 80\,ms on a base M5 --- fanless, 19\,GB GPU budget.
 
-\begin{figure}[h]
+\begin{figure}[H]
 \centering
 \includegraphics[width=\linewidth]{figures/fig_voicechat_latency.pdf}
 \caption{Milliseconds per 80\,ms frame, 20 spoken questions, idle base M5. Baseline: the community 4-bit checkpoint. Ours: GPTQ 3-bit LLM plus runtime fixes in our \repo{mlx-audio} fork.}
@@ -332,7 +341,7 @@ GPTQ 3-bit on the LLM, calibrated on 256 captured real conversations, answered \
 
 For diffusion models the calibration signal is the model's own sampling: we hook every target Linear through real denoising steps and sum each Hessian over every token of every step.
 
-\begin{table}[h]
+\begin{table}[H]
 \centering\small
 \caption{GPTQ vs.\ plain rounding (RTN) at equal size. Velocity error is teacher-forced $\lVert v_q-v_{\text{bf16}}\rVert/\lVert v_{\text{bf16}}\rVert$, so trajectory drift does not compound into it.}
 \rowcolors{2}{trow}{white}
@@ -362,6 +371,7 @@ Quantization work runs into the runtime. These fixes are merged in our forks or 
 \end{itemize}
 
 % ======================================================================
+\enlargethispage{3\baselineskip}
 \section{Limitations and Lessons}
 
 We publish our negative results too; several shaped the methods above.
@@ -375,10 +385,11 @@ We publish our negative results too; several shaped the methods above.
 \end{itemize}
 
 % ======================================================================
+\clearpage
 \appendix
 \section{All Releases}
 
-\begin{table}[h]
+\begin{table}[H]
 \centering\footnotesize
 \caption{Public releases on Hugging Face (\repo{roman220220/\dots}). Sizes are weights; downloads are the Hub's 30-day count at the time of writing (3{,}000+ in total).}
 \rowcolors{2}{trow}{white}
@@ -395,7 +406,7 @@ gemma-4-26B-A4B-it-GGUF-jang-imatrix & GGUF & 12.5\,GB + mmproj + MTP drafter\\
 gemma-4-26B-A4B-it-assistant-mlx-8bit & MLX & 446\,MB MTP drafter\\
 Nemotron-3.5-Lightning-30B-A3B-JANG-GPTQ-ipsupport-code-lora-MTP & MLX & coding-agent LoRA + MTP head\\
 Nemotron-3.5-Lightning-30B-A3B-JANG-GPTQ-ipsupport-code-lora & MLX & coding-agent LoRA\\
-nemotron-30b-a3b-gptq-jang-component & MLX & JANG + GPTQ, 4.237\,bpw\\
+nemotron-30b-a3b-gptq-jang-component & MLX & 16.7\,GB, JANG + GPTQ, 4.237\,bpw\\
 nemotron-30b-a3b-gptq3bit-g64 & MLX & uniform 3-bit GPTQ, 13.8\,GB\\
 NVIDIA-Nemotron-3-Nano-4B-JANG-GPTQ-ipsupport-code-lora & MLX & coding-agent LoRA, 8-bit\\
 NemotronLabs-VoiceChat-11B-gptq-mlx-3bit & MLX & real-time duplex voice\\
@@ -420,6 +431,7 @@ ACE-Step1.5-sft-MLX-gptq-4bit & MLX & GPTQ 4-bit DiT\\
   \item \textbf{Images:} fixed seeds, PSNR against bf16 and teacher-forced velocity error on held-out prompts and edits.
 \end{itemize}
 
+\clearpage
 \section{Reproducibility}
 
 {\raggedright
