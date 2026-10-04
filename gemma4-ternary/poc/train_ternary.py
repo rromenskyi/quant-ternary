@@ -43,7 +43,8 @@ from safetensors import safe_open
 from safetensors.torch import save_file
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from ternary_lib import SRAdamW, bake, load_text_model, ref_quantizer, ternarize, TEXT_LINEAR, write_json  # noqa: E402
+from ternary_lib import (SRAdamW, bake, load_text_model, ref_quantizer, set_quant_strength, ternarize,
+                         TEXT_LINEAR, write_json)  # noqa: E402
 
 STOP = False
 
@@ -109,6 +110,7 @@ def evaluate(model, data: Path, teacher: Path, batch: int, max_rows: int) -> dic
     ix = np.load(teacher / "eval.idx.npy")[:max_rows]
     was = model.training
     model.eval()
+    set_quant_strength(model, 1.0)  # always score the real ternary model
     kl = agree = nll = n = 0.0
     for i in range(0, len(x), batch):
         ids = torch.from_numpy(x[i: i + batch].astype(np.int64)).cuda()
@@ -206,6 +208,8 @@ def main() -> None:
     ap.add_argument("--min-lr-frac", type=float, default=0.1)
     ap.add_argument("--warmup", type=int, default=100, help="optimizer steps")
     ap.add_argument("--weight-decay", type=float, default=0.0)
+    ap.add_argument("--quant-warmup", type=int, default=0,
+                    help="optimizer steps over which the ternary projection ramps in linearly (0: on from the start)")
     ap.add_argument("--group", type=int, default=128, help="MLX 2-bit group size (128: 2.25 bits/weight, 64: 2.5)")
     ap.add_argument("--pattern", default=TEXT_LINEAR, help="regex of the Linears to ternarize")
     ap.add_argument("--eval-every", type=int, default=150, help="optimizer steps")
@@ -289,6 +293,8 @@ def main() -> None:
     while step < total_steps and not STOP:
         t0 = time.time()
         lr = lr_at(step, total_steps, args)
+        lam = min(1.0, (step + 1) / args.quant_warmup) if args.quant_warmup else 1.0
+        set_quant_strength(model, lam)
         loss_sum = 0.0
         for _ in range(args.accum):
             ids, t_lp, t_ix = ds.batch(cursor, args.batch)
@@ -302,14 +308,15 @@ def main() -> None:
         dt = time.time() - t0
         t_hist = (t_hist + [dt])[-50:]
         tok_s = per_step * seq / (sum(t_hist) / len(t_hist))
-        append_metric(out, {"step": step, "tokens": step * per_step * seq, "loss": loss_sum, "lr": lr,
+        append_metric(out, {"step": step, "tokens": step * per_step * seq, "loss": loss_sum, "lr": lr, "lam": lam,
                             "tok_s": tok_s, "t": time.time()})
         if step % args.eval_every == 0 or step == total_steps:
             r = evaluate(model, data, teacher, args.batch, args.eval_rows)
             append_metric(out, {"eval": True, "step": step, "tokens": step * per_step * seq, **r})
+            set_quant_strength(model, lam)
             log(f"step {step}: eval KL {r['kl']:.4f} top-1 {r['top1']:.2%} ppl {r['ppl']:.2f}")
         if step % 10 == 0:
-            log(f"step {step}/{total_steps} loss {loss_sum:.4f} lr {lr:.2e} {tok_s:.0f} tok/s")
+            log(f"step {step}/{total_steps} loss {loss_sum:.4f} lr {lr:.2e} lam {lam:.2f} {tok_s:.0f} tok/s")
         status.update(step=step, tok_s=tok_s, eta_s=(total_steps - step) * per_step * seq / tok_s)
         save_due = time.time() - last_save > args.save_every_min * 60
         if save_due or STOP or step == total_steps:

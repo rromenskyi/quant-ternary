@@ -36,9 +36,9 @@ s(){{ printf '\n@@@@ %s\n' "$1"; }}
 s pipeline; grep ' ternary ' $W/logs/pipeline.log 2>/dev/null | tail -n 300
 s data; cat $W/data/progress.json 2>/dev/null
 s teacher; cat $W/teacher/progress.json 2>/dev/null
-s status; cat $W/run/status.json 2>/dev/null
-s metrics; cat $W/run/metrics.jsonl 2>/dev/null
-s ckpt; for d in $W/run/ckpt/step_*; do [ -f "$d/DONE" ] && echo "$(basename $d) $(stat -c %Y $d)"; done 2>/dev/null
+s status; cat $W/{run}/status.json 2>/dev/null
+s metrics; cat $W/{run}/metrics.jsonl 2>/dev/null
+s ckpt; for d in $W/{run}/ckpt/step_*; do [ -f "$d/DONE" ] && echo "$(basename $d) $(stat -c %Y $d)"; done 2>/dev/null
 s gpu; nvidia-smi --query-gpu=utilization.gpu,power.draw,temperature.gpu --format=csv,noheader,nounits 2>/dev/null
 s mem; free -b | awk '/Mem:/{{print $2, $3, $7}}'
 s disk; df -B1 $W | awk 'NR==2{{print $2, $3, $4}}'
@@ -47,8 +47,8 @@ s log; f=$(ls -t $W/logs/ternary_*.log 2>/dev/null | head -1); echo "$f"; tail -
 """
 
 
-def poll(host: str, work: str) -> dict:
-    cmd = REMOTE.format(work=work)
+def poll(host: str, work: str, run: str) -> dict:
+    cmd = REMOTE.format(work=work, run=run)
     r = subprocess.run(["ssh", "-o", "ConnectTimeout=10", "-o", "BatchMode=yes", host, "bash -s"],
                        input=cmd, capture_output=True, text=True, timeout=60)
     if r.returncode != 0 and not r.stdout:
@@ -90,13 +90,17 @@ def poll(host: str, work: str) -> dict:
             evals.append(m)
         else:
             train.append(m)
-    # downsample the per-step loss to <= 600 points, EMA-smoothed
-    ema, pts = None, []
-    for m in train:
-        ema = m["loss"] if ema is None else 0.95 * ema + 0.05 * m["loss"]
-        pts.append([m["tokens"], ema])
-    stride = max(1, len(pts) // 600)
-    loss = pts[::stride] + (pts[-1:] if pts and len(pts) % stride else [])
+    # per-step loss: raw points plus a trailing 20-step mean (an EMA seeded
+    # with the first, huge loss drew a slow descent that never happened);
+    # both downsampled to <= 600 points
+    raw = [[m["tokens"], m["loss"]] for m in train]
+    mean, acc = [], 0.0
+    for i, (t, l) in enumerate(raw):
+        acc += l - (raw[i - 20][1] if i >= 20 else 0.0)
+        mean.append([t, acc / min(i + 1, 20)])
+    stride = max(1, len(raw) // 600)
+    pick = lambda xs: xs[::stride] + (xs[-1:] if xs and (len(xs) - 1) % stride else [])
+    loss, loss_raw = pick(mean), pick(raw)
 
     gpu = (sec.get("gpu") or "").split(",")
     mem = (sec.get("mem") or "0 0 0").split()
@@ -106,7 +110,7 @@ def poll(host: str, work: str) -> dict:
     return {
         "ok": True, "polled": time.time(), "now": int(sec.get("now") or time.time()),
         "steps": steps, "data": js("data"), "teacher": js("teacher"), "status": js("status"),
-        "evals": evals, "refs": refs, "loss": loss, "last_train": train[-1] if train else None,
+        "evals": evals, "refs": refs, "loss": loss, "loss_raw": loss_raw, "last_train": train[-1] if train else None,
         "ckpt": [{"name": c[0], "time": int(c[1])} for c in ck if len(c) == 2],
         "gpu": {"util": gpu[0].strip(), "power": gpu[1].strip(), "temp": gpu[2].strip()} if len(gpu) >= 3 else None,
         "mem": {"total": int(mem[0]), "used": int(mem[1]), "avail": int(mem[2])},
@@ -115,10 +119,11 @@ def poll(host: str, work: str) -> dict:
     }
 
 
-def poller(host, work, interval):
+def poller(host, work, run, interval):
     while True:
         try:
-            st = poll(host, work)
+            st = poll(host, work, run)
+            st["run"] = run
             with LOCK:
                 STATE.clear(); STATE.update(st)
         except Exception as e:  # keep serving the last good state
@@ -158,7 +163,7 @@ table{border-collapse:collapse;width:100%;font-size:13px;font-variant-numeric:ta
 <div class="charts">
  <div class="card"><div class="ct">Eval KL to the teacher (log scale, lower is better)</div><div id="c_kl"></div><div class="legend" id="l_kl"></div></div>
  <div class="card"><div class="ct">Eval top-1 agreement with the teacher</div><div id="c_top"></div><div class="legend" id="l_top"></div></div>
- <div class="card"><div class="ct">Training loss (KL over top-k, EMA)</div><div id="c_loss"></div></div>
+ <div class="card"><div class="ct">Training loss (KL over top-k): per step and 20-step mean</div><div id="c_loss"></div></div>
  <div class="card"><div class="ct">Evaluations</div><div id="tbl"></div></div>
 </div>
 <div class="card"><div class="ct" id="logt">Log</div><pre id="log"></pre></div>
@@ -181,12 +186,13 @@ function chart(el,series,refs,opt){
  if(opt.max!=null&&!lg)b=Math.min(b,opt.max+pad);
  const X=v=>L+(v-x0)/(x1-x0||1)*(W-L-R),Y=v=>T+(b-f(v))/(b-a)*(H-T-B);
  let g=`<svg viewBox="0 0 ${W} ${H}">`;
- const ticks=[];if(lg){for(let e=Math.floor(a);e<=Math.ceil(b);e++)[1,2,5].forEach(m=>{const v=m*10**e;if(f(v)>=a&&f(v)<=b)ticks.push(v)})}else{for(let i=0;i<=4;i++)ticks.push(10**(a+(b-a)*i/4)>0&&false?0:a+(b-a)*i/4)}
+ const ticks=[];if(lg){for(let e=Math.floor(a);e<=Math.ceil(b);e++)[1,2,3,5,7].forEach(m=>{const v=m*10**e;if(f(v)>=a&&f(v)<=b)ticks.push(v)})}else{for(let i=0;i<=4;i++)ticks.push(10**(a+(b-a)*i/4)>0&&false?0:a+(b-a)*i/4)}
  ticks.forEach(v=>{const y=Y(v);g+=`<line x1="${L}" x2="${W-R}" y1="${y}" y2="${y}" stroke="${css('--rule')}"/><text x="${L-6}" y="${y+4}" text-anchor="end" font-size="11" fill="${css('--ink2')}">${opt.fmt(v)}</text>`});
  for(let i=0;i<=4;i++){const v=x0+(x1-x0)*i/4;g+=`<text x="${X(v)}" y="${H-10}" text-anchor="middle" font-size="11" fill="${css('--ink2')}">${fmtN(v)}</text>`}
  refs.forEach(r=>{const y=Y(r.y);g+=`<line x1="${L}" x2="${W-R}" y1="${y}" y2="${y}" stroke="${css(r.c)}" stroke-width="2" stroke-dasharray="6 4"><title>${r.n}: ${opt.fmt(r.y)}</title></line>`});
  series.forEach(s=>{if(!s.pts.length)return;const d=s.pts.map((p,i)=>(i?"L":"M")+X(p[0]).toFixed(1)+","+Y(p[1]).toFixed(1)).join("");
-  g+=`<path d="${d}" fill="none" stroke="${css(s.c)}" stroke-width="2"/>`;
+  if(!s.faint)g+=`<path d="${d}" fill="none" stroke="${css(s.c)}" stroke-width="2"/>`;
+  if(s.faint){s.pts.forEach(p=>g+=`<circle cx="${X(p[0])}" cy="${Y(p[1])}" r="2" fill="${css(s.c)}" opacity="0.25"/>`);return}
   if(s.dots)s.pts.forEach(p=>g+=`<circle cx="${X(p[0])}" cy="${Y(p[1])}" r="4" fill="${css(s.c)}" stroke="${css('--card')}" stroke-width="2"><title>${fmtN(p[0])} tokens: ${opt.fmt(p[1])}</title></circle>`)});
  el.innerHTML=g+`<text x="${(L+W-R)/2}" y="${H}" text-anchor="middle" font-size="11" fill="${css('--ink2')}"></text></svg>`;
 }
@@ -196,7 +202,7 @@ async function tick(){
  document.getElementById("err").textContent=s.ok?"":"poll failed: "+(s.error||"")+" (showing last data)";
  if(!s.now)return;
  const st=s.status||{},lt=s.last_train;const now=s.now;
- document.getElementById("sub").textContent=`host time ${new Date(now*1000).toLocaleString()} · polled ${Math.round(Date.now()/1000-s.polled)}s ago`;
+ document.getElementById("sub").textContent=`run ${s.run||''} · host time ${new Date(now*1000).toLocaleString()} · polled ${Math.round(Date.now()/1000-s.polled)}s ago`;
  const tokens=lt?lt.tokens:0,target=st.tokens_target||0;
  const lastck=s.ckpt.length?s.ckpt[s.ckpt.length-1]:null;
  const lastEval=s.evals.length?s.evals[s.evals.length-1]:null;
@@ -220,7 +226,7 @@ async function tick(){
  chart(document.getElementById("c_top"),[{...ser[0],pts:s.evals.map(e=>[e.tokens,e.top1])}],refs.map(([k,r])=>({n:REFN[k]||k,c:REFC[k]||"--gray",y:r.top1})),{fmt:v=>(v*100).toFixed(0)+"%"});
  const leg=[{n:"ternary (ours)",c:"--blue"}].concat(refs.map(([k])=>({n:REFN[k]||k,c:REFC[k]||"--gray"})));
  legend(document.getElementById("l_kl"),leg);legend(document.getElementById("l_top"),leg);
- chart(document.getElementById("c_loss"),[{n:"loss",c:"--blue",pts:s.loss}],[],{log:true,fmt:v=>v>=1?v.toFixed(1):v.toFixed(2)});
+ chart(document.getElementById("c_loss"),[{n:"per step",c:"--blue",faint:true,pts:s.loss_raw||[]},{n:"20-step mean",c:"--blue",pts:s.loss}],[],{log:true,fmt:v=>v>=1?v.toFixed(v<10?1:0):v.toFixed(2)});
  let rows=refs.map(([k,r])=>`<tr><td>${REFN[k]||k}</td><td>ref</td><td>${r.kl.toFixed(4)}</td><td>${(r.top1*100).toFixed(1)}%</td><td>${r.ppl.toFixed(2)}</td></tr>`).join("");
  rows+=s.evals.slice(-8).map(e=>`<tr><td>ternary</td><td>${fmtN(e.tokens)}</td><td>${e.kl.toFixed(4)}</td><td>${(e.top1*100).toFixed(1)}%</td><td>${e.ppl.toFixed(2)}</td></tr>`).join("");
  document.getElementById("tbl").innerHTML=`<table><tr><th>Model</th><th>Tokens</th><th>KL</th><th>Top-1</th><th>PPL</th></tr>${rows}</table>`;
@@ -253,10 +259,11 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--host", default="dgx", help="ssh host running the pipeline")
     ap.add_argument("--work", default="~/ternary", help="WORK dir on that host")
+    ap.add_argument("--run", default="run", help="run dir under --work (train_ternary --out)")
     ap.add_argument("--port", type=int, default=8422)
     ap.add_argument("--poll-interval", type=float, default=15)
     args = ap.parse_args()
-    threading.Thread(target=poller, args=(args.host, args.work, args.poll_interval), daemon=True).start()
+    threading.Thread(target=poller, args=(args.host, args.work, args.run, args.poll_interval), daemon=True).start()
     print(f"http://localhost:{args.port}  (polling {args.host}:{args.work} every {args.poll_interval:.0f}s)")
     ThreadingHTTPServer(("127.0.0.1", args.port), H).serve_forever()
 

@@ -44,4 +44,48 @@ Six optimizer steps (49k tokens) of distillation took KL to 6.1.
 
 ## Pilot
 
-Running: 50M tokens, group 128, lr 3e-5. Results to follow.
+50M tokens, group 128, top-32 KL distillation. Eval: 64 chat windows of
+2048 tokens from smoltalk's test split, every token scored (user turns
+too, so even the 4-bit references score high). References on the same
+windows: q4_0 (the QAT grid) KL 0.358 / top-1 83.7%; MLX 4-bit RTN
+(g64) 0.662 / 75.9%; 2-bit RTN at the ternary size (g128) 18.7 / 0.25%.
+Ternary start (g128): KL 14.13, top-1 1.5%.
+
+### Run 1: lr 3e-5, ternary from step 0 -- plateau
+
+| step (tokens) | eval KL | top-1 |
+|---|---|---|
+| 150 (2.5M) | 5.96 | 4.6% |
+| 300 (4.9M) | 5.89 | 5.1% |
+
+Training loss fell 14.3 -> 5.8 in 20 steps, then sat at 5.6-5.7 for 380
+steps. Not frozen weights: at step 399, 1.15% of ternary codes had flipped
+(0.55-2.4% per matrix, sampled layers 0/12/24/47) and latent weights had
+moved 1.4-4.6% of their magnitude. They moved without improving the model:
+gradients through a network that starts at KL 14 carry little signal.
+Stopped at step 399 (checkpoint kept in `run/`).
+
+### Run 2: lr 1e-4, ternary projection ramped in over 150 steps
+
+`w + lam * (ternary(w) - w)`, lam 0 -> 1 linearly over the first 150
+optimizer steps (`--quant-warmup 150`); the gradient stays the identity.
+Eval always scores the fully ternary model.
+
+| step (tokens) | lam | eval KL | top-1 |
+|---|---|---|---|
+| 50 (0.8M) | 0.33 | 9.24 | 2.4% |
+| 100 (1.6M) | 0.67 | 8.65 | 0.7% |
+| 150 (2.5M) | 1.0 | 2.30 | 43.2% |
+| 200 (3.3M) | 1.0 | 1.77 | 50.5% |
+| 250 (4.1M) | 1.0 | 1.70 | 51.1% |
+| 300 (4.9M) | 1.0 | 1.63 | 52.2% |
+
+At equal tokens (4.9M): KL 1.63 vs 5.89, top-1 52% vs 5%. Both changes
+went in together (time-boxed pilot), so this run does not say how much
+each contributed.
+
+Perplexity on the eval windows (20.2 at step 300) is below q4_0's (26.1):
+the student is trained on smoltalk and fits its user turns better than
+the master does. It is not a quality comparison; KL is.
+
+Running on to 50M tokens.

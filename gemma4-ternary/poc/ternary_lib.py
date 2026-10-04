@@ -86,9 +86,19 @@ class TernaryLinear(nn.Module):
         self.weight = lin.weight
         self.bias = lin.bias
         self.in_features, self.out_features = lin.in_features, lin.out_features
+        self.lam = 1.0  # quantization strength: w + lam * (ternary(w) - w)
 
     def forward(self, x):
-        return F.linear(x, _TernarySTE.apply(self.weight, self.group), self.bias)
+        wq = _TernarySTE.apply(self.weight, self.group)
+        if self.lam < 1.0:  # gradual switch-on; the gradient stays the identity
+            wq = self.weight + self.lam * (wq - self.weight)
+        return F.linear(x, wq, self.bias)
+
+
+def set_quant_strength(model: nn.Module, lam: float) -> None:
+    for m in model.modules():
+        if isinstance(m, TernaryLinear):
+            m.lam = lam
 
 
 def ternarize(model: nn.Module, group: int, pattern: str = TEXT_LINEAR) -> list[str]:
