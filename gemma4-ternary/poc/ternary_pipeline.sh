@@ -27,6 +27,8 @@ pipeline_init ternary "$@"
 : "${LR:=3e-5}"
 : "${GROUP:=128}"   # MLX 2-bit group: 128 = 2.25 bits/weight, 64 = 2.5
 : "${RUN:=$WORK/run}"
+: "${DATA_DIR:=$WORK/data}"
+: "${TEACHER_DIR:=$WORK/teacher}"
 : "${SOURCES:=HuggingFaceFW/fineweb-edu:sample-10BT:train:text:0.3 HuggingFaceTB/smoltalk:all:train:messages:0.7}"
 : "${EVAL_SOURCES:=HuggingFaceTB/smoltalk:all:test:messages:1}"
 : "${TRAIN_EXTRA:=}"
@@ -52,12 +54,12 @@ fi
 src_args=(); for s in $SOURCES; do src_args+=(--source "$s"); done
 for s in $EVAL_SOURCES; do src_args+=(--eval-source "$s"); done
 run_step data "tokenize $TOKENS tokens" "$PY" "$SCRIPT_DIR/prepare_data.py" \
-  --master "$MASTER" --out "$WORK/data" --tokens "$TOKENS" --seq "$SEQ" "${src_args[@]}"
+  --master "$MASTER" --out "$DATA_DIR" --tokens "$TOKENS" --seq "$SEQ" "${src_args[@]}"
 
 run_step teacher "teacher top-$TOPK" "$PY" "$SCRIPT_DIR/teacher_topk.py" \
-  --master "$MASTER" --data "$WORK/data" --out "$WORK/teacher" --k "$TOPK"
+  --master "$MASTER" --data "$DATA_DIR" --out "$TEACHER_DIR" --k "$TOPK"
 
 # shellcheck disable=SC2086
 run_step train "ternary distillation" "$PY" "$SCRIPT_DIR/train_ternary.py" \
-  --master "$MASTER" --data "$WORK/data" --teacher "$WORK/teacher" --out "$RUN" \
+  --master "$MASTER" --data "$DATA_DIR" --teacher "$TEACHER_DIR" --out "$RUN" \
   --tokens "$TOKENS" --batch "$BATCH" --accum "$ACCUM" --lr "$LR" --group "$GROUP" $TRAIN_EXTRA

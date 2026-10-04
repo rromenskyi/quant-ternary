@@ -125,3 +125,15 @@ A rough power-law fit of the curve (KL 1.59 at 5.7M -> 1.23 at 13.1M,
 exponent ~0.31) puts MLX-4-bit-level KL (~0.6) near 0.13B tokens and
 q4_0-level (~0.3) near 1.2B tokens. Three points, noisy; an indication,
 not a forecast.
+
+### Run 2 stopped at step 901 (14.8M tokens); run 3 on fixed chat data
+
+Continuing on data whose chat turns lack the inference prefix would only
+train the wrong context further. `prepare_data.py` now renders every model
+turn as the generation prompt does (`<|turn>model\n<|channel>thought\n<channel|>`,
+checked: 7/7 model turns in a sample row). New data and teacher
+(`data_v2`, `teacher_v2`, ≈9 h of teacher); run 3 (`run_v2_init901`)
+starts from run 2's step-901 latent weights (`--init-ckpt`: weights only,
+fresh optimizer and lr warmup, no quantization warmup since the weights
+are already ternary-trained). The references are recomputed: the eval
+rows changed.

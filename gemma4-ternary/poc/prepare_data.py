@@ -43,6 +43,15 @@ def doc_stream(sources, seed, tok):
         streams.append(iter(load_dataset(repo, config if config != "-" else None, split=split, streaming=True)))
         weights.append(float(weight))
         fields.append(field)
+    # The chat template renders past model turns as "<|turn>model\n<text>",
+    # but a generation prompt ends "<|turn>model\n<|channel>thought\n<channel|>"
+    # (thinking closed): give every model turn the inference prefix, so the
+    # student trains on the context it will generate in.
+    u = [{"role": "user", "content": "x"}]
+    base = tok.apply_chat_template(u, tokenize=False, enable_thinking=False)
+    gen_prefix = tok.apply_chat_template(u, tokenize=False, add_generation_prompt=True, enable_thinking=False)[len(base):]
+    turn = tok.apply_chat_template(u + [{"role": "assistant", "content": "\x00"}], tokenize=False,
+                                   enable_thinking=False)[len(base):].split("\x00")[0]
     rng = np.random.default_rng(seed)
     p = np.asarray(weights) / sum(weights)
     while True:
@@ -51,6 +60,8 @@ def doc_stream(sources, seed, tok):
         val = ex[fields[i]]
         if fields[i] == "messages":
             text = tok.apply_chat_template(val, tokenize=False, enable_thinking=False)
+            if gen_prefix != turn:
+                text = text.replace(turn, gen_prefix)
             ids = tok.encode(text, add_special_tokens=False)
             if not ids or ids[0] != tok.bos_token_id:
                 ids = [tok.bos_token_id] + ids

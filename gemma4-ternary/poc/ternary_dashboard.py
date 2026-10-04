@@ -34,8 +34,8 @@ REMOTE = r"""
 W={work}
 s(){{ printf '\n@@@@ %s\n' "$1"; }}
 s pipeline; grep ' ternary ' $W/logs/pipeline.log 2>/dev/null | tail -n 300
-s data; cat $W/data/progress.json 2>/dev/null
-s teacher; cat $W/teacher/progress.json 2>/dev/null
+s data; cat $W/{data}/progress.json 2>/dev/null
+s teacher; cat $W/{teacher}/progress.json 2>/dev/null
 s status; cat $W/{run}/status.json 2>/dev/null
 s metrics; cat $W/{run}/metrics.jsonl 2>/dev/null
 s ckpt; for d in $W/{run}/ckpt/step_*; do [ -f "$d/DONE" ] && echo "$(basename $d) $(stat -c %Y $d)"; done 2>/dev/null
@@ -47,8 +47,8 @@ s log; f=$(ls -t $W/logs/ternary_*.log 2>/dev/null | head -1); echo "$f"; tail -
 """
 
 
-def poll(host: str, work: str, run: str) -> dict:
-    cmd = REMOTE.format(work=work, run=run)
+def poll(host: str, work: str, run: str, data: str = "data", teacher: str = "teacher") -> dict:
+    cmd = REMOTE.format(work=work, run=run, data=data, teacher=teacher)
     r = subprocess.run(["ssh", "-o", "ConnectTimeout=10", "-o", "BatchMode=yes", host, "bash -s"],
                        input=cmd, capture_output=True, text=True, timeout=60)
     if r.returncode != 0 and not r.stdout:
@@ -119,10 +119,10 @@ def poll(host: str, work: str, run: str) -> dict:
     }
 
 
-def poller(host, work, run, interval):
+def poller(host, work, run, data, teacher, interval):
     while True:
         try:
-            st = poll(host, work, run)
+            st = poll(host, work, run, data, teacher)
             st["run"] = run
             with LOCK:
                 STATE.clear(); STATE.update(st)
@@ -260,10 +260,12 @@ def main():
     ap.add_argument("--host", default="dgx", help="ssh host running the pipeline")
     ap.add_argument("--work", default="~/ternary", help="WORK dir on that host")
     ap.add_argument("--run", default="run", help="run dir under --work (train_ternary --out)")
+    ap.add_argument("--data", default="data", help="DATA_DIR under --work")
+    ap.add_argument("--teacher", default="teacher", help="TEACHER_DIR under --work")
     ap.add_argument("--port", type=int, default=8422)
     ap.add_argument("--poll-interval", type=float, default=15)
     args = ap.parse_args()
-    threading.Thread(target=poller, args=(args.host, args.work, args.run, args.poll_interval), daemon=True).start()
+    threading.Thread(target=poller, args=(args.host, args.work, args.run, args.data, args.teacher, args.poll_interval), daemon=True).start()
     print(f"http://localhost:{args.port}  (polling {args.host}:{args.work} every {args.poll_interval:.0f}s)")
     ThreadingHTTPServer(("127.0.0.1", args.port), H).serve_forever()
 

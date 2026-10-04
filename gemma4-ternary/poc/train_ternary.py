@@ -180,6 +180,21 @@ def load_ckpt(d: Path, names, params, opt) -> dict:
     return meta
 
 
+@torch.no_grad()
+def load_params(d: Path, names, params) -> int:
+    idx = {n: i for i, n in enumerate(names)}
+    n = 0
+    for f in sorted(d.glob("part_*.safetensors")):
+        with safe_open(str(f), framework="pt", device="cuda") as sf:
+            for key in sf.keys():
+                if key.startswith("p."):
+                    params[idx[key[2:]]].copy_(sf.get_tensor(key))
+                    n += 1
+    if n != len(names):
+        raise ValueError(f"{d}: {n} weights for {len(names)} ternary Linears")
+    return n
+
+
 def append_metric(out: Path, rec: dict) -> None:
     with open(out / "metrics.jsonl", "a") as f:
         f.write(json.dumps(rec) + "\n")
@@ -208,6 +223,7 @@ def main() -> None:
     ap.add_argument("--min-lr-frac", type=float, default=0.1)
     ap.add_argument("--warmup", type=int, default=100, help="optimizer steps")
     ap.add_argument("--weight-decay", type=float, default=0.0)
+    ap.add_argument("--init-ckpt", help="fresh run: start from this checkpoint's latent weights (optimizer and schedule start fresh)")
     ap.add_argument("--quant-warmup", type=int, default=0,
                     help="optimizer steps over which the ternary projection ramps in linearly (0: on from the start)")
     ap.add_argument("--group", type=int, default=128, help="MLX 2-bit group size (128: 2.25 bits/weight, 64: 2.5)")
@@ -282,6 +298,9 @@ def main() -> None:
         log(f"resumed {ck.name}: step {step}, cursor {cursor}")
     else:
         trim_metrics(out, 0)
+        if args.init_ckpt:
+            n_loaded = load_params(Path(args.init_ckpt), names, params)
+            log(f"initialized {n_loaded} weights from {args.init_ckpt}")
         r = evaluate(model, data, teacher, args.batch, args.eval_rows)
         append_metric(out, {"eval": True, "step": 0, "tokens": 0, **r})
         log(f"ternary start: KL {r['kl']:.4f} top-1 {r['top1']:.2%} ppl {r['ppl']:.2f}")
