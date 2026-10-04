@@ -6,7 +6,9 @@
         --source HuggingFaceTB/smoltalk:all:train:messages:0.7 \\
         --eval-source HuggingFaceTB/smoltalk:all:test:messages:1
 
-A source is <repo>:<config>:<split>:<field>:<weight>; a field named
+A source is gen:<dir>:<weight> (teacher-generated documents from
+gen_teacher_data.py, used as they are; the stream ends when they run out)
+or <repo>:<config>:<split>:<field>:<weight>; a field named
 "messages" is rendered with the model's chat template (thinking closed),
 any other field is plain text after BOS. Documents are concatenated and cut
 into --seq token rows: --eval-seqs rows from the --eval-source streams
@@ -32,6 +34,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from ternary_lib import save_npy, write_json  # noqa: E402
 
 
+def gen_docs(d: Path):
+    """Documents (already rendered and tokenized) of gen_teacher_data.py shards, in order."""
+    for f in sorted(d.glob("shard_*.npz")):
+        z = np.load(f)
+        ids, offs = z["ids"], list(z["offs"]) + [len(z["ids"])]
+        for a, b in zip(offs[:-1], offs[1:]):
+            yield [int(t) for t in ids[a:b]]
+
+
 def doc_stream(sources, seed, tok):
     """Documents from every source, interleaved by weight with a seeded RNG
     (deterministic, so a rerun reproduces the same rows)."""
@@ -39,6 +50,12 @@ def doc_stream(sources, seed, tok):
 
     streams, weights, fields = [], [], []
     for spec in sources:
+        if spec.startswith("gen:"):  # gen:<dir>:<weight>, token ids from gen_teacher_data.py
+            path, weight = spec[4:].rsplit(":", 1)
+            streams.append(gen_docs(Path(path)))
+            weights.append(float(weight))
+            fields.append("ids")
+            continue
         repo, config, split, field, weight = spec.rsplit(":", 4)
         streams.append(iter(load_dataset(repo, config if config != "-" else None, split=split, streaming=True)))
         weights.append(float(weight))
@@ -56,7 +73,12 @@ def doc_stream(sources, seed, tok):
     p = np.asarray(weights) / sum(weights)
     while True:
         i = int(rng.choice(len(streams), p=p))
-        ex = next(streams[i])
+        ex = next(streams[i], None)
+        if ex is None:  # a finite source (generated data) ran out: the stream ends
+            return
+        if fields[i] == "ids":
+            yield ex
+            continue
         val = ex[fields[i]]
         if fields[i] == "messages":
             text = tok.apply_chat_template(val, tokenize=False, enable_thinking=False)

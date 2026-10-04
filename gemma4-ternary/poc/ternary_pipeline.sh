@@ -51,6 +51,22 @@ from huggingface_hub import snapshot_download
 snapshot_download('$MASTER_ID', local_dir='$MASTER')"
 fi
 
+# Teacher-generated chat (optional): GEN_TOKENS > 0 runs the master in vLLM
+# over smoltalk prompts, both thinking modes; SOURCES / EVAL_SOURCES then name
+# gen:$WORK/gen:<w> and gen:$WORK/gen_eval:1.
+: "${GEN_TOKENS:=0}"
+: "${GEN_EVAL_TOKENS:=200000}"
+: "${VLLM_PY:=$WORK/.venv-vllm/bin/python}"
+: "${TEXT_MASTER:=$WORK/masters/gemma-4-12B-text}"
+if [ "$GEN_TOKENS" -gt 0 ]; then
+  export PATH="$(dirname "$VLLM_PY"):$PATH"   # vLLM JIT needs its ninja
+  run_step gen_eval "teacher answers, eval prompts" "$VLLM_PY" "$SCRIPT_DIR/gen_teacher_data.py" \
+    --master "$TEXT_MASTER" --out "$WORK/gen_eval" --source HuggingFaceTB/smoltalk:all:test \
+    --tokens "$GEN_EVAL_TOKENS" --shard-prompts 256
+  run_step gen "teacher answers, $GEN_TOKENS tokens" "$VLLM_PY" "$SCRIPT_DIR/gen_teacher_data.py" \
+    --master "$TEXT_MASTER" --out "$WORK/gen" --source HuggingFaceTB/smoltalk:all:train --tokens "$GEN_TOKENS"
+fi
+
 src_args=(); for s in $SOURCES; do src_args+=(--source "$s"); done
 for s in $EVAL_SOURCES; do src_args+=(--eval-source "$s"); done
 run_step data "tokenize $TOKENS tokens" "$PY" "$SCRIPT_DIR/prepare_data.py" \

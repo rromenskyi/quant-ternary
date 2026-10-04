@@ -36,6 +36,7 @@ s(){{ printf '\n@@@@ %s\n' "$1"; }}
 s pipeline; grep ' ternary ' $W/logs/pipeline.log 2>/dev/null | tail -n 300
 s data; cat $W/{data}/progress.json 2>/dev/null
 s teacher; cat $W/{teacher}/progress.json 2>/dev/null
+s gen; python3 -c "import json,sys; p=json.load(open(sys.argv[1])); sh=list(p['shards'].values()); print(json.dumps({{'gen': p.get('gen_tokens',0), 'target': p.get('target',0), 'shards': len(sh), 'tok_s': sh[-1]['tok_s'] if sh else None, 'finished': sum(x['finished'] for x in sh), 'docs': sum(x['docs'] for x in sh), 'think': sum(x['think'] for x in sh)}}))" $W/gen/progress.json 2>/dev/null
 s status; cat $W/{run}/status.json 2>/dev/null
 s metrics; cat $W/{run}/metrics.jsonl 2>/dev/null
 s ckpt; for d in $W/{run}/ckpt/step_*; do [ -f "$d/DONE" ] && echo "$(basename $d) $(stat -c %Y $d)"; done 2>/dev/null
@@ -71,6 +72,8 @@ def poll(host: str, work: str, run: str, data: str = "data", teacher: str = "tea
             continue
         ts, status, step = int(p[1]), p[3], p[4]
         if step == "_pipeline":
+            if status == "START":  # only the latest pipeline invocation counts
+                steps.clear()
             continue
         st = steps.setdefault(step, {})
         if status == "START":
@@ -109,7 +112,7 @@ def poll(host: str, work: str, run: str, data: str = "data", teacher: str = "tea
     log_lines = sec.get("log", "").splitlines()
     return {
         "ok": True, "polled": time.time(), "now": int(sec.get("now") or time.time()),
-        "steps": steps, "data": js("data"), "teacher": js("teacher"), "status": js("status"),
+        "steps": steps, "data": js("data"), "teacher": js("teacher"), "gen": js("gen"), "status": js("status"),
         "evals": evals, "refs": refs, "loss": loss, "loss_raw": loss_raw, "last_train": train[-1] if train else None,
         "ckpt": [{"name": c[0], "time": int(c[1])} for c in ck if len(c) == 2],
         "gpu": {"util": gpu[0].strip(), "power": gpu[1].strip(), "temp": gpu[2].strip()} if len(gpu) >= 3 else None,
@@ -212,13 +215,14 @@ async function tick(){
  t+=tile("Speed",st.tok_s?Math.round(st.tok_s)+" tok/s":"—",st.eta_s!=null?"ETA "+fmtT(st.eta_s):"");
  t+=tile("Last checkpoint",lastck?lastck.name.replace("step_","step "):"none",lastck?fmtT(now-lastck.time)+" ago":"");
  t+=tile("Eval KL",lastEval?lastEval.kl.toFixed(4):"—",lastEval?`top-1 ${(lastEval.top1*100).toFixed(1)}% · ppl ${lastEval.ppl.toFixed(2)}`:"");
+ if(s.gen&&s.gen.target)t+=tile("Teacher-generated",fmtN(s.gen.gen)+" tok",`of ${fmtN(s.gen.target)} · ${s.gen.tok_s||"—"} tok/s · ${s.gen.docs} answers (${s.gen.think} thinking), ${s.gen.docs?Math.round(100*s.gen.finished/s.gen.docs):0}% finished`,s.gen.gen/s.gen.target);
  if(s.data)t+=tile("Data shards",`${s.data.done}/${s.data.total}`,"",s.data.done/s.data.total);
  if(s.teacher)t+=tile("Teacher shards",`${s.teacher.done}/${s.teacher.total}`,s.teacher.tok_s?Math.round(s.teacher.tok_s)+" tok/s":"",s.teacher.done/s.teacher.total);
  if(s.gpu)t+=tile("GPU",s.gpu.util+"%",`${s.gpu.power} W · ${s.gpu.temp}°C`,s.gpu.util/100);
  t+=tile("Memory",GB(s.mem.used),`of ${GB(s.mem.total)} · ${GB(s.mem.avail)} available`,s.mem.used/s.mem.total);
  t+=tile("Disk free",GB(s.disk.free),`of ${GB(s.disk.total)}`,s.disk.used/s.disk.total);
  document.getElementById("tiles").innerHTML=t;
- const order=["master","data","teacher","train"];
+ const order=["master","gen_eval","gen","data","teacher","train"].filter(k=>k in s.steps||["master","data","teacher","train"].includes(k));
  document.getElementById("steps").innerHTML=order.map(k=>{const x=s.steps[k]||{};const st_=x.state||"pending";const d=x.start?fmtT((x.end||now)-x.start):"";return `<div class="step ${st_}">${k} · ${st_}${d?" · "+d:""}</div>`}).join("");
  const refs=Object.entries(s.refs);
  const ser=[{n:"ternary (ours)",c:"--blue",dots:true}];
