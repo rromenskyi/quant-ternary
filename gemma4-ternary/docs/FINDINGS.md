@@ -88,4 +88,40 @@ Perplexity on the eval windows (20.2 at step 300) is below q4_0's (26.1):
 the student is trained on smoltalk and fits its user turns better than
 the master does. It is not a quality comparison; KL is.
 
-Running on to 50M tokens.
+Running on to 50M tokens. Later points: KL 1.30 / 57.3% at 10.6M tokens,
+1.23 / 58.4% at 13.1M, 1.25 / 58.2% at 13.9M.
+
+### First MLX export (step 871, 14.3M tokens)
+
+`export_mlx.py` + `splice_mlx.py`: the 328 ternary Linears as stock MLX
+2-bit (g128, scale = s, bias = -s), everything else from our 12B QAT MLX
+build (6-bit embeddings). 3.95 GB. The packing was checked against
+`mx.dequantize` and `mx.quantized_matmul`; MLX scores the same as training
+on 4 eval rows (KL 1.18, top-1 61.6%; the 12B 4-bit build: 0.27 / 84.7%),
+so the export is exact.
+
+It does not generate: greedy and sampled replies are repetition and
+fragments ("_capital_capital...", "<|channel>" loops) on every prompt. KL
+1.2 nats/token teacher-forced is far from usable; the 4-bit builds sit at
+0.27-0.36. A second gap: the chat training rows are rendered without the
+`<|channel>thought\n<channel|>` prefix the generation prompt carries, so
+the student never trained on the exact inference context; dropping the
+prefix at inference didn't rescue it.
+
+Decode on the base M5 (200 tokens, greedy, mlx-lm fork):
+
+| model | size | tok/s | peak GB | answer |
+|---|---|---|---|---|
+| E2B phone MLX | 3.10 GB | 71.9 | 3.27 | correct |
+| 12B ternary (step 871) | 3.95 GB | 27.0 | 4.09 | garbage |
+| E4B QAT MLX | 5.95 GB | 37.0 | 6.04 | correct |
+| 12B QAT MLX (4-bit) | 7.89 GB | 14.9 | 8.02 | correct |
+
+The ternary 12B decodes 1.8x faster than its 4-bit build in half the
+memory, but at this point E2B beats it on every axis. It earns its place
+only if its quality passes E4B's at 2/3 of E4B's size.
+
+A rough power-law fit of the curve (KL 1.59 at 5.7M -> 1.23 at 13.1M,
+exponent ~0.31) puts MLX-4-bit-level KL (~0.6) near 0.13B tokens and
+q4_0-level (~0.3) near 1.2B tokens. Three points, noisy; an indication,
+not a forecast.
