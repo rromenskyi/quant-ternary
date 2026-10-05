@@ -189,3 +189,37 @@ data is now written by the master:
   child lived on with 109 GB and the step's stdout, so the pipeline's
   `tee` never saw EOF: the pipeline hung for 70 min with the GPU idle.
   The script now kills its multiprocessing children before `os._exit`.
+
+## Run 3 so far (2026-10-05)
+
+New eval (teacher-written replies to smoltalk's test prompts; every model
+scores lower KL on the master's own text): q4_0 KL 0.105 / top-1 91.8% /
+PPL 5.43; MLX 4-bit RTN 0.248 / 87.1% / 5.68; 2-bit RTN 20.1 / 0.2%.
+
+| step (run-3 tokens) | eval KL | top-1 | PPL |
+|---|---|---|---|
+| 0 (run 2's step 901) | 1.667 | 55.8% | 15.6 |
+| 50 (0.8M) | 1.150 | 64.1% | 8.80 |
+| 150 (2.5M) | 1.229 | 62.8% | 9.32 |
+| 250 (4.1M) | 1.143 | 64.8% | 8.61 |
+| 350 (5.7M) | 1.091 | 65.5% | 8.02 |
+| 450 (7.4M) | 1.020 | 66.8% | 7.66 |
+
+Run 2's weights carried over: the step-901 model started at KL 1.67 on the
+new data, not 14, and needed 50 steps to adapt to the format. Then
+roughly flat while lr sat near 1e-4, falling again from step ~300 as the
+cosine schedule lowers it.
+
+### Chat at step 424 (KL ≈1.07), MLX 2-bit on the Mac
+
+It talks now (run 2's step 871 produced only fragments and loops): Gemma's
+reply style, markdown, a fenced code block, the thinking channel with
+Gemma-like bullet reasoning. The content is wrong: "The capital of
+Australia is Sydney."; the Fibonacci function is code-shaped nonsense; a
+Russian question drifts off topic into a repetition loop; the thinking
+answer subtracts (3 apples - 2 bags = 1) and loops. Russian is weakest:
+the teacher-written data is nearly all English (smoltalk) — a full run
+needs multilingual prompts.
+
+Copying exports from the Spark ran at 0.6-0.7 MB/s this time (10 MB/s on
+the 4th): ~75 min for 3 GB.
