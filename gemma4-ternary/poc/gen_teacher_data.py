@@ -14,8 +14,8 @@ the stop token included.
 
 Shards of --shard-prompts prompts, written as gen/shard_NNNNN.npz
 (ids: uint32 concatenation, offs: document starts) with a JSON line in
-gen/progress.json; a rerun skips finished shards (prompts and seeds are a
-function of the shard index). Stops once --tokens generated tokens exist.
+gen/progress.json; a rerun skips finished shards (the prompts are a
+function of the shard index; sampling uses one engine seed). Stops once --tokens generated tokens exist.
 """
 from __future__ import annotations
 
@@ -57,12 +57,15 @@ def main() -> None:
     ap.add_argument("--out", required=True)
     ap.add_argument("--source", required=True, help="<repo>:<config>:<split> with a 'messages' field")
     ap.add_argument("--tokens", type=int, required=True, help="generated tokens to stop at")
-    ap.add_argument("--shard-prompts", type=int, default=4096)
+    ap.add_argument("--shard-prompts", type=int, default=1024)
     ap.add_argument("--think-frac", type=float, default=0.5)
     ap.add_argument("--max-prompt", type=int, default=2048)
     ap.add_argument("--max-new", type=int, default=768)
     ap.add_argument("--max-new-think", type=int, default=2560)
     ap.add_argument("--gpu-mem", type=float, default=0.85)
+    ap.add_argument("--kv-cache-dtype", default="fp8",
+                    help="long thinking replies make decode KV-bound; fp8 halves the KV reads. Only the sampled "
+                         "text depends on it: the training labels come from the bf16 teacher pass")
     ap.add_argument("--seed", type=int, default=0)
     args = ap.parse_args()
 
@@ -90,7 +93,8 @@ def main() -> None:
 
     tok = AutoTokenizer.from_pretrained(args.master)
     llm = LLM(model=args.master, dtype="bfloat16", max_model_len=args.max_prompt + args.max_new_think,
-              gpu_memory_utilization=args.gpu_mem, seed=args.seed)
+              gpu_memory_utilization=args.gpu_mem, seed=args.seed, disable_log_stats=False,
+              kv_cache_dtype=args.kv_cache_dtype)
     j = 0
     while gen_total() < args.tokens:
         name = f"shard_{j:05d}"
@@ -100,9 +104,12 @@ def main() -> None:
         t0 = time.time()
         ps = prompts_for(args.source, j * args.shard_prompts, args.shard_prompts, tok, args.think_frac,
                          args.seed + j, args.max_prompt)
-        sps = [SamplingParams(temperature=1.0, top_p=0.95, top_k=64, seed=args.seed * 1_000_003 + j * 65_536 + k,
-                              max_tokens=args.max_new_think if think else args.max_new)
-               for k, (_, think) in enumerate(ps)]
+        # No per-request seed: seeded requests slow vLLM's sampler down several
+        # times (one generator each); the engine seed keeps runs reproducible
+        # enough, and finished shards are never regenerated.
+        sp = {t: SamplingParams(temperature=1.0, top_p=0.95, top_k=64,
+                                max_tokens=args.max_new_think if t else args.max_new) for t in (False, True)}
+        sps = [sp[think] for _, think in ps]
         res = llm.generate([TokensPrompt(prompt_token_ids=ids) for ids, _ in ps], sps, use_tqdm=False)
         docs, gen_tokens, finished = [], 0, 0
         for (ids, _), r in zip(ps, res):
@@ -125,6 +132,13 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    import multiprocessing
+
     main()
     sys.stdout.flush()
+    # os._exit skips vLLM's shutdown: its EngineCore child would live on,
+    # holding the GPU memory and this step's stdout (the pipeline's tee then
+    # never sees EOF and the pipeline hangs). Kill the children first.
+    for child in multiprocessing.active_children():
+        child.kill()
     os._exit(0)  # vLLM / streaming threads crash interpreter teardown
