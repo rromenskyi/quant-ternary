@@ -37,7 +37,7 @@ GEN_TOKENS=16000000 TOKENS=21000000 DATA_DIR=~/ternary/data_v3 TEACHER_DIR=~/ter
 RUN=~/ternary/run_v3_gen_init901 LR=1e-4 \
 SOURCES="gen:$HOME/ternary/gen:0.8 HuggingFaceFW/fineweb-edu:sample-10BT:train:text:0.2" \
 EVAL_SOURCES="gen:$HOME/ternary/gen_eval:1" \
-TRAIN_EXTRA="--init-ckpt ~/ternary/run_qw150_lr1e-4/ckpt/step_000901 --eval-every 50" \
+TRAIN_EXTRA="--init-ckpt $HOME/ternary/run_qw150_lr1e-4/ckpt/step_000901 --eval-every 50" \
 bash poc/ternary_pipeline.sh
 ```
 
