@@ -14,6 +14,7 @@ IPSupport LLC's quantization and fine-tuning research: the pipelines, findings a
 | [`flux2-quant/`](flux2-quant/) | FLUX.2 klein 4B image model |
 | [`zimage-quant/`](zimage-quant/) | Z-Image-Turbo image model |
 | [`acestep-quant/`](acestep-quant/) | ACE-Step 1.5 music model |
+| [`frognano-quant/`](frognano-quant/) | Microsoft FrogNano 4B (Qwen3.5): GPTQ JANG, vision kept |
 
 Each project keeps its measurements in `docs/FINDINGS.md`. [`HF_CARD_TEMPLATE.md`](HF_CARD_TEMPLATE.md) is the template for our Hugging Face model cards.
 
