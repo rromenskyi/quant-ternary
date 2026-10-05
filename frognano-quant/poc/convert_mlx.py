@@ -39,7 +39,11 @@ def main() -> None:
 
     def predicate(path: str, module) -> bool | dict:
         if path.startswith("vision_tower"):
-            return {"group_size": gs, "bits": args.vision_bits} if args.vision_bits else False
+            # pos_embed stays bf16: Qwen3-VL interpolates it in its weight's
+            # dtype, which quantized is uint32 (the interpolation weights round to 0/1).
+            if not args.vision_bits or path.endswith("pos_embed"):
+                return False
+            return {"group_size": gs, "bits": args.vision_bits}
         if path.endswith("embed_tokens"):
             return {"group_size": gs, "bits": args.embed_bits}
         if path.endswith(keep_bf16):

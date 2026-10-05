@@ -31,20 +31,21 @@ than torch 2.6 ships, causal-conv1d's wheel didn't match; not needed at 4B).
 
 `poc/convert_mlx.py`: the decoder at the recipe's bits (the GPTQ codes
 reproduce exactly), embeddings 8-bit RTN, `in_proj_a` / `in_proj_b` bf16,
-vision tower bf16. 3.5 GB, 6.62 bits per weight overall (with the bf16 vision
-tower). MLX perplexity: **12.5476 (+1.5 %)**; the 0.03 over the HF number is
-the 8-bit embeddings.
+vision tower 8-bit except its position embedding. 3.2 GB, 6.08 bits per weight
+overall (3.5 GB with the tower in bf16). MLX perplexity: **12.5476 (+1.5 %)**;
+the 0.03 over the HF number is the 8-bit embeddings.
 
 The MTP layer isn't carried: mlx-lm's qwen3_5 drops `mtp.*` (no MTP decoding
 for qwen3_5 in the fork yet).
 
-### Vision tower at 8 bits: broken
+### Vision tower at 8 bits: the position embedding stays bf16
 
-`--vision-bits 8` gave 3.2 GB but vision features at cosine 0.76 mean
-(0.26 min) against HF. Most likely the position embedding: quantized, it
-becomes a QuantizedEmbedding, and Qwen3-VL's interpolated position lookup
-reads its weight directly. Kept bf16 (cosine 0.994). Quantizing the tower's
-linears but not `pos_embed` is untried.
+`--vision-bits 8` on the whole tower: features at cosine 0.76 mean (0.26 min)
+against HF. Cause: `fast_pos_embed_interpolate` builds the interpolation
+weights with `dtype=self.pos_embed.weight.dtype`, which for a quantized
+embedding is uint32 -- the bilinear weights round to 0 / 1. With `pos_embed`
+kept bf16 and every other tower layer at 8 bits: cosine 0.9909 mean (bf16
+tower: 0.9938), same image answer, 0.3 GB less. Released that way.
 
 ## 3. Vision in MLX (mlx-lm fork, PR ipsupport-llc/mlx-lm#23)
 

@@ -30,9 +30,9 @@ tags:
 — Microsoft's compact repository-level coding agent, Qwen3.5-4B post-trained
 with reinforcement learning on ~1,500 synthetic software-engineering tasks
 (SWE-bench Verified 61.5 % Avg@3 in Microsoft's Leaf harness) — quantized for
-MLX with **GPTQ and a per-component bit recipe**: **3.5 GB instead of 9.3 GB,
-+1.5 % perplexity**. The vision tower inherited from Qwen3.5-4B is kept, in
-bf16.
+MLX with **GPTQ and a per-component bit recipe**: **3.2 GB instead of 9.3 GB,
++1.5 % perplexity**. The vision tower inherited from Qwen3.5-4B is kept, at
+8 bits.
 
 ## The recipe
 
@@ -47,7 +47,7 @@ calibrated codes instead of re-rounding):
 | MLP (gate, up, down; 32 layers) | 4 | 2.26 B |
 | Delta-rule gates (in_proj_a, in_proj_b) | bf16 | 0.005 B |
 | Embeddings (tied with the output head; round-to-nearest) | 8 | 0.64 B |
-| Vision tower | bf16 | 0.33 B |
+| Vision tower (position embedding bf16) | 8 | 0.33 B |
 
 Calibration: 64 × 512 tokens of wikitext-2 train, layer by layer (each layer
 on the outputs of the already-quantized ones), on one L40S.
@@ -59,9 +59,9 @@ Perplexity on wikitext-2 test, 40 × 512 tokens:
 | | Size | PPL | vs bf16 |
 |---|---|---|---|
 | bf16 (HF transformers) | 9.3 GB | 12.366 | — |
-| **this model, 8/6/4 (MLX)** | **3.5 GB** | **12.548** | **+1.5 %** |
+| **this model, 8/6/4 (MLX)** | **3.2 GB** | **12.548** | **+1.5 %** |
 | same weights in HF transformers (decoder on-grid, embeddings bf16) | — | 12.521 | +1.3 % |
-| 8/6/3 (MLP at 3 bits; not released) | ≈3.2 GB | 13.377 (HF) | +8.2 % |
+| 8/6/3 (MLP at 3 bits; not released) | ≈2.9 GB | 13.377 (HF) | +8.2 % |
 
 The MLP holds most of this model's weights, so 3 bits there cost too much;
 at 4 bits the whole model loses 1.5 %.
@@ -78,9 +78,11 @@ this quantization.
 Microsoft didn't post-train or evaluate the image/video components and
 doesn't support them for FrogNano; they are Qwen3.5-4B's. They are kept here,
 and they work as Qwen3.5-4B's do: on a test image the MLX vision tower's
-features match HF transformers' at cosine 0.994 (mean over tokens; the rest
-is bf16 rounding), and it describes a test image the way the HF bf16 model does. Quantizing the vision
-tower to 8 bits broke it (cosine 0.76), so it stays bf16.
+features match HF transformers' at cosine 0.991 (mean over tokens; 0.994 with
+the tower in bf16), and it describes a test image the way the HF bf16 model
+does. The tower is 8-bit except its position embedding, which stays bf16:
+Qwen3-VL interpolates it in the weight's dtype, and quantized that dtype is
+an integer (the tower's features fell to cosine 0.76).
 
 Image input needs the [ipsupport-llc/mlx-lm](https://github.com/ipsupport-llc/mlx-lm)
 fork's Qwen3.5 vision support (Qwen3-VL vision tower, interleaved mRoPE,
@@ -140,6 +142,6 @@ repository's metadata says MIT, which Apache 2.0 also satisfies) — see
 
 Modified from [microsoft/FrogNano-4B-2609](https://huggingface.co/microsoft/FrogNano-4B-2609):
 quantized with GPTQ to 8-bit attention, 6-bit linear attention and 4-bit MLP
-weights (8-bit embeddings, bf16 vision tower) and converted to MLX; the MTP
+weights (8-bit embeddings and vision tower) and converted to MLX; the MTP
 head is not included. The weights and configuration files in this repo are
 therefore modified versions of the original, not the original files.
