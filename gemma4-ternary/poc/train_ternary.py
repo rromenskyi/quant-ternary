@@ -228,6 +228,10 @@ def main() -> None:
                     help="optimizer steps over which the ternary projection ramps in linearly (0: on from the start)")
     ap.add_argument("--group", type=int, default=128, help="MLX 2-bit group size (128: 2.25 bits/weight, 64: 2.5)")
     ap.add_argument("--pattern", default=TEXT_LINEAR, help="regex of the Linears to ternarize")
+    ap.add_argument("--affine-pattern", help="of those, the Linears kept on the MLX affine grid instead "
+                    "(hybrid, e.g. 'self_attn' for 4-bit attention)")
+    ap.add_argument("--affine-bits", type=int, default=4)
+    ap.add_argument("--affine-group", type=int, default=64)
     ap.add_argument("--eval-every", type=int, default=150, help="optimizer steps")
     ap.add_argument("--eval-rows", type=int, default=64)
     ap.add_argument("--save-every-min", type=float, default=45)
@@ -274,7 +278,7 @@ def main() -> None:
         del orig
         gc.collect(); torch.cuda.empty_cache()
 
-    lin_names = ternarize(model, args.group, args.pattern)
+    lin_names = ternarize(model, args.group, args.pattern, args.affine_pattern, args.affine_bits, args.affine_group)
     for p in model.parameters():
         p.requires_grad_(False)
     names = [f"{n}.weight" for n in lin_names]

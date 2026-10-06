@@ -45,6 +45,9 @@ def affine_q(w: torch.Tensor, bits: int, group: int) -> torch.Tensor:
 _ternary_q_compiled = torch.compile(ternary_q, dynamic=False)
 
 
+_affine_q_compiled = torch.compile(affine_q, dynamic=False)
+
+
 class _TernarySTE(torch.autograd.Function):
     """Ternary weight forward, identity gradient backward (straight-through).
     The quantizer is one fused kernel: read bf16, write bf16."""
@@ -56,6 +59,19 @@ class _TernarySTE(torch.autograd.Function):
     @staticmethod
     def backward(ctx, g):
         return g, None
+
+
+class _AffineSTE(torch.autograd.Function):
+    """MLX affine n-bit forward (any per-group scale/bias is exportable to
+    stock MLX), identity gradient backward."""
+
+    @staticmethod
+    def forward(ctx, w, bits, group):
+        return _affine_q_compiled(w, bits, group)
+
+    @staticmethod
+    def backward(ctx, g):
+        return g, None, None
 
 
 def q4_0(w: torch.Tensor) -> torch.Tensor:
@@ -80,16 +96,23 @@ def ref_quantizer(name: str):
 
 
 class TernaryLinear(nn.Module):
-    def __init__(self, lin: nn.Linear, group: int):
+    """A Linear trained through a weight quantizer: ternary on the 2-bit grid
+    (bits=None), or MLX affine n-bit (bits=4, ...) for the layers a hybrid
+    keeps at higher precision."""
+
+    def __init__(self, lin: nn.Linear, group: int, bits: int | None = None):
         super().__init__()
-        self.group = group
+        self.group, self.bits = group, bits
         self.weight = lin.weight
         self.bias = lin.bias
         self.in_features, self.out_features = lin.in_features, lin.out_features
         self.lam = 1.0  # quantization strength: w + lam * (ternary(w) - w)
 
     def forward(self, x):
-        wq = _TernarySTE.apply(self.weight, self.group)
+        if self.bits is None:
+            wq = _TernarySTE.apply(self.weight, self.group)
+        else:
+            wq = _AffineSTE.apply(self.weight, self.bits, self.group)
         if self.lam < 1.0:  # gradual switch-on; the gradient stays the identity
             wq = self.weight + self.lam * (wq - self.weight)
         return F.linear(x, wq, self.bias)
@@ -101,16 +124,21 @@ def set_quant_strength(model: nn.Module, lam: float) -> None:
             m.lam = lam
 
 
-def ternarize(model: nn.Module, group: int, pattern: str = TEXT_LINEAR) -> list[str]:
-    """Swap every matching nn.Linear for a TernaryLinear sharing its weight."""
+def ternarize(model: nn.Module, group: int, pattern: str = TEXT_LINEAR, affine_pattern: str | None = None,
+              affine_bits: int = 4, affine_group: int = 64) -> list[str]:
+    """Swap every matching nn.Linear for a TernaryLinear sharing its weight;
+    those also matching affine_pattern get the affine affine_bits grid."""
     rx = re.compile(pattern)
+    ax = re.compile(affine_pattern) if affine_pattern else None
     names = [n for n, m in model.named_modules() if isinstance(m, nn.Linear) and rx.search(n)]
     for n in names:
         parent, _, child = n.rpartition(".")
         lin = model.get_submodule(n)
-        if lin.in_features % group:
-            raise ValueError(f"{n}: in_features {lin.in_features} not divisible by group {group}")
-        setattr(model.get_submodule(parent), child, TernaryLinear(lin, group))
+        affine = bool(ax and ax.search(n))
+        g = affine_group if affine else group
+        if lin.in_features % g:
+            raise ValueError(f"{n}: in_features {lin.in_features} not divisible by group {g}")
+        setattr(model.get_submodule(parent), child, TernaryLinear(lin, g, affine_bits if affine else None))
     return names
 
 
