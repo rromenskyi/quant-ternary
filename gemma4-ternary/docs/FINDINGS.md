@@ -296,7 +296,14 @@ replies, 10% hit the 2,560-token cap and 746 (8%) never closed the thought
 channel; of 9,139 non-thinking replies, 31% hit the 768-token cap.
 Closed thoughts: median 623 tokens, p90 1,281. So the training data held
 hundreds of thoughts that never end and thousands of answers that never
-end. The loops are mostly the model's weakness at KL 0.71, but the data
-shouldn't teach endless text: `prepare_data.py` now drops replies that
-don't end in `<turn|>` (`--keep-unfinished` to keep them), and generation
-caps rise to 2,048 (no thinking) / 4,096 (thinking).
+end. That is wasted coverage, not a wrong lesson: with top-k KL the
+target at every position is the teacher's distribution there, not the
+data's next token, so at a cut-off point the student still learned the
+teacher's own continuation. What truncation costs is fewer examples of
+replies and thoughts *ending*. The loops are mostly the model's weakness
+at KL 0.71. Still, complete replies are worth more per token:
+`prepare_data.py` now drops replies that don't end in `<turn|>`
+(`--keep-unfinished` to keep them), and generation caps rise to 2,048
+(no thinking) / 4,096 (thinking). The same reasoning applies to the
+earlier format mismatch: the teacher labeled those contexts correctly,
+they were just not the inference contexts.
