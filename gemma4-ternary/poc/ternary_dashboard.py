@@ -33,18 +33,23 @@ SEP = "\n@@@@ "
 REMOTE = r"""
 W={work}
 s(){{ printf '\n@@@@ %s\n' "$1"; }}
+R={run}
+# --run auto: the most recently active run (probes switch runs on their own)
+if [ "$R" = auto ]; then R=$(basename "$(ls -td $W/run_*/ 2>/dev/null | head -1)"); fi
+s runname; echo $R
+s probes; for d in $W/run_probe_*; do [ -d "$d" ] && grep '"eval"' $d/metrics.jsonl 2>/dev/null | sed "s/^/$(basename $d) /"; done
 s pipeline; grep ' ternary ' $W/logs/pipeline.log 2>/dev/null | tail -n 300
 s data; cat $W/{data}/progress.json 2>/dev/null
 s teacher; cat $W/{teacher}/progress.json 2>/dev/null
 s gen; python3 -c "import json,sys; p=json.load(open(sys.argv[1])); sh=list(p['shards'].values()); print(json.dumps({{'gen': p.get('gen_tokens',0), 'target': p.get('target',0), 'shards': len(sh), 'tok_s': sh[-1]['tok_s'] if sh else None, 'finished': sum(x['finished'] for x in sh), 'docs': sum(x['docs'] for x in sh), 'think': sum(x['think'] for x in sh)}}))" $W/gen/progress.json 2>/dev/null
-s status; cat $W/{run}/status.json 2>/dev/null
-s metrics; cat $W/{run}/metrics.jsonl 2>/dev/null
-s ckpt; for d in $W/{run}/ckpt/step_*; do [ -f "$d/DONE" ] && echo "$(basename $d) $(stat -c %Y $d)"; done 2>/dev/null
+s status; cat $W/$R/status.json 2>/dev/null
+s metrics; cat $W/$R/metrics.jsonl 2>/dev/null
+s ckpt; for d in $W/$R/ckpt/step_*; do [ -f "$d/DONE" ] && echo "$(basename $d) $(stat -c %Y $d)"; done 2>/dev/null
 s gpu; nvidia-smi --query-gpu=utilization.gpu,power.draw,temperature.gpu --format=csv,noheader,nounits 2>/dev/null
 s mem; free -b | awk '/Mem:/{{print $2, $3, $7}}'
 s disk; df -B1 $W | awk 'NR==2{{print $2, $3, $4}}'
 s now; date +%s
-s log; f=$(ls -t $W/logs/ternary_*.log 2>/dev/null | head -1); echo "$f"; tail -c 20000 "$f" 2>/dev/null | tr '\r' '\n' | grep -v -i -E 'warn|^\s*$|Loading weights' | tail -n 25
+s log; f=$(ls -t $W/logs/ternary_*.log $W/logs/probe_*.log 2>/dev/null | head -1); echo "$f"; tail -c 20000 "$f" 2>/dev/null | tr '\r' '\n' | grep -v -i -E 'warn|^\s*$|Loading weights' | tail -n 25
 """
 
 
@@ -105,6 +110,15 @@ def poll(host: str, work: str, run: str, data: str = "data", teacher: str = "tea
     pick = lambda xs: xs[::stride] + (xs[-1:] if xs and (len(xs) - 1) % stride else [])
     loss, loss_raw = pick(mean), pick(raw)
 
+    probes: dict[str, list] = {}
+    for line in sec.get("probes", "").splitlines():
+        name, _, js_ = line.partition(" ")
+        try:
+            e = json.loads(js_)
+        except json.JSONDecodeError:
+            continue
+        probes.setdefault(name.removeprefix("run_probe_"), []).append([e["step"], e["kl"], e["top1"], e["ppl"]])
+
     gpu = (sec.get("gpu") or "").split(",")
     mem = (sec.get("mem") or "0 0 0").split()
     disk = (sec.get("disk") or "0 0 0").split()
@@ -119,6 +133,7 @@ def poll(host: str, work: str, run: str, data: str = "data", teacher: str = "tea
         "mem": {"total": int(mem[0]), "used": int(mem[1]), "avail": int(mem[2])},
         "disk": {"total": int(disk[0]), "used": int(disk[1]), "free": int(disk[2])},
         "log_file": log_lines[0] if log_lines else "", "log": log_lines[1:],
+        "runname": sec.get("runname", "").strip(), "probes": probes,
     }
 
 
@@ -126,7 +141,7 @@ def poller(host, work, run, data, teacher, interval):
     while True:
         try:
             st = poll(host, work, run, data, teacher)
-            st["run"] = run
+            st["run"] = st.get("runname") or run
             with LOCK:
                 STATE.clear(); STATE.update(st)
         except Exception as e:  # keep serving the last good state
@@ -168,6 +183,8 @@ table{border-collapse:collapse;width:100%;font-size:13px;font-variant-numeric:ta
  <div class="card"><div class="ct">Eval top-1 agreement with the teacher</div><div id="c_top"></div><div class="legend" id="l_top"></div></div>
  <div class="card"><div class="ct">Training loss (KL over top-k): per step and 20-step mean</div><div id="c_loss"></div></div>
  <div class="card"><div class="ct">Evaluations</div><div id="tbl"></div></div>
+ <div class="card"><div class="ct">Probes: eval KL by step (lower is better)</div><div id="c_probe"></div><div class="legend" id="l_probe"></div></div>
+ <div class="card"><div class="ct">Probes: latest point vs control at the same step</div><div id="t_probe"></div></div>
 </div>
 <div class="card"><div class="ct" id="logt">Log</div><pre id="log"></pre></div>
 </div>
@@ -230,6 +247,12 @@ async function tick(){
  chart(document.getElementById("c_top"),[{...ser[0],pts:s.evals.map(e=>[e.tokens,e.top1])}],refs.map(([k,r])=>({n:REFN[k]||k,c:REFC[k]||"--gray",y:r.top1})),{fmt:v=>(v*100).toFixed(0)+"%"});
  const leg=[{n:"ternary (ours)",c:"--blue"}].concat(refs.map(([k])=>({n:REFN[k]||k,c:REFC[k]||"--gray"})));
  legend(document.getElementById("l_kl"),leg);legend(document.getElementById("l_top"),leg);
+ const pr=s.probes||{};const PC=["--blue","--orange","--aqua","--yellow"];let ci=0;
+ const pser=Object.keys(pr).map(k=>({n:k,c:k==="control"?"--gray":PC[(ci++)%4],dots:true,pts:pr[k].map(r=>[r[0],r[1]])}));
+ chart(document.getElementById("c_probe"),pser,[],{log:false,fmt:v=>v.toFixed(3)});
+ legend(document.getElementById("l_probe"),pser.map(x=>({n:x.n,c:x.c})));
+ const ctl=pr.control||[];
+ document.getElementById("t_probe").innerHTML=`<table><tr><th>Probe</th><th>Step</th><th>KL</th><th>Top-1</th><th>PPL</th><th>KL vs control</th></tr>`+Object.keys(pr).map(k=>{const r=pr[k][pr[k].length-1];const c=ctl.find(x=>x[0]===r[0]);const d=c&&k!=="control"?(r[1]-c[1]):null;return `<tr><td>${k}</td><td>${r[0]}</td><td>${r[1].toFixed(4)}</td><td>${(r[2]*100).toFixed(1)}%</td><td>${r[3].toFixed(2)}</td><td>${d==null?"—":(d>0?"+":"")+d.toFixed(4)}</td></tr>`}).join("")+`</table>`;
  chart(document.getElementById("c_loss"),[{n:"per step",c:"--blue",faint:true,pts:s.loss_raw||[]},{n:"20-step mean",c:"--blue",pts:s.loss}],[],{log:true,fmt:v=>v>=1?v.toFixed(v<10?1:0):v.toFixed(2)});
  let rows=refs.map(([k,r])=>`<tr><td>${REFN[k]||k}</td><td>ref</td><td>${r.kl.toFixed(4)}</td><td>${(r.top1*100).toFixed(1)}%</td><td>${r.ppl.toFixed(2)}</td></tr>`).join("");
  rows+=s.evals.slice(-8).map(e=>`<tr><td>ternary</td><td>${fmtN(e.tokens)}</td><td>${e.kl.toFixed(4)}</td><td>${(e.top1*100).toFixed(1)}%</td><td>${e.ppl.toFixed(2)}</td></tr>`).join("");
@@ -263,7 +286,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--host", default="dgx", help="ssh host running the pipeline")
     ap.add_argument("--work", default="~/ternary", help="WORK dir on that host")
-    ap.add_argument("--run", default="run", help="run dir under --work (train_ternary --out)")
+    ap.add_argument("--run", default="run", help="run dir under --work (train_ternary --out); 'auto': the most recently active one")
     ap.add_argument("--data", default="data", help="DATA_DIR under --work")
     ap.add_argument("--teacher", default="teacher", help="TEACHER_DIR under --work")
     ap.add_argument("--port", type=int, default=8422)
