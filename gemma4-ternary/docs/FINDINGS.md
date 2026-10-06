@@ -223,3 +223,34 @@ needs multilingual prompts.
 
 Copying exports from the Spark ran at 0.6-0.7 MB/s this time (10 MB/s on
 the 4th): ~75 min for 3 GB.
+
+## Run 3 final (step 1281, 21.0M tokens; 35.8M since the ternary start)
+
+| step | eval KL | top-1 | PPL |
+|---|---|---|---|
+| 750 (12.3M) | 0.904 | 69.0% | 6.92 |
+| 1000 (16.4M) | 0.769 | 71.6% | 6.17 |
+| 1150 (18.8M) | 0.728 | 72.5% | 6.07 |
+| 1281 (21.0M) | **0.709** | **72.9%** | **5.87** |
+
+References on the same eval: q4_0 0.105 / 91.8% / 5.43; MLX 4-bit RTN
+0.248 / 87.1% / 5.68. PPL is within ~3% of MLX 4-bit at half its size;
+KL is still ~3x its. The eval PPL wobbles ±1-5% between points while KL
+falls monotonically (KL is the training target; PPL also scores the
+human-written user turns and is sensitive to a few unlikely tokens).
+
+Chat (same 4 prompts as step 424, greedy, MLX 2-bit on the Mac):
+- Thinking mode now works end to end: "3 apples + 2 bags x 4" is planned
+  in Gemma-style bullets, computed (2 x 4 = 8, 3 + 8 = 11), the thought
+  channel closes and a clean numbered answer says 11. At step 424 it
+  computed 3 - 2 = 1 and looped.
+- Still wrong: "the capital of Australia is Sydney"; the iterative
+  Fibonacci becomes a garbled Binet formula; a Russian question is read
+  as a text to process ("please provide the context...") and answered in
+  English — the data is ~99.8% English.
+
+### Moving files off the Spark: HF, not scp
+
+scp from the Spark ran at 0.6-0.7 MB/s; `hf upload` of the same 3 GB to a
+private repo took 82 s (~37 MB/s) and `hf download` on the Mac 58 s. The
+single ssh stream was the bottleneck, not the uplink.
