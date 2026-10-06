@@ -271,3 +271,20 @@ history ("The capital of Paris is Paris"), the usual failure of weak
 models. Multi-turn is 27% of the training replies; a full run should
 carry more, and the attn4 probe still measures what ternary attention
 costs.
+
+Thinking mode, explicit `enable_thinking=True`, greedy, vs the 12B QAT MLX
+build: the student opens the thought channel correctly, but the reasoning
+is the weakest part. "Where is Sydney?" loops one bullet ("The user is
+asking for a location (Sydney)") ten times; "Is 391 a prime number?" is
+declared prime without a check (391 = 17 x 23), where the master works
+through divisibility by 2, 3, 5, 7... In LLMTray a long thinking chat
+degrades further ("London is located in Scotland", an invented town,
+"Where is Moon" -> a thought loop confusing the chat's turns), and one
+first turn opened and immediately closed the thought channel.
+
+So at KL 0.71: fluent, format-correct, short answers fine; reasoning
+loops, skips checks, and long chats snowball. The next runs need evals
+for these, not only KL: thought-loop rate, multi-turn consistency, fact
+checks. Remedies to try: more tokens, more multi-turn data, and on-policy
+distillation at the end (the student generates, the teacher scores),
+which targets loops directly.
