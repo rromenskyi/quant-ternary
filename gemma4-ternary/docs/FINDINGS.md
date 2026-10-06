@@ -261,8 +261,13 @@ Loads as a plain folder (config + complete weight index), 23.8 tok/s with
 thinking. In a multi-turn chat it lags one turn: "Where is Sydney?" got
 the previous answer again ("The capital of Paris is Paris"), "What do you
 know about London?" got "Sydney is a ... city in the UK" with London
-landmarks (Tower of London, the Thames) mixed into invented ones. Two
-suspects: the 8 global-attention layers (1 KV head, K = V) carry the
-long-range lookup that tracks the latest turn, and ternary may hit them
-hardest — the attn4 probe (4-bit attention) tests that; and multi-turn
-is only 27% of the training replies.
+landmarks (Tower of London, the Thames) mixed into invented ones.
+
+A fresh chat clears it: "Where is Sydney?" -> "Sydney, Australia."; the
+elliptical follow-up "and Paris?" -> "Sydney, Australia / Paris, France"
+(42.8 tok/s on this short context; 23.8 in the long one). So the model
+tracks turns; the long chat snowballed from one bad answer kept in the
+history ("The capital of Paris is Paris"), the usual failure of weak
+models. Multi-turn is 27% of the training replies; a full run should
+carry more, and the attn4 probe still measures what ternary attention
+costs.
