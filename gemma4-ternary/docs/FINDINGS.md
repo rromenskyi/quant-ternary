@@ -288,3 +288,15 @@ for these, not only KL: thought-loop rate, multi-turn consistency, fact
 checks. Remedies to try: more tokens, more multi-turn data, and on-policy
 distillation at the end (the student generates, the teacher scores),
 which targets loops directly.
+
+A runaway thought in LLMTray ("Where is Moon" -> an invented "story for
+kids", "Wait... Revised Flow... Actually, it's even better", the city list
+rewritten in circles) prompted a check of the data: of 9,108 thinking
+replies, 10% hit the 2,560-token cap and 746 (8%) never closed the thought
+channel; of 9,139 non-thinking replies, 31% hit the 768-token cap.
+Closed thoughts: median 623 tokens, p90 1,281. So the training data held
+hundreds of thoughts that never end and thousands of answers that never
+end. The loops are mostly the model's weakness at KL 0.71, but the data
+shouldn't teach endless text: `prepare_data.py` now drops replies that
+don't end in `<turn|>` (`--keep-unfinished` to keep them), and generation
+caps rise to 2,048 (no thinking) / 4,096 (thinking).

@@ -60,8 +60,8 @@ def main() -> None:
     ap.add_argument("--shard-prompts", type=int, default=1024)
     ap.add_argument("--think-frac", type=float, default=0.5)
     ap.add_argument("--max-prompt", type=int, default=2048)
-    ap.add_argument("--max-new", type=int, default=768)
-    ap.add_argument("--max-new-think", type=int, default=2560)
+    ap.add_argument("--max-new", type=int, default=2048)
+    ap.add_argument("--max-new-think", type=int, default=4096)
     ap.add_argument("--gpu-mem", type=float, default=0.85)
     ap.add_argument("--kv-cache-dtype", default="fp8",
                     help="long thinking replies make decode KV-bound; fp8 halves the KV reads. Only the sampled "

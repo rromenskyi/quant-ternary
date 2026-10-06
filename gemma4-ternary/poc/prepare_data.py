@@ -34,16 +34,21 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from ternary_lib import save_npy, write_json  # noqa: E402
 
 
-def gen_docs(d: Path):
-    """Documents (already rendered and tokenized) of gen_teacher_data.py shards, in order."""
+def gen_docs(d: Path, end_id: int | None = None):
+    """Documents (already rendered and tokenized) of gen_teacher_data.py
+    shards, in order. With end_id, replies the length cap cut off (not
+    ending in end_id) are skipped: a truncated reply teaches that answers,
+    and thoughts, don't end."""
     for f in sorted(d.glob("shard_*.npz")):
         z = np.load(f)
         ids, offs = z["ids"], list(z["offs"]) + [len(z["ids"])]
         for a, b in zip(offs[:-1], offs[1:]):
+            if end_id is not None and ids[b - 1] != end_id:
+                continue
             yield [int(t) for t in ids[a:b]]
 
 
-def doc_stream(sources, seed, tok):
+def doc_stream(sources, seed, tok, keep_unfinished: bool = False):
     """Documents from every source, interleaved by weight with a seeded RNG
     (deterministic, so a rerun reproduces the same rows)."""
     from datasets import load_dataset
@@ -52,7 +57,7 @@ def doc_stream(sources, seed, tok):
     for spec in sources:
         if spec.startswith("gen:"):  # gen:<dir>:<weight>, token ids from gen_teacher_data.py
             path, weight = spec[4:].rsplit(":", 1)
-            streams.append(gen_docs(Path(path)))
+            streams.append(gen_docs(Path(path), None if keep_unfinished else tok.convert_tokens_to_ids("<turn|>")))
             weights.append(float(weight))
             fields.append("ids")
             continue
@@ -103,6 +108,8 @@ def main() -> None:
     ap.add_argument("--source", action="append", required=True)
     ap.add_argument("--eval-source", action="append", required=True)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--keep-unfinished", action="store_true",
+                    help="keep generated replies the length cap cut off (dropped by default)")
     args = ap.parse_args()
 
     from transformers import AutoTokenizer
@@ -129,7 +136,7 @@ def main() -> None:
         buf: list[int] = []
         rows: list[np.ndarray] = []
         fi = 0
-        for ids in doc_stream(sources, seed, tok):
+        for ids in doc_stream(sources, seed, tok, args.keep_unfinished):
             buf.extend(ids)
             while len(buf) >= args.seq:
                 rows.append(np.asarray(buf[: args.seq], dtype=np.uint32))
