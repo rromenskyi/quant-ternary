@@ -307,3 +307,45 @@ at KL 0.71. Still, complete replies are worth more per token:
 (no thinking) / 4,096 (thinking). The same reasoning applies to the
 earlier format mismatch: the teacher labeled those contexts correctly,
 they were just not the inference contexts.
+
+## After the external reviews (2026-10-06, `docs/reviews/`)
+
+Both reviews (Codex, muse) agree on the main gaps; changes made:
+
+- **"KL" so far is top-32 only.** `kd_terms` now adds one bucket for the
+  rest of the vocabulary (`--kd-tail`, default on for new runs): the
+  result is the true KL of the coarsened distribution (top-k tokens + one
+  tail bucket), a lower bound of full-vocabulary KL that is never negative;
+  the top-k sum alone is neither. Every eval logs both `kl` (comparable
+  with runs 1-3 and the probes) and `kl_tail`.
+- **Eval mixed every position.** It now also reports, by the predicted
+  token, model replies only (`kl_reply`), and those split by thinking /
+  no thinking (`turn_masks` reads Gemma's turn markup from the token ids).
+- **Loss on user turns.** `--prompt-weight` (default 1, as before) weights
+  positions that predict user/system-turn tokens; 0 trains on replies and
+  plain text only.
+- **Export could not express a hybrid.** Checkpoints now record each
+  Linear's grid (`quant` in meta.json: [bits, group], 0 = ternary);
+  `export_mlx.py` packs affine n-bit layers (layout checked against
+  `mx.dequantize`: codes round-trip exactly) and writes the per-layer map;
+  `splice_mlx.py` writes it into the MLX config. Older checkpoints (the
+  attn4 probe): `--affine-pattern self_attn`.
+- **Robustness:** the global grad norm is logged every step (`gnorm`),
+  `--grad-clip` clips it, and a step with a non-finite loss or norm is
+  skipped instead of applied.
+- **Learned scales (LSQ):** `--learn-scale` learns a per-group
+  log-multiplier on the absmean scale (LSQ gradient, recomputed in the
+  backward); exported as the MLX scale. alpha = 0 reproduces plain absmean.
+- **Generation checks:** `gen_eval.py` (MLX, Mac) scores facts, thinking
+  math, Russian, code that must pass asserts, tool calls, multi-turn
+  memory, closed thoughts and a 4-gram repetition score, the same prompts
+  for every model.
+
+Wording corrected: run 2 changed the learning rate (3e-5 -> 1e-4) together
+with the quantization warmup, so "warmup broke the plateau" is a
+hypothesis; the pair broke it. The power-law token forecast is not a
+budget input. The probes (second pass over the same data, forked from a
+checkpoint adapted to g128 ternary) are screening, not clean ablations:
+read their slopes, not their first points. muse's claim that generated
+documents lack BOS is wrong (every document starts with id 2; 1.7 BOS per
+2048-token row).

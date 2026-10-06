@@ -94,13 +94,78 @@ class Data:
             x, lp, ix = self._shard(self.shards[r // self.rows])
             ids.append(x[r % self.rows]); lps.append(lp[r % self.rows]); idxs.append(ix[r % self.rows])
         t = lambda a, dt: torch.from_numpy(np.stack(a).astype(dt)).cuda(non_blocking=True)
-        return t(ids, np.int64), t(lps, np.float32), t(idxs, np.int64)
+        return t(ids, np.int64), t(lps, np.float32), t(idxs, np.int64), np.stack(ids)
 
 
-def kd_loss(logits, t_lp, t_idx):
-    """KL(teacher || student) restricted to the teacher's top-k tokens."""
-    s_lp = torch.log_softmax(logits.float(), dim=-1).gather(-1, t_idx)
-    return (t_lp.exp() * (t_lp - s_lp)).sum(-1).mean()
+# Gemma 4 chat markup (token ids): <|turn> role \n ... <turn|>
+TURN_OPEN, TURN_CLOSE, ROLE_MODEL = 105, 106, 4368
+CH_OPEN, CH_THOUGHT, NL, CH_CLOSE = 100, 45518, 107, 101
+
+
+def turn_masks(row: np.ndarray):
+    """Per token of a packed row: (prompt, reply, thinking) masks. prompt =
+    inside a user/system/tool turn (header to <turn|>); reply = a model
+    turn's tokens after its header; thinking = a reply whose thought channel
+    has content (not the empty `<|channel>thought\n<channel|>`). Text outside
+    turns (web documents, BOS) is in none of them. A row that starts inside
+    a turn has no header to read: its first tokens count as outside."""
+    n = len(row)
+    prompt, reply, think = np.zeros(n, bool), np.zeros(n, bool), np.zeros(n, bool)
+    i = 0
+    while i < n:
+        if row[i] == TURN_OPEN and i + 1 < n:
+            is_model = row[i + 1] == ROLE_MODEL
+            j = i + 1
+            while j < n and row[j] != TURN_CLOSE:
+                j += 1
+            end = min(j + 1, n)  # <turn|> belongs to the turn
+            if is_model:
+                b = i + 3  # after "<|turn>model\n"
+                reply[b:end] = True
+                th = (b + 3 < n and row[b] == CH_OPEN and row[b + 1] == CH_THOUGHT and row[b + 2] == NL
+                      and row[b + 3] != CH_CLOSE)
+                think[b:end] = th
+            else:
+                prompt[i:end] = True
+            i = end
+        else:
+            i += 1
+    return prompt, reply, think
+
+
+def next_token_weights(rows: np.ndarray, prompt_weight: float) -> np.ndarray:
+    """Weight of each position's prediction by the token it predicts: tokens
+    of user/system turns get prompt_weight, everything else 1."""
+    w = np.ones(rows.shape, np.float32)
+    if prompt_weight != 1.0:
+        for r, row in enumerate(rows):
+            pm = turn_masks(row)[0]
+            w[r, :-1] = np.where(pm[1:], prompt_weight, 1.0)
+            w[r, -1] = prompt_weight if pm[-1] else 1.0
+    return w
+
+
+def kd_terms(s_lp_full, t_lp, t_idx, tail: bool):
+    """Per-position KL(teacher || student) over the teacher's top-k tokens,
+    plus (tail=True) one bucket for the rest of the vocabulary: p_tail =
+    1 - sum(top-k p), q_tail = 1 - sum of the student's mass on those tokens.
+    Top-k alone drops the tail and understates KL most where the teacher is
+    unsure."""
+    s_k = s_lp_full.gather(-1, t_idx)
+    p_k = t_lp.exp()
+    kl = (p_k * (t_lp - s_k)).sum(-1)
+    if tail:
+        p_tail = (1 - p_k.sum(-1)).clamp_min(1e-6)
+        q_tail = (1 - s_k.exp().sum(-1)).clamp_min(1e-6)
+        kl = kl + p_tail * (p_tail.log() - q_tail.log())
+    return kl
+
+
+def kd_loss(logits, t_lp, t_idx, weights=None, tail: bool = True):
+    kl = kd_terms(torch.log_softmax(logits.float(), dim=-1), t_lp, t_idx, tail)
+    if weights is None:
+        return kl.mean()
+    return (kl * weights).sum() / weights.sum().clamp_min(1e-6)
 
 
 @torch.no_grad()
@@ -111,20 +176,46 @@ def evaluate(model, data: Path, teacher: Path, batch: int, max_rows: int) -> dic
     was = model.training
     model.eval()
     set_quant_strength(model, 1.0)  # always score the real ternary model
-    kl = agree = nll = n = 0.0
+    # positions grouped by the token they predict: all / model reply
+    # (thinking or not); "kl" stays the top-k sum (comparable with earlier
+    # runs), "kl_tail" adds the rest-of-vocabulary bucket
+    groups = ("all", "reply", "think", "nothink")
+    acc = {g: {"kl": 0.0, "kl_tail": 0.0, "agree": 0.0, "n": 0} for g in groups}
+    nll = n_tok = 0.0
     for i in range(0, len(x), batch):
-        ids = torch.from_numpy(x[i: i + batch].astype(np.int64)).cuda()
+        rows = x[i: i + batch]
+        ids = torch.from_numpy(rows.astype(np.int64)).cuda()
         t_lp = torch.from_numpy(lp[i: i + batch].astype(np.float32)).cuda()
         t_ix = torch.from_numpy(ix[i: i + batch].astype(np.int64)).cuda()
         s = torch.log_softmax(model(input_ids=ids).logits.float(), dim=-1)
-        kl += (t_lp.exp() * (t_lp - s.gather(-1, t_ix))).sum().item()
-        agree += (s.argmax(-1) == t_ix[..., 0]).sum().item()
+        k0 = kd_terms(s, t_lp, t_ix, tail=False)
+        k1 = kd_terms(s, t_lp, t_ix, tail=True)
+        ag = (s.argmax(-1) == t_ix[..., 0]).float()
         nll -= s[:, :-1].gather(-1, ids[:, 1:, None]).sum().item()
-        n += ids.numel()
+        n_tok += ids[:, 1:].numel()
+        masks = {"all": np.ones(rows.shape, bool)}
+        rep, th = np.zeros(rows.shape, bool), np.zeros(rows.shape, bool)
+        for r, row in enumerate(rows):
+            _, rp, tk = turn_masks(row)
+            rep[r, :-1], th[r, :-1] = rp[1:], tk[1:]  # by the predicted token
+        masks.update(reply=rep, think=rep & th, nothink=rep & ~th)
+        for g, m in masks.items():
+            mt = torch.from_numpy(m).cuda()
+            a = acc[g]
+            a["kl"] += k0[mt].sum().item(); a["kl_tail"] += k1[mt].sum().item()
+            a["agree"] += ag[mt].sum().item(); a["n"] += int(m.sum())
         del s
     model.train(was)
-    rows = len(x)
-    return {"kl": kl / n, "top1": agree / n, "ppl": math.exp(nll / (n - rows))}
+    out = {"ppl": math.exp(nll / n_tok)}
+    for g in groups:
+        a = acc[g]
+        if not a["n"]:
+            continue
+        sfx = "" if g == "all" else f"_{g}"
+        out[f"kl{sfx}"] = a["kl"] / a["n"]
+        out[f"kl_tail{sfx}"] = a["kl_tail"] / a["n"]
+        out[f"top1{sfx}"] = a["agree"] / a["n"]
+    return out
 
 
 def lr_at(step, total, args):
@@ -187,11 +278,12 @@ def load_params(d: Path, names, params) -> int:
     for f in sorted(d.glob("part_*.safetensors")):
         with safe_open(str(f), framework="pt", device="cuda") as sf:
             for key in sf.keys():
-                if key.startswith("p."):
+                if key.startswith("p.") and key[2:] in idx:
                     params[idx[key[2:]]].copy_(sf.get_tensor(key))
-                    n += 1
-    if n != len(names):
-        raise ValueError(f"{d}: {n} weights for {len(names)} ternary Linears")
+                    n += key.endswith(".weight")
+    n_w = sum(x.endswith(".weight") for x in names)
+    if n != n_w:  # learned scales may be absent (an older checkpoint): they start at 0
+        raise ValueError(f"{d}: {n} weights for {n_w} ternary Linears")
     return n
 
 
@@ -224,6 +316,15 @@ def main() -> None:
     ap.add_argument("--warmup", type=int, default=100, help="optimizer steps")
     ap.add_argument("--weight-decay", type=float, default=0.0)
     ap.add_argument("--init-ckpt", help="fresh run: start from this checkpoint's latent weights (optimizer and schedule start fresh)")
+    ap.add_argument("--prompt-weight", type=float, default=1.0,
+                    help="loss weight of positions predicting user/system-turn tokens (1: every token alike; "
+                         "0: learn the replies and plain text only)")
+    ap.add_argument("--kd-tail", action=argparse.BooleanOptionalAction, default=True,
+                    help="add the rest-of-vocabulary bucket to the top-k KL (--no-kd-tail: top-k only, as runs 1-3)")
+    ap.add_argument("--grad-clip", type=float, default=0.0,
+                    help="clip the global grad norm to this (0: no clipping; the norm is logged either way)")
+    ap.add_argument("--learn-scale", action="store_true",
+                    help="learn a per-group scale multiplier on the ternary layers (LSQ); exported as the MLX scale")
     ap.add_argument("--quant-warmup", type=int, default=0,
                     help="optimizer steps over which the ternary projection ramps in linearly (0: on from the start)")
     ap.add_argument("--group", type=int, default=128, help="MLX 2-bit group size (128: 2.25 bits/weight, 64: 2.5)")
@@ -278,11 +379,18 @@ def main() -> None:
         del orig
         gc.collect(); torch.cuda.empty_cache()
 
-    lin_names = ternarize(model, args.group, args.pattern, args.affine_pattern, args.affine_bits, args.affine_group)
+    lin_names = ternarize(model, args.group, args.pattern, args.affine_pattern, args.affine_bits, args.affine_group,
+                          learn_scale=args.learn_scale)
+    # each Linear's grid, saved with every checkpoint for export: [bits (0 = ternary), group]
+    quant = {f"{n}.weight": [model.get_submodule(n).bits or 0, model.get_submodule(n).group] for n in lin_names}
     for p in model.parameters():
         p.requires_grad_(False)
     names = [f"{n}.weight" for n in lin_names]
     params = [model.get_submodule(n).weight for n in lin_names]
+    for n in lin_names:  # learned scales (--learn-scale) train and checkpoint alongside
+        if model.get_submodule(n).alpha is not None:
+            names.append(f"{n}.alpha")
+            params.append(model.get_submodule(n).alpha)
     for p in params:
         p.requires_grad_(True)
     model.config.use_cache = False
@@ -311,6 +419,7 @@ def main() -> None:
 
     ds = Data(data, teacher, args.seed)
     last_save = time.time()
+    skipped = 0
     status.update(phase="training", last_save=last_save)
     t_hist: list[float] = []
     while step < total_steps and not STOP:
@@ -320,18 +429,29 @@ def main() -> None:
         set_quant_strength(model, lam)
         loss_sum = 0.0
         for _ in range(args.accum):
-            ids, t_lp, t_ix = ds.batch(cursor, args.batch)
+            ids, t_lp, t_ix, rows = ds.batch(cursor, args.batch)
             cursor += args.batch
-            loss = kd_loss(model(input_ids=ids).logits, t_lp, t_ix) / args.accum
+            w = None
+            if args.prompt_weight != 1.0:
+                w = torch.from_numpy(next_token_weights(rows, args.prompt_weight)).cuda()
+            loss = kd_loss(model(input_ids=ids).logits, t_lp, t_ix, w, tail=args.kd_tail) / args.accum
             loss.backward()
             loss_sum += loss.item()
             del loss
-        opt.step(lr)
+        gnorm = torch.nn.utils.clip_grad_norm_(params, args.grad_clip if args.grad_clip > 0 else float("inf")).item()
+        if not (math.isfinite(loss_sum) and math.isfinite(gnorm)):
+            # a non-finite step is skipped, not applied: the latent weights stay as they were
+            for p_ in params:
+                p_.grad = None
+            log(f"step {step + 1}: non-finite loss {loss_sum} / grad norm {gnorm}, skipped")
+            skipped += 1
+        else:
+            opt.step(lr)
         step += 1
         dt = time.time() - t0
         t_hist = (t_hist + [dt])[-50:]
         tok_s = per_step * seq / (sum(t_hist) / len(t_hist))
-        append_metric(out, {"step": step, "tokens": step * per_step * seq, "loss": loss_sum, "lr": lr, "lam": lam,
+        append_metric(out, {"step": step, "tokens": step * per_step * seq, "loss": loss_sum, "lr": lr, "lam": lam, "gnorm": gnorm,
                             "tok_s": tok_s, "t": time.time()})
         if step % args.eval_every == 0 or step == total_steps:
             r = evaluate(model, data, teacher, args.batch, args.eval_rows)
@@ -346,7 +466,8 @@ def main() -> None:
             status["phase"] = "saving"
             write_json(out / "status.json", status)
             t1 = time.time()
-            save_ckpt(out, step, names, params, opt, {"step": step, "cursor": cursor}, args.keep, args.part_gb * 1e9)
+            save_ckpt(out, step, names, params, opt, {"step": step, "cursor": cursor, "quant": quant}, args.keep,
+                      args.part_gb * 1e9)
             last_save = time.time()
             log(f"saved step {step} in {last_save - t1:.0f}s")
             status.update(phase="training", last_save=last_save, last_save_step=step)

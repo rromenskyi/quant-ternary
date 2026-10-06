@@ -42,6 +42,8 @@ def main() -> None:
     with safe_open(args.ternary, framework="numpy") as sf:
         meta = sf.metadata()
         group = int(meta["group_size"])
+        # per-Linear [bits, group] (hybrid exports); older exports: 2-bit at group_size everywhere
+        layer_q = json.loads(meta["layers"]) if "layers" in meta else {}
         tern = {}
         for k in sf.keys():
             a = sf.get_tensor(k)
@@ -65,7 +67,8 @@ def main() -> None:
         if q is None:
             continue
         for lin in linears:
-            q[hf_to_module(lin)] = {"group_size": group, "bits": 2}
+            bits, g = layer_q.get(lin, [2, group])
+            q[hf_to_module(lin)] = {"group_size": g, "bits": bits}
     cfg["ternary"] = {"source": meta.get("ckpt"), "group_size": group, "linears": len(linears)}
     (out / "config.json").write_text(json.dumps(cfg, indent=2))
 

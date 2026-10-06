@@ -95,21 +95,70 @@ def ref_quantizer(name: str):
     return lambda w: affine_q(w, bits, group)
 
 
+def _lsq_fwd(w: torch.Tensor, alpha: torch.Tensor, group: int) -> torch.Tensor:
+    out_f, in_f = w.shape
+    g = w.float().view(out_f, in_f // group, group)
+    s = (alpha.float().exp() * g.abs().mean(-1)).clamp_min(1e-8)[..., None]
+    return ((g / s).round().clamp(-1, 1) * s).view(out_f, in_f).to(w.dtype)
+
+
+def _lsq_bwd(w: torch.Tensor, alpha: torch.Tensor, gout: torch.Tensor, group: int) -> torch.Tensor:
+    """d loss / d alpha, LSQ-style: d w_hat / d s = round(v) - v inside the
+    grid, the clamped code outside; times s (alpha is a log-multiplier) and
+    LSQ's gradient scale 1 / sqrt(group)."""
+    out_f, in_f = w.shape
+    g = w.float().view(out_f, in_f // group, group)
+    s = (alpha.float().exp() * g.abs().mean(-1)).clamp_min(1e-8)[..., None]
+    v = g / s
+    q = v.round().clamp(-1, 1)
+    dws = torch.where(v.abs() <= 1.5, q - v, q)
+    d_s = (gout.float().view(out_f, in_f // group, group) * dws).sum(-1)
+    return (d_s * s[..., 0] / group**0.5).to(alpha.dtype)
+
+
+_lsq_fwd_c = torch.compile(_lsq_fwd, dynamic=False)
+_lsq_bwd_c = torch.compile(_lsq_bwd, dynamic=False)
+
+
+class _TernaryLSQ(torch.autograd.Function):
+    """Ternary with a learned per-group scale multiplier exp(alpha) on
+    mean|w| (LSQ, Esser et al. 2019): the weight still gets the
+    straight-through identity; alpha its own gradient. Recomputed in the
+    backward, nothing weight-sized is saved."""
+
+    @staticmethod
+    def forward(ctx, w, alpha, group):
+        ctx.save_for_backward(w, alpha)
+        ctx.group = group
+        return _lsq_fwd_c(w, alpha, group)
+
+    @staticmethod
+    def backward(ctx, gout):
+        w, alpha = ctx.saved_tensors
+        return gout, _lsq_bwd_c(w, alpha, gout, ctx.group), None
+
+
 class TernaryLinear(nn.Module):
     """A Linear trained through a weight quantizer: ternary on the 2-bit grid
     (bits=None), or MLX affine n-bit (bits=4, ...) for the layers a hybrid
     keeps at higher precision."""
 
-    def __init__(self, lin: nn.Linear, group: int, bits: int | None = None):
+    def __init__(self, lin: nn.Linear, group: int, bits: int | None = None, learn_scale: bool = False):
         super().__init__()
         self.group, self.bits = group, bits
+        # learned log-multiplier per group on the ternary scale (LSQ); 0 = plain absmean
+        self.alpha = (nn.Parameter(torch.zeros(lin.out_features, lin.in_features // group, dtype=lin.weight.dtype,
+                                               device=lin.weight.device))
+                      if learn_scale and bits is None else None)
         self.weight = lin.weight
         self.bias = lin.bias
         self.in_features, self.out_features = lin.in_features, lin.out_features
         self.lam = 1.0  # quantization strength: w + lam * (ternary(w) - w)
 
     def forward(self, x):
-        if self.bits is None:
+        if self.bits is None and self.alpha is not None:
+            wq = _TernaryLSQ.apply(self.weight, self.alpha, self.group)
+        elif self.bits is None:
             wq = _TernarySTE.apply(self.weight, self.group)
         else:
             wq = _AffineSTE.apply(self.weight, self.bits, self.group)
@@ -125,7 +174,7 @@ def set_quant_strength(model: nn.Module, lam: float) -> None:
 
 
 def ternarize(model: nn.Module, group: int, pattern: str = TEXT_LINEAR, affine_pattern: str | None = None,
-              affine_bits: int = 4, affine_group: int = 64) -> list[str]:
+              affine_bits: int = 4, affine_group: int = 64, learn_scale: bool = False) -> list[str]:
     """Swap every matching nn.Linear for a TernaryLinear sharing its weight;
     those also matching affine_pattern get the affine affine_bits grid."""
     rx = re.compile(pattern)
@@ -138,7 +187,8 @@ def ternarize(model: nn.Module, group: int, pattern: str = TEXT_LINEAR, affine_p
         g = affine_group if affine else group
         if lin.in_features % g:
             raise ValueError(f"{n}: in_features {lin.in_features} not divisible by group {g}")
-        setattr(model.get_submodule(parent), child, TernaryLinear(lin, g, affine_bits if affine else None))
+        setattr(model.get_submodule(parent), child,
+                TernaryLinear(lin, g, affine_bits if affine else None, learn_scale=learn_scale))
     return names
 
 
