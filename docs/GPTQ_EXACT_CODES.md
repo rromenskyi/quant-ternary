@@ -35,12 +35,20 @@ damage concentrates at 2-3 bits, where one step is large.
 
 ## The fix (qwen35-quant)
 
-`gptq_qwen35.py` saves GPTQ's own scale and bias per group next to the
-weights; `convert_mlx.py --gptq-work` runs `mlx_lm.convert` for the model's
-structure, then rewrites every calibrated tensor with GPTQ's codes, scales
-and biases. The packing is MLX's (a little-endian bit stream of b-bit codes
-in uint32 words, verified bit for bit against `mx.quantize` for 2, 3, 4, 5,
-6 and 8 bits). A tensor's weight, scales and biases can sit in different
+`gptq_qwen35.py` saves GPTQ's own integer codes (uint8, from its float32
+result), scale and bias per group next to the weights; `convert_mlx.py
+--gptq-work` runs `mlx_lm.convert` for the model's structure, then rewrites
+every calibrated tensor with those codes, scales and biases. The packing is
+MLX's (a little-endian bit stream of b-bit codes in uint32 words; checked
+bit for bit against `mx.quantize` for 2, 3, 4, 5, 6 and 8 bits by
+`qwen35-quant/poc/test_pack.py`).
+
+The two Ornith-1.5-35B-A3B releases (2026-10-06) were written before the
+integer codes were saved: their codes were re-derived from GPTQ's weights
+stored in bf16. A bf16 value near a code boundary could round across it
+(at 8 bits a value at a group's edge is up to half a step away in bf16), so
+the conversion now also reports how many codes the bf16 re-derivation
+would have changed: 0 of 1.2 M at 2, 3, 6 and 8 bits on the dry-run model. A tensor's weight, scales and biases can sit in different
 shards, so the rewrite indexes all shards. After the fix MLX's dequantized
 weights equal GPTQ's to bf16 rounding.
 

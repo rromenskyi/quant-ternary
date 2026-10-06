@@ -1,6 +1,5 @@
-"""Convert an assemble_checkpoint.py output to MLX with the SAME
-per-component bits its decoder was calibrated at (quant_recipe.json), so
-mlx_lm's affine quantization re-derives exactly the GPTQ codes.
+"""Convert an assemble_checkpoint.py output to MLX at the per-component
+bits its decoder was calibrated at (quant_recipe.json).
 
 Outside the calibrated decoder:
   - embed_tokens: --embed-bits, RTN; an untied lm_head: --head-bits, RTN;
@@ -13,8 +12,9 @@ Outside the calibrated decoder:
 With --gptq-work (gptq_qwen35.py's directory), the decoder's quantized
 tensors are then rewritten with GPTQ's own codes, scales and biases: GPTQ's
 error feedback often leaves a group's extreme codes unused, and MLX's
-re-derived min / max grid then differs (7.8 % of the codes of a 3-bit
-tensor in the dry run).
+re-derived min / max grid then differs (docs/GPTQ_EXACT_CODES.md). The
+codes are the integer ones gptq_qwen35.py saved (gptq_codes); a work
+directory from before that re-derives them from the bf16 weights.
 
 Needs the ipsupport-llc/mlx-lm fork (qwen3_5 / qwen3_5_moe with vision).
 
@@ -49,12 +49,17 @@ MLX_COMPONENTS = {
 def bits_for(component: str, recipe: dict) -> int:
     """A component's bits; "experts_down" etc. fall back to "experts"
     (recipes written before the split have only "experts")."""
-    return recipe.get(component, recipe.get(component.split("_")[0]))
+    bits = recipe.get(component, recipe.get(component.split("_")[0]))
+    if bits is None:
+        raise SystemExit(f"quant_recipe.json has no bits for {component}")
+    return bits
 
 
 def pack(codes: np.ndarray, bits: int) -> np.ndarray:
     """MLX's affine packing: a little-endian bit stream of `bits`-bit codes
     in uint32 words ([..., n] -> [..., n * bits / 32])."""
+    if codes.shape[-1] % 32:
+        raise ValueError(f"packing needs a multiple of 32 codes per row, got {codes.shape[-1]}")
     c = codes.astype(np.uint64).reshape(*codes.shape[:-1], -1, 32)
     words = np.zeros(c.shape[:-1] + (bits,), dtype=np.uint64)
     for j in range(32):
@@ -66,28 +71,31 @@ def pack(codes: np.ndarray, bits: int) -> np.ndarray:
 
 
 def gptq_tensors(work: Path, recipe: dict) -> dict[str, tuple]:
-    """MLX key prefix -> (W_hat, scale, bias, bits) from gptq_qwen35.py's
-    layer files; fused experts split into switch_mlp gate / up / down."""
+    """MLX key prefix -> (W_hat, scale, bias, codes or None, bits) from
+    gptq_qwen35.py's layer files; fused experts split into switch_mlp gate /
+    up / down."""
     bits_of = recipe["components"]
     out = {}
     for f in sorted(glob.glob(str(work / "layers" / "*.safetensors"))):
         t = mx.load(f)
         for key in t:
-            if key.endswith(("gptq_scales", "gptq_biases")):
+            if ".gptq_" in key:
                 continue
             mod = key.split(".layers.", 1)[1].split(".", 1)[1]  # "<module>.weight" or "mlp.experts.gate_up_proj"
             mod = mod[: -len(".weight")] if mod.endswith(".weight") else mod
             bits = bits_for(bits_of[mod], recipe["recipe"])
             prefix = "language_model.model.layers." + key.split(".layers.", 1)[1].split(".", 1)[0]
             W, S, B = t[key], t[key + ".gptq_scales"], t[key + ".gptq_biases"]
+            C = t.get(key + ".gptq_codes")
             if mod == "mlp.experts.gate_up_proj":
                 mid = W.shape[-2] // 2
-                out[f"{prefix}.mlp.switch_mlp.gate_proj"] = (W[..., :mid, :], S[..., :mid, :], B[..., :mid, :], bits)
-                out[f"{prefix}.mlp.switch_mlp.up_proj"] = (W[..., mid:, :], S[..., mid:, :], B[..., mid:, :], bits)
+                for name, rows in (("gate_proj", slice(None, mid)), ("up_proj", slice(mid, None))):
+                    out[f"{prefix}.mlp.switch_mlp.{name}"] = (
+                        W[..., rows, :], S[..., rows, :], B[..., rows, :], None if C is None else C[..., rows, :], bits)
             elif mod == "mlp.experts.down_proj":
-                out[f"{prefix}.mlp.switch_mlp.down_proj"] = (W, S, B, bits)
+                out[f"{prefix}.mlp.switch_mlp.down_proj"] = (W, S, B, C, bits)
             else:
-                out[f"{prefix}.{mod}"] = (W, S, B, bits)
+                out[f"{prefix}.{mod}"] = (W, S, B, C, bits)
     return out
 
 
@@ -114,7 +122,8 @@ def write_gptq_codes(out: Path, work: Path, recipe: dict, group_size: int) -> No
         mx.eval(t)  # loaded lazily from the files rewritten below
     where = {k: name for name, t in shards.items() for k in t}
     touched = set()
-    for prefix, (W, S, B, bits) in exact.items():
+    saved = rederived_off = 0
+    for prefix, (W, S, B, C, bits) in exact.items():
         if f"{prefix}.weight" not in where:
             continue
         n = 2**bits - 1
@@ -122,11 +131,20 @@ def write_gptq_codes(out: Path, work: Path, recipe: dict, group_size: int) -> No
         # an hour for a 35B MoE's codes.
         with mx.stream(GPU or mx.cpu):
             Wg = W.astype(mx.float32).reshape(*W.shape[:-1], -1, group_size)
-            codes = mx.clip(mx.round((Wg - B[..., None]) / mx.where(S == 0, 1, S)[..., None]), 0, n)
-            codes = np.array(codes.reshape(W.shape).astype(mx.uint8))
+            from_bf16 = mx.clip(mx.round((Wg - B[..., None]) / mx.where(S == 0, 1, S)[..., None]), 0, n)
+            from_bf16 = from_bf16.reshape(W.shape).astype(mx.uint8)
+            if C is not None:  # GPTQ's own integer codes
+                saved += 1
+                rederived_off += int((from_bf16 != C).sum().item())
+                codes = np.array(C)
+            else:
+                codes = np.array(from_bf16)
         packed = mx.array(pack(codes, bits))
         old = shards[where[f"{prefix}.weight"]][f"{prefix}.weight"]
         assert packed.shape == old.shape, (prefix, packed.shape, old.shape)
+        for part, value in (("scales", S), ("biases", B)):
+            have = shards[where[f"{prefix}.{part}"]][f"{prefix}.{part}"]
+            assert have.shape == value.shape, (prefix, part, value.shape, have.shape)
         changed += int((packed != old).sum().item())
         total += old.size
         sdt = shards[where[f"{prefix}.scales"]][f"{prefix}.scales"].dtype
@@ -140,8 +158,9 @@ def write_gptq_codes(out: Path, work: Path, recipe: dict, group_size: int) -> No
     missing = set(exact) - done
     if missing:
         raise SystemExit(f"GPTQ tensors not in the MLX model: {sorted(missing)[:5]}")
-    print(f"GPTQ codes written for {len(done)} tensors; {100 * changed / max(total, 1):.2f} % of the packed words differ "
-          "from MLX's own re-quantization", flush=True)
+    print(f"GPTQ codes written for {len(done)} tensors ({saved} from saved integer codes); "
+          f"{100 * changed / max(total, 1):.2f} % of the packed words differ from MLX's own re-quantization; "
+          f"re-deriving the codes from the bf16 weights would have changed {rederived_off} codes", flush=True)
 
 
 def main() -> None:

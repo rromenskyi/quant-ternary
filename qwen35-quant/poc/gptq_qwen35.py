@@ -69,6 +69,16 @@ def parse_recipe(text: str) -> dict[str, int]:
     return {k.strip(): int(v) for k, v in (p.split("=") for p in text.split(","))}
 
 
+def codes(W: torch.Tensor, scale: torch.Tensor, bias: torch.Tensor, group_size: int, bits: int) -> torch.Tensor:
+    """GPTQ's integer codes from its float32 result (uint8): convert_mlx.py
+    packs these, not codes re-derived from the bf16 weights (at 8 bits a
+    value near a group's edge can round across a code in bf16)."""
+    W = W.float().reshape(*W.shape[:-1], -1, group_size)
+    s = scale.float()[..., None]
+    q = torch.round((W - bias.float()[..., None]) / torch.where(s == 0, torch.ones_like(s), s))
+    return q.clamp(0, 2**bits - 1).to(torch.uint8).reshape(*W.shape[:-2], -1)
+
+
 def bits_for(component: str, recipe: dict[str, int]) -> int | None:
     """A component's bits; "experts_down" etc. fall back to "experts"."""
     return recipe.get(component, recipe.get(component.split("_")[0]))
@@ -103,10 +113,9 @@ class _Catch(torch.nn.Module):
         return hidden_states
 
 
-def layer_kwargs(lm, chunk: torch.Tensor) -> tuple[torch.Tensor, dict[int, dict]]:
-    """The embeddings of `chunk` and each layer's call kwargs, from one pass
-    with every layer swapped for a _Catch (chunks are all one length, so
-    one pass serves them all)."""
+def layer_kwargs(lm, chunk: torch.Tensor) -> dict[int, dict]:
+    """Each layer's call kwargs, from one pass with every layer swapped for
+    a _Catch (chunks are all one length, so one pass serves them all)."""
     store: dict[int, dict] = {}
     real = lm.layers
     lm.layers = torch.nn.ModuleList([_Catch(store, i) for i in range(len(real))])
@@ -156,6 +165,8 @@ def calibrate_experts(experts, rows: dict[int, torch.Tensor], recipe: dict[str, 
     groups = lambda W: (W.shape[0], W.shape[1], W.shape[2] // args.group_size)  # noqa: E731
     gu_s, gu_b = torch.empty(groups(gate_up)), torch.empty(groups(gate_up))
     dn_s, dn_b = torch.empty(groups(down)), torch.empty(groups(down))
+    gu_c = torch.empty(gate_up.shape, dtype=torch.uint8)
+    dn_c = torch.empty(down.shape, dtype=torch.uint8)
     for start in range(0, E, args.expert_batch):
         ids = list(range(start, min(E, start + args.expert_batch)))
         Xp = expert_xp(rows, ids, gate_up.shape[-1])
@@ -163,6 +174,7 @@ def calibrate_experts(experts, rows: dict[int, torch.Tensor], recipe: dict[str, 
         W = res["W_hat"]
         gu_hat[ids] = W.to(torch.bfloat16).cpu()
         gu_s[ids], gu_b[ids] = res["scale"].float().cpu(), res["bias"].float().cpu()
+        gu_c[ids] = codes(W.cpu(), gu_s[ids], gu_b[ids], args.group_size, bits_for("experts_gate_up", recipe))
         # down_proj sees act(gate) * up of the QUANTIZED gate_up, as at inference.
         down_rows = {}
         for j, e in enumerate(ids):
@@ -173,18 +185,25 @@ def calibrate_experts(experts, rows: dict[int, torch.Tensor], recipe: dict[str, 
                            args.group_size, args.percdamp)
         dn_hat[ids] = res["W_hat"].to(torch.bfloat16).cpu()
         dn_s[ids], dn_b[ids] = res["scale"].float().cpu(), res["bias"].float().cpu()
+        dn_c[ids] = codes(res["W_hat"].cpu(), dn_s[ids], dn_b[ids], args.group_size, bits_for("experts_down", recipe))
     experts.gate_up_proj.data.copy_(gu_hat.to(gate_up.device))
     experts.down_proj.data.copy_(dn_hat.to(down.device))
     # The GPTQ grid itself (scale per code, bias): convert_mlx.py writes these
     # codes exactly instead of letting MLX re-derive the grid from min / max.
     return {"mlp.experts.gate_up_proj": gu_hat, "mlp.experts.down_proj": dn_hat,
             "mlp.experts.gate_up_proj.gptq_scales": gu_s, "mlp.experts.gate_up_proj.gptq_biases": gu_b,
-            "mlp.experts.down_proj.gptq_scales": dn_s, "mlp.experts.down_proj.gptq_biases": dn_b}
+            "mlp.experts.gate_up_proj.gptq_codes": gu_c,
+            "mlp.experts.down_proj.gptq_scales": dn_s, "mlp.experts.down_proj.gptq_biases": dn_b,
+            "mlp.experts.down_proj.gptq_codes": dn_c}
 
 
 def calibrate_layer(layer, hidden: list[torch.Tensor], kwargs: dict, recipe: dict, floats, args) -> dict[str, torch.Tensor]:
     targets = {n: m for n, m in layer.named_modules()
                if n in COMPONENTS and isinstance(m, torch.nn.Linear) and not keep_float(n, floats)}
+    # A renamed module would otherwise stay bf16 without a word.
+    mixers = {COMPONENTS[n] for n in targets} & {"attn", "linear"}
+    if not mixers:
+        raise SystemExit(f"no attention or linear-attention projection found: {[n for n, _ in layer.named_modules()][:12]}")
     # Inputs stay on the GPU (bf16): per-chunk copies to the CPU and per-expert
     # gathers in the hook made a layer CPU-bound (21 min on an A100).
     inputs: dict[str, list[torch.Tensor]] = {n: [] for n in targets}
@@ -219,6 +238,7 @@ def calibrate_layer(layer, hidden: list[torch.Tensor], kwargs: dict, recipe: dic
         out[f"{n}.weight"] = res["W_hat"].to(torch.bfloat16).cpu()
         out[f"{n}.weight.gptq_scales"] = res["scale"].float().cpu()
         out[f"{n}.weight.gptq_biases"] = res["bias"].float().cpu()
+        out[f"{n}.weight.gptq_codes"] = codes(res["W_hat"], res["scale"], res["bias"], args.group_size, bits)
     t2 = time.time()
     if rows:
         out.update(calibrate_experts(experts, rows, recipe, args))
@@ -259,17 +279,30 @@ def main() -> None:
     missing = {c for c in present if bits_for(c, recipe) is None}
     if missing:
         raise SystemExit(f"recipe has no bits for: {sorted(missing)} (model has {sorted(present)})")
-    json.dump({"recipe": {k: bits_for(k, recipe) for k in sorted(present)}, "group_size": args.group_size,
-               "components": COMPONENTS, "keep_float": [p.pattern for p in floats],
-               "calibration": {"chunks": args.calib_chunks, "tokens": args.calib_chunk_tokens, "sources": args.calib}},
-              open(work / "quant_recipe.json", "w"), indent=2)
 
     chunks = load_chunks(args.calib, tok, args.calib_chunks, args.calib_chunk_tokens)
+    if not chunks:
+        raise SystemExit(f"no calibration chunk of {args.calib_chunk_tokens} tokens in {args.calib}")
     print(f"{len(chunks)} chunks x {args.calib_chunk_tokens} tokens; recipe {recipe}; {len(layers)} layers", flush=True)
     kwargs = layer_kwargs(lm, chunks[0])
 
     progress = work / "progress.json"
-    start = json.load(open(progress))["done"] + 1 if progress.exists() else 0
+    # What the finished layers were made with: a resume must not mix recipes.
+    made_with = {"recipe": args.recipe, "group_size": args.group_size, "calib": args.calib,
+                 "calib_chunks": args.calib_chunks, "calib_chunk_tokens": args.calib_chunk_tokens,
+                 "keep_float": [p.pattern for p in floats]}
+    start = 0
+    if progress.exists():
+        old = json.load(open(progress))
+        if old.get("made_with") != made_with:
+            raise SystemExit(f"{work} holds layers made with {old.get('made_with')}, not {made_with}: "
+                             "use another --work or delete it")
+        start = old["done"] + 1
+    # Written only once the work directory is known to be this recipe's.
+    json.dump({"recipe": {k: bits_for(k, recipe) for k in sorted(present)}, "group_size": args.group_size,
+               "components": COMPONENTS, "keep_float": [p.pattern for p in floats],
+               "calibration": {"chunks": args.calib_chunks, "tokens": args.calib_chunk_tokens, "sources": args.calib}},
+              open(work / "quant_recipe.json", "w"), indent=2)
     if start:
         hidden = [h.to(DEVICE) for h in torch.load(work / "hidden.pt")]
         print(f"resuming at layer {start}", flush=True)
@@ -287,11 +320,11 @@ def main() -> None:
             hidden = [layer(h, **kwargs[i]) for h in hidden]
         save_file({f"{PREFIX}.{i}.{k}": v.contiguous() for k, v in out.items()}, work / "layers" / f"{i:03d}.safetensors")
         torch.save([h.cpu() for h in hidden], work / "hidden.pt")
-        json.dump({"done": i, "layers": len(layers)}, open(progress, "w"))
+        json.dump({"done": i, "layers": len(layers), "made_with": made_with}, open(progress, "w"))
         layers[i] = layer.cpu()
         if DEVICE == "cuda":
             torch.cuda.empty_cache()
-        n = sum(1 for k in out if not k.endswith(("gptq_scales", "gptq_biases")))
+        n = sum(1 for k in out if ".gptq_" not in k)
         print(f"layer {i:2d}/{len(layers)} ({n} tensors) {time.time() - started:.0f}s", flush=True)
     print("GPTQ_DONE", flush=True)
 

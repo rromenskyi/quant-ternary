@@ -1,8 +1,9 @@
 """The source checkpoint with gptq_qwen35.py's quantized decoder weights
 swapped in, shard by shard (the vision tower, MTP head, embeddings, norms,
 router and everything else copied byte for byte), plus quant_recipe.json.
-convert_mlx.py turns it into MLX with the same bits, which re-derives the
-GPTQ codes exactly.
+convert_mlx.py turns it into MLX at the same bits and, with --gptq-work,
+writes GPTQ's own codes (MLX's re-quantization alone changes some:
+docs/GPTQ_EXACT_CODES.md).
 
     python assemble_checkpoint.py --model SNAPSHOT --work /workspace/ornith-gptq --out /workspace/ornith-ongrid
 """
@@ -32,8 +33,10 @@ def main() -> None:
     where: dict[str, Path] = {}
     for f in sorted((work / "layers").glob("*.safetensors")):
         with safe_open(f, "pt") as s:
-            where.update({k: f for k in s.keys() if not k.endswith(("gptq_scales", "gptq_biases"))})
+            where.update({k: f for k in s.keys() if ".gptq_" not in k})
     out.mkdir(parents=True, exist_ok=True)
+    if not (src / "model.safetensors.index.json").exists():
+        raise SystemExit(f"{src}: a sharded checkpoint (model.safetensors.index.json) is expected")
     index = json.load(open(src / "model.safetensors.index.json"))
     cache: dict[Path, dict] = {}
     left = set(where)

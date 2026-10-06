@@ -82,6 +82,11 @@ Expected times on the A100 for the 35B MoE: download ~5 min, HF reference
 calibration is CPU-bound, see FINDINGS), assembly ~5 min, conversion with
 exact codes ~20 min, checks ~10 min.
 
+A calibration resumes only with the recipe, group size and calibration
+data its finished layers were made with (`progress.json`'s `made_with`);
+with anything else it stops and says so: use another `WORK` or delete
+`gptq-<variant>`. The check step is skipped on a re-run only if it passed.
+
 Watch: `tail /workspace/logs/pipeline.log`. The step logs are appended across
 runs: read them from the latest start, not the whole file.
 

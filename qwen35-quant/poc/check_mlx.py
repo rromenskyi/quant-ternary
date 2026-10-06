@@ -110,13 +110,17 @@ def main() -> None:
             result[f"ppl{suffix}_bf16"] = bf16[ref_key]
             result[f"ppl{suffix}_ratio"] = ppl / bf16[ref_key]
             print(f"  vs bf16 {bf16[ref_key]:.4f}: {100 * (ppl / bf16[ref_key] - 1):+.2f} %")
-    json.dump(result, open(out_path, "w"), indent=2)
-
+    failures = []
     if result.get("vision_cos_mean", 1.0) < args.min_vision_cos:
-        raise SystemExit(f"vision features off: mean cosine {result['vision_cos_mean']:.4f}")
+        failures.append(f"vision features off: mean cosine {result['vision_cos_mean']:.4f}")
     for key in ("ppl_ratio", "ppl_code_ratio"):
         if result.get(key, 1.0) > args.max_ppl_ratio:
-            raise SystemExit(f"perplexity off: {key} {result[key]:.3f}")
+            failures.append(f"perplexity off: {key} {result[key]:.3f} > {args.max_ppl_ratio}")
+    # The pipeline skips the check only on a pass.
+    result.update(passed=not failures, max_ppl_ratio=args.max_ppl_ratio)
+    json.dump(result, open(out_path, "w"), indent=2)
+    if failures:
+        raise SystemExit("; ".join(failures))
     print("CHECK_DONE")
 
 

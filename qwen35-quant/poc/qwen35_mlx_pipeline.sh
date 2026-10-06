@@ -136,8 +136,9 @@ else
 fi
 
 # --- calibrate -----------------------------------------------------------------
-if grep -q GPTQ_DONE "$LOG_DIR/qwen35_calibrate.log" 2>/dev/null && [ -s "$GPTQ/progress.json" ] \
-   && python3 -c "import json,sys; p=json.load(open('$GPTQ/progress.json')); sys.exit(p['done']+1!=p['layers'])"; then
+# Done when every layer is in, made with this recipe and group size
+# (gptq_qwen35.py refuses to resume with others).
+if [ -s "$GPTQ/progress.json" ] && python3 -c "import json,sys; p=json.load(open('$GPTQ/progress.json')); m=p.get('made_with',{}); sys.exit(not (p['done']+1==p['layers'] and m.get('recipe')=='$RECIPE' and m.get('group_size')==$GROUP_SIZE))"; then
   skip_step calibrate "all layers in $GPTQ"
 else
   run_step calibrate "GPTQ $RECIPE (group $GROUP_SIZE)" \
@@ -165,8 +166,9 @@ else
 fi
 
 # --- check ---------------------------------------------------------------------
-if [ -s "$CHECK_JSON" ] && grep -q ppl_code "$CHECK_JSON" && [ "$CHECK_JSON" -nt "$OUT_DIR/quant_recipe.json" ]; then
-  skip_step check "$CHECK_JSON newer than the model"
+if [ -s "$CHECK_JSON" ] && [ "$CHECK_JSON" -nt "$OUT_DIR/quant_recipe.json" ] \
+   && python3 -c "import json,sys; c=json.load(open('$CHECK_JSON')); sys.exit(not (c.get('passed') and 'ppl_code' in c and c.get('max_ppl_ratio')==$MAX_PPL_RATIO))"; then
+  skip_step check "$CHECK_JSON passed, newer than the model"
 else
   run_step check "vision vs HF, image question, perplexity (text, code)" \
     mlx_env python3 "$HERE/check_mlx.py" --model "$OUT_DIR" --ref "$REF" --wikitext "$DATA/wiki.test.raw" \
