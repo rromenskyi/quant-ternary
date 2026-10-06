@@ -2,7 +2,9 @@
 one model load: wikitext-2 test perplexity of the text decoder, and the
 vision tower's features on one synthetic 640 x 480 image for check_mlx.py.
 
-Writes to --out: ref_image.png, ref_vision_feats.npy, ref.json (PPL).
+Writes to --out: ref_image.png, ref_vision_feats.npy, ref.json (PPL on
+wikitext-2 and, with --code, on held-out Python code). What ref.json and
+the features file already have is kept, not recomputed.
 
     python hf_reference.py --model SNAPSHOT --out /workspace/ref --wikitext /workspace/data/wiki.test.raw
 """
@@ -74,6 +76,7 @@ def main() -> None:
     ap.add_argument("--model", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--wikitext", required=True)
+    ap.add_argument("--code", help="held-out code text: a second perplexity, ppl_bf16_code")
     ap.add_argument("--chunks", type=int, default=40)
     ap.add_argument("--chunk-tokens", type=int, default=512)
     ap.add_argument("--gpu-memory", default="76GiB", help="the rest of a big model goes to CPU memory")
@@ -81,17 +84,25 @@ def main() -> None:
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
 
+    old = json.load(open(out / "ref.json")) if (out / "ref.json").exists() else {}
+    want_text = "ppl_bf16" not in old
+    want_code = bool(args.code) and "ppl_bf16_code" not in old
+    want_vision = not (out / "ref_vision_feats.npy").exists()
+    if not (want_text or want_code or want_vision):
+        print("HF_REFERENCE_DONE (nothing to add)", flush=True)
+        return
     tok = AutoTokenizer.from_pretrained(args.model)
     placement = dict(device_map="auto", max_memory={0: args.gpu_memory, "cpu": "1000GiB"}) if torch.cuda.is_available() \
         else {}
     model = AutoModelForImageTextToText.from_pretrained(args.model, dtype=torch.bfloat16, **placement).eval()
 
-    ids = tok(open(args.wikitext, encoding="utf-8").read(), return_tensors="pt")["input_ids"][0]
-    ppl = perplexity(model, ids, args.chunks, args.chunk_tokens)
-    print(f"bf16 PPL {ppl:.4f} ({args.chunks}x{args.chunk_tokens})", flush=True)
-
-    result = {"ppl_bf16": ppl, "chunks": args.chunks, "chunk_tokens": args.chunk_tokens}
-    if getattr(model.model, "visual", None) is not None:
+    result = {**old, "chunks": args.chunks, "chunk_tokens": args.chunk_tokens}
+    for key, path, want in (("ppl_bf16", args.wikitext, want_text), ("ppl_bf16_code", args.code, want_code)):
+        if want:
+            ids = tok(open(path, encoding="utf-8").read(), return_tensors="pt")["input_ids"][0]
+            result[key] = perplexity(model, ids, args.chunks, args.chunk_tokens)
+            print(f"{key} {result[key]:.4f} ({args.chunks}x{args.chunk_tokens})", flush=True)
+    if want_vision and getattr(model.model, "visual", None) is not None:
         img = reference_image()
         img.save(out / "ref_image.png")
         try:

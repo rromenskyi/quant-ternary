@@ -116,7 +116,7 @@ scope and limitations, which apply here unchanged.
 
 Pipeline, scripts and measurements:
 [rromenskyi/quant-ternary](https://github.com/rromenskyi/quant-ternary),
-`frognano-quant/` (`poc/gptq_qwen35.py`, `poc/convert_mlx.py`,
+`qwen35-quant/` (formerly `frognano-quant/`; `poc/gptq_qwen35.py`, `poc/convert_mlx.py`,
 `poc/check_mlx.py`, `docs/FINDINGS.md`).
 
 ## The IPSupport local-AI stack

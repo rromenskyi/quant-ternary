@@ -113,3 +113,75 @@ a lower bound).
   Qwen3.5-4B, Apache 2.0). Released under Apache 2.0, which satisfies both.
 - Sampling: temperature 0.6, repetition penalty 1.0, 8 192 tokens per turn,
   ~131K context.
+
+# Ornith-1.5-35B-A3B (2026-10-06)
+
+Base: [ornith-ai/Ornith-1.5-35B-A3B](https://huggingface.co/ornith-ai/Ornith-1.5-35B-A3B),
+`qwen3_5_moe`: 40 layers (30 Gated DeltaNet + 10 gated full attention),
+256 routed experts (8 active, moe_intermediate 512) plus a shared expert per
+layer, untied 248 320-token embeddings, Qwen3-VL vision tower, one MTP
+layer; 72 GB bf16, MIT (metadata only: the repo ships no LICENSE file).
+By weights it is a fine-tune of Qwen3.6-35B-A3B: on four tensors sampled by
+HTTP range requests it is 4-6x closer to Qwen3.6-35B-A3B than to
+Qwen3.5-35B-A3B (layernorm relative difference 1.1 % vs 6.5 %, router
+9.5 % vs 15.9 %), and identical to neither.
+
+Released: `roman220220/Ornith-1.5-35B-A3B-gptq-mlx-jang` (8/6/6/3) and
+`roman220220/Ornith-1.5-35B-A3B-gptq-mlx-jang-small` (experts' gate / up 2,
+down 3).
+
+## Results
+
+Perplexity, 40 x 512 tokens: text = wikitext-2 test; code = the Python
+standard library (`code.test.txt`, held out: the calibration's code half is
+the transformers and torch sources). bf16 from HF transformers on the pod,
+the builds from MLX.
+
+| | Size | PPL text | vs bf16 | PPL code | vs bf16 |
+|---|---|---|---|---|---|
+| bf16 | 72 GB | 9.711 | — | 2.166 | — |
+| 8/6/6/3 | 17.05 GB (3.88 bpw) | 10.368 | +6.8 % | 2.507 | +15.7 % |
+| 8/6/6, experts 2/2/3 | 14.36 GB (3.27 bpw) | 11.761 | +21.1 % | 3.122 | +44.1 % |
+
+Code loses more than prose in relative terms (its bf16 perplexity is 2.2
+against 9.7): for a coding model the code column is the one to watch.
+Vision: tower features vs HF at cosine 0.994 mean (0.781 min), and both
+builds describe the test image correctly.
+
+MacBook Air M5, 26 GB (8/6/6/3): 43 tok/s decoding, 788 tok/s prefill at a
+2K-token prompt; peak 17.2 GB short, 18.8 GB at 2K context, i.e. at the
+~19 GB default GPU limit of a 26 GB Mac.
+
+Same code test on FrogNano-4B-2609 (MLX, same tokenizer, so absolute values
+compare): bf16 3.167, our 8/6/4 3.277 (+3.5 %). The 2-bit Ornith build
+(3.122) still predicts code slightly better than bf16 FrogNano.
+
+## Exact GPTQ codes on the real model
+
+MLX's own re-quantization of the calibrated weights would have changed
+8.31 % of the packed words of the 3-bit build (4.85 % of the 2/3-bit one);
+`convert_mlx.py --gptq-work` writes GPTQ's codes instead (section 0).
+
+## Pipeline notes (A100 SXM 80 GB, 250 GB RAM, RunPod secure cloud)
+
+- Layer-by-layer calibration with the model in CPU memory: 21.6 min per
+  layer at first, all of it CPU (19 cores busy, GPU idle): every chunk's
+  module inputs went to the CPU, and the experts hook gathered rows per
+  expert per chunk with a device sync each. Keeping everything on the GPU
+  and gathering expert rows once per layer: ~30 s per layer (capture 1 s,
+  linear modules 3 s, 256 experts 15 s); the codes were identical in the
+  dry run. Whole calibration ~25 min.
+- Writing the exact codes with MLX's CPU backend on Linux took an hour
+  (single-threaded); on the GPU stream (mlx[cuda]) minutes.
+- mlx_lm.convert shards by size: a tensor's weight, scales and biases can
+  land in different shards (the 2/3-bit build), so the codes are written
+  with a key -> shard index over all shards.
+- The runpod/pytorch torch 2.9.1 image: Ubuntu 24.04 refuses pip into the
+  system Python (PEP 668): a venv on the volume with system site packages.
+  The latest torchvision doesn't match torch 2.9.1 (`torchvision::nms does
+  not exist`): torchvision 0.24 from the cu128 index. mlx[cuda] installs its
+  own NCCL, and torch then fails to load (`undefined symbol:
+  ncclCommWindowRegister`) wherever transformers imports it, which mlx_lm
+  does: the MLX steps preload the NCCL next to torch.
+- The network volume (MooseFS) makes pip and Python imports slow (minutes);
+  big sequential reads are fine.

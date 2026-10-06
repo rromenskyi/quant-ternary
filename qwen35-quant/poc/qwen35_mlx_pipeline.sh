@@ -38,17 +38,26 @@ case "$VARIANT" in
     RECIPE="${RECIPE:-attn=8,linear=6,shared=6,experts=3}"
     HF_REPO="${HF_REPO:-roman220220/Ornith-1.5-35B-A3B-gptq-mlx-jang}"
     ;;
+  ornith-35b-small)
+    # Smaller: the routed experts' gate / up at 2 bits, down at 3.
+    MODEL_ID="${MODEL_ID:-ornith-ai/Ornith-1.5-35B-A3B}"
+    RECIPE="${RECIPE:-attn=8,linear=6,shared=6,experts_gate_up=2,experts_down=3}"
+    HF_REPO="${HF_REPO:-roman220220/Ornith-1.5-35B-A3B-gptq-mlx-jang-small}"
+    MAX_PPL_RATIO="${MAX_PPL_RATIO:-1.5}"   # an extreme quant: the card says how much worse
+    ;;
   frognano-4b)
     MODEL_ID="${MODEL_ID:-microsoft/FrogNano-4B-2609}"
     RECIPE="${RECIPE:-attn=8,linear=6,mlp=4}"
     HF_REPO="${HF_REPO:-roman220220/FrogNano-4B-2609-gptq-mlx-jang}"
     ;;
-  *) echo "VARIANT must be ornith-35b or frognano-4b (or add a preset)" >&2; exit 2 ;;
+  *) echo "VARIANT must be ornith-35b, ornith-35b-small or frognano-4b (or add a preset)" >&2; exit 2 ;;
 esac
 NAME="${HF_REPO#*/}"
 CARD="${CARD:-$HERE/../cards/$NAME.md}"
 DATA="$WORK/data"
-REF="$WORK/ref-$VARIANT"
+MAX_PPL_RATIO="${MAX_PPL_RATIO:-1.10}"
+CHECK_JSON="$WORK/check-$VARIANT.json"
+REF="$WORK/ref-${MODEL_ID##*/}"   # per model: variants of one model share it
 GPTQ="$WORK/gptq-$VARIANT"
 ONGRID="$WORK/ongrid-$VARIANT"
 OUT_DIR="${OUT_DIR:-$WORK/$NAME}"
@@ -78,13 +87,20 @@ else
 fi
 
 # --- data --------------------------------------------------------------------
-if [ -s "$DATA/wiki.train.raw" ] && [ -s "$DATA/wiki.test.raw" ] && [ -s "$DATA/code.txt" ]; then
+if [ -s "$DATA/wiki.train.raw" ] && [ -s "$DATA/wiki.test.raw" ] && [ -s "$DATA/code.txt" ] && [ -s "$DATA/code.test.txt" ]; then
   skip_step data "already in $DATA"
 else
   run_step data "wikitext-2 + Python code corpus" python3 - "$DATA" <<'PY'
-import sys, pathlib, urllib.request, zipfile, io, transformers, torch
+import sys, pathlib, urllib.request, zipfile, io, sysconfig, transformers, torch
 out = pathlib.Path(sys.argv[1]); out.mkdir(parents=True, exist_ok=True)
+# Held-out code for the code perplexity: the Python standard library (no
+# test suites), which the calibration corpus below doesn't contain.
+std = pathlib.Path(sysconfig.get_paths()["stdlib"])
+test = [p for p in sorted(std.rglob("*.py")) if not {"test", "tests", "idlelib", "site-packages", "dist-packages"} & set(p.parts)]
+(out / "code.test.txt").write_text("\n\n".join(p.read_text(encoding="utf-8", errors="ignore") for p in test), encoding="utf-8")
 for split in ("train", "test"):
+    if (out / f"wiki.{split}.raw").exists():
+        continue
     url = f"https://huggingface.co/datasets/Salesforce/wikitext/resolve/main/wikitext-2-raw-v1/{split}-00000-of-00001.parquet"
     import pandas as pd
     df = pd.read_parquet(io.BytesIO(urllib.request.urlopen(url).read()))
@@ -111,11 +127,12 @@ _pipe_mark DONE download "$SNAPSHOT"; _PIPE_CUR=""
 echo "checkpoint: $SNAPSHOT"
 
 # --- reference -----------------------------------------------------------------
-if [ -s "$REF/ref.json" ]; then
-  skip_step reference "$REF/ref.json exists"
+if [ -s "$REF/ref.json" ] && grep -q ppl_bf16_code "$REF/ref.json"; then
+  skip_step reference "$REF/ref.json has both perplexities"
 else
-  run_step reference "HF bf16 perplexity + vision features" \
-    python3 "$HERE/hf_reference.py" --model "$SNAPSHOT" --out "$REF" --wikitext "$DATA/wiki.test.raw"
+  run_step reference "HF bf16 perplexity (text, code) + vision features" \
+    python3 "$HERE/hf_reference.py" --model "$SNAPSHOT" --out "$REF" --wikitext "$DATA/wiki.test.raw" \
+      --code "$DATA/code.test.txt"
 fi
 
 # --- calibrate -----------------------------------------------------------------
@@ -148,8 +165,13 @@ else
 fi
 
 # --- check ---------------------------------------------------------------------
-run_step check "vision vs HF, image question, perplexity" \
-  mlx_env python3 "$HERE/check_mlx.py" --model "$OUT_DIR" --ref "$REF" --wikitext "$DATA/wiki.test.raw"
+if [ -s "$CHECK_JSON" ] && grep -q ppl_code "$CHECK_JSON" && [ "$CHECK_JSON" -nt "$OUT_DIR/quant_recipe.json" ]; then
+  skip_step check "$CHECK_JSON newer than the model"
+else
+  run_step check "vision vs HF, image question, perplexity (text, code)" \
+    mlx_env python3 "$HERE/check_mlx.py" --model "$OUT_DIR" --ref "$REF" --wikitext "$DATA/wiki.test.raw" \
+      --code "$DATA/code.test.txt" --out "$CHECK_JSON" --max-ppl-ratio "$MAX_PPL_RATIO"
+fi
 
 # --- model card (LAST) -----------------------------------------------------------
 if [ -f "$CARD" ]; then

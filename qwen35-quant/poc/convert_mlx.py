@@ -108,33 +108,35 @@ def write_gptq_codes(out: Path, work: Path, recipe: dict, group_size: int) -> No
     exact = gptq_tensors(work, recipe)
     changed = total = 0
     done = set()
-    for shard in sorted(out.glob("model*.safetensors")):
-        tensors = mx.load(str(shard))
-        mx.eval(tensors)  # loaded lazily from the file this overwrites
-        hit = False
-        for prefix, (W, S, B, bits) in exact.items():
-            if f"{prefix}.weight" not in tensors:
-                continue
-            n = 2**bits - 1
-            # On the GPU when there is one: MLX's CPU backend on Linux took
-            # an hour for a 35B MoE's codes.
-            with mx.stream(GPU or mx.cpu):
-                Wg = W.astype(mx.float32).reshape(*W.shape[:-1], -1, group_size)
-                codes = mx.clip(mx.round((Wg - B[..., None]) / mx.where(S == 0, 1, S)[..., None]), 0, n)
-                codes = np.array(codes.reshape(W.shape).astype(mx.uint8))
-            packed = mx.array(pack(codes, bits))
-            old = tensors[f"{prefix}.weight"]
-            assert packed.shape == old.shape, (prefix, packed.shape, old.shape)
-            changed += int((packed != old).sum().item())
-            total += old.size
-            sdt = tensors[f"{prefix}.scales"].dtype
-            tensors[f"{prefix}.weight"] = packed
-            tensors[f"{prefix}.scales"] = S.astype(sdt)
-            tensors[f"{prefix}.biases"] = B.astype(sdt)
-            done.add(prefix)
-            hit = True
-        if hit:
-            mx.save_safetensors(str(shard), tensors, metadata={"format": "mlx"})
+    # A tensor's weight, scales and biases can sit in different shards.
+    shards = {f.name: mx.load(str(f)) for f in sorted(out.glob("model*.safetensors"))}
+    for t in shards.values():
+        mx.eval(t)  # loaded lazily from the files rewritten below
+    where = {k: name for name, t in shards.items() for k in t}
+    touched = set()
+    for prefix, (W, S, B, bits) in exact.items():
+        if f"{prefix}.weight" not in where:
+            continue
+        n = 2**bits - 1
+        # On the GPU when there is one: MLX's CPU backend on Linux took
+        # an hour for a 35B MoE's codes.
+        with mx.stream(GPU or mx.cpu):
+            Wg = W.astype(mx.float32).reshape(*W.shape[:-1], -1, group_size)
+            codes = mx.clip(mx.round((Wg - B[..., None]) / mx.where(S == 0, 1, S)[..., None]), 0, n)
+            codes = np.array(codes.reshape(W.shape).astype(mx.uint8))
+        packed = mx.array(pack(codes, bits))
+        old = shards[where[f"{prefix}.weight"]][f"{prefix}.weight"]
+        assert packed.shape == old.shape, (prefix, packed.shape, old.shape)
+        changed += int((packed != old).sum().item())
+        total += old.size
+        sdt = shards[where[f"{prefix}.scales"]][f"{prefix}.scales"].dtype
+        for part, value in (("weight", packed), ("scales", S.astype(sdt)), ("biases", B.astype(sdt))):
+            name = where[f"{prefix}.{part}"]
+            shards[name][f"{prefix}.{part}"] = value
+            touched.add(name)
+        done.add(prefix)
+    for name in sorted(touched):
+        mx.save_safetensors(str(out / name), shards[name], metadata={"format": "mlx"})
     missing = set(exact) - done
     if missing:
         raise SystemExit(f"GPTQ tensors not in the MLX model: {sorted(missing)[:5]}")
