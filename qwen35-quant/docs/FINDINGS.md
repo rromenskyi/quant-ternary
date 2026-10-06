@@ -6,6 +6,8 @@ checkpoints. Models: FrogNano-4B-2609 (dense, below), Ornith-1.5-35B-A3B
 
 ## 0. GPTQ codes vs `mlx_lm.convert` (2026-10-06)
 
+The cross-project write-up: [`docs/GPTQ_EXACT_CODES.md`](../../docs/GPTQ_EXACT_CODES.md).
+
 The calibrate-then-`mlx_lm.convert` flow (this project's and the earlier
 ones: Nemotron, Gemma 4, FrogNano) assumed that MLX re-quantizing GPTQ's
 on-grid weights re-derives the same codes. It doesn't, in general: MLX

@@ -24,5 +24,6 @@ Releases:
 | Ornith-1.5-35B-A3B, 8/6/6/3 | [roman220220/Ornith-1.5-35B-A3B-gptq-mlx-jang](https://huggingface.co/roman220220/Ornith-1.5-35B-A3B-gptq-mlx-jang) | 17.05 GB | +6.8 % / +15.7 % |
 | Ornith-1.5-35B-A3B, experts 2/2/3 | [roman220220/Ornith-1.5-35B-A3B-gptq-mlx-jang-small](https://huggingface.co/roman220220/Ornith-1.5-35B-A3B-gptq-mlx-jang-small) | 14.36 GB | +21.1 % / +44.1 % |
 
-Measurements and lessons: [`docs/FINDINGS.md`](docs/FINDINGS.md). Cards:
+How to run it: [`docs/RUNBOOK.md`](docs/RUNBOOK.md). Measurements and lessons:
+[`docs/FINDINGS.md`](docs/FINDINGS.md). Cards:
 `cards/`.

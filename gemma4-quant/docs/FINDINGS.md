@@ -1,5 +1,9 @@
 # Gemma 4 quantization — findings
 
+> **Note 2026-10-06:** the MLX GPTQ builds here were converted by MLX
+> re-quantization, which changes some GPTQ codes (group extremes unused after
+> error feedback); see [`docs/GPTQ_EXACT_CODES.md`](../../docs/GPTQ_EXACT_CODES.md).
+
 Real, load-bearing lessons from GPTQ-quantizing both Gemma 4 variants
 (E4B multimodal; 26B-A4B MoE) to MLX, and building a GGUF from the 26B.
 Everything here was hit in practice, not theorized.
