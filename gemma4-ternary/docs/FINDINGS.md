@@ -365,3 +365,28 @@ thinking arithmetic, nothing that needs code, Russian, a tool call or
 memory across turns, a third of its thoughts never close, and its replies
 repeat 8-16x more. The set is too easy to rank good models (all at 100%);
 it will need harder items once the ternary model gets close.
+
+## Probes (forked from run 3's final checkpoint, 6M tokens each, second pass over data_v3)
+
+| probe | final eval KL | top-1 | PPL |
+|---|---|---|---|
+| control (lr 2e-5) | 0.696 | 73.5% | 6.01 |
+| lr 5e-5 | 0.723 | 72.9% | 6.21 |
+| attn4 (attention 4-bit g64, MLP ternary) | **0.654** | **74.3%** | **5.76** |
+
+attn4 started worse (0.746: latents adapted to ternary attention, re-rounded
+to 4 bits) and passed control within 50 steps, then held a ~0.04 KL lead
+at every point. lr 5e-5 dipped to 0.81 and recovered to 0.72, still behind
+control: on repeated data a higher lr hurts.
+
+attn4 exported with per-layer grids (184 attention Linears 4-bit g64, 144
+MLP Linears 2-bit g128; 4.63 GB model). gen_eval did **not** follow the KL:
+facts 50% (pilot 60%), thinking math 17% (50%), code 50% (0%), Russian /
+tools / multi-turn 0% (0%), thoughts closed 67% (67%), repetition 0.39
+(0.16). With 2-10 items per category greedy results swing on a single
+answer, so this neither confirms nor refutes the 0.04 KL lead; it does say
+that at KL ~0.65 the model is still far from usable, and that gen_eval
+needs more items before it can rank two weak models. Decode speed on the
+Mac (busy at the time, swap in use; absolute numbers not comparable with
+earlier runs): attn4 12.6 tok/s vs the pure-ternary pilot 13.8 in the same
+conditions, peak 4.76 vs 4.08 GB.
