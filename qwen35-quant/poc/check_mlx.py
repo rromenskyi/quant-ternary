@@ -1,4 +1,4 @@
-"""Check a converted FrogNano (Qwen3.5) MLX model:
+"""Check a converted Qwen3.5 (dense or MoE) MLX model:
   1. its vision tower against HF's on the same image (ref_vision_feats.npy,
      saved on the pod from the bf16 HF model): per-token cosine similarity;
   2. an image question end to end, the way mlx_lm.server runs it
@@ -6,8 +6,12 @@
      the fused input embeddings);
   3. wikitext-2 test perplexity (same 40 x 512 chunks as ppl_hf.py).
 
-    python check_mlx.py --model ~/models-work/FrogNano-4B-2609-gptq-mlx-jang \
-        --ref ~/models-work --wikitext ~/models-work/wiki.test.raw
+    python check_mlx.py --model /workspace/Ornith-1.5-35B-A3B-gptq-mlx-jang \
+        --ref /workspace/ref --wikitext /workspace/data/wiki.test.raw
+
+Writes <ref>/check.json and fails when the vision features or the
+perplexity are off (--min-vision-cos; --max-ppl-ratio against
+hf_reference.py's ref.json).
 """
 
 from __future__ import annotations
@@ -34,7 +38,11 @@ def main() -> None:
     ap.add_argument("--ref", required=True, help="dir with ref_vision_feats.npy, ref_image.png")
     ap.add_argument("--wikitext", required=True)
     ap.add_argument("--chunks", type=int, default=40)
+    ap.add_argument("--out", help="check.json path (default: <ref>/check.json)")
+    ap.add_argument("--min-vision-cos", type=float, default=0.95, help="mean cosine vs HF")
+    ap.add_argument("--max-ppl-ratio", type=float, default=1.10, help="vs ref.json's bf16 PPL")
     args = ap.parse_args()
+    result = {}
     model, tok = load(str(Path(args.model).expanduser()))
     ref = Path(args.ref).expanduser()
     inputs = load_image_inputs(model, Path(args.model).expanduser())
@@ -49,6 +57,7 @@ def main() -> None:
     hf = np.load(ref / "ref_vision_feats.npy")
     cos = (mine * hf).sum(-1) / (np.linalg.norm(mine, axis=-1) * np.linalg.norm(hf, axis=-1) + 1e-9)
     print(f"vision vs HF: shape {mine.shape} / {hf.shape}, cosine min {cos.min():.4f} mean {cos.mean():.4f}")
+    result.update(vision_cos_mean=float(cos.mean()), vision_cos_min=float(cos.min()))
 
     # 2. An image question, as the server runs it.
     blob = (ref / "ref_image.png").read_bytes()
@@ -63,6 +72,7 @@ def main() -> None:
     finally:
         model.set_media_positions(None)
     print(f"image answer ({time.time() - t0:.1f}s): {out!r}")
+    result["image_answer"] = out
 
     # 3. Perplexity.
     text_ids = tok.encode(open(Path(args.wikitext).expanduser(), encoding="utf-8").read())
@@ -77,7 +87,19 @@ def main() -> None:
         loss = nn.losses.cross_entropy(logits[0, :-1], chunk[0, 1:], reduction="sum")
         nll += loss.item()
         count += n - 1
-    print(f"PPL {math.exp(nll / count):.4f} ({count} tokens)")
+    ppl = math.exp(nll / count)
+    print(f"PPL {ppl:.4f} ({count} tokens)")
+    result["ppl"] = ppl
+    ref_ppl = json.load(open(ref / "ref.json"))["ppl_bf16"] if (ref / "ref.json").exists() else None
+    if ref_ppl:
+        result.update(ppl_bf16=ref_ppl, ppl_ratio=ppl / ref_ppl)
+        print(f"vs bf16 {ref_ppl:.4f}: {100 * (ppl / ref_ppl - 1):+.2f} %")
+    json.dump(result, open(args.out or ref / "check.json", "w"), indent=2)
+    if result["vision_cos_mean"] < args.min_vision_cos:
+        raise SystemExit(f"vision features off: mean cosine {result['vision_cos_mean']:.4f}")
+    if ref_ppl and result["ppl_ratio"] > args.max_ppl_ratio:
+        raise SystemExit(f"perplexity off: {result['ppl_ratio']:.3f}x bf16")
+    print("CHECK_DONE")
 
 
 if __name__ == "__main__":
