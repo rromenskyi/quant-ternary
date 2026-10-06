@@ -209,11 +209,14 @@ def calibrate_layer(layer, hidden: list[torch.Tensor], kwargs: dict, recipe: dic
     # A renamed module would otherwise stay bf16 without a word: every block
     # the layer has must show all its projections.
     names = {n for n, _ in layer.named_modules()}
+    if not {"self_attn", "linear_attn"} & names:
+        raise SystemExit(f"no self_attn or linear_attn block in the layer: {sorted(names)[:12]}")
     for block, expected in EXPECTED.items():
         if block in names:
             missing = {e for e in expected if e not in targets and not keep_float(e, floats)}
             if missing:
-                raise SystemExit(f"{block}: no {sorted(missing)} (has {sorted(n for n in names if n.startswith(block))})")
+                has = sorted(n for n in names if n.startswith(block + "."))
+                raise SystemExit(f"{block}: no {sorted(missing)} (has {has})")
     # Inputs stay on the GPU (bf16): per-chunk copies to the CPU and per-expert
     # gathers in the hook made a layer CPU-bound (21 min on an A100).
     inputs: dict[str, list[torch.Tensor]] = {n: [] for n in targets}
