@@ -65,6 +65,12 @@ divergent domain — see §2.3 and the general PPL-vs-capability caveat below.
 
 ### 1.2 The affine-quantization grid-matching bug (GPTQ output must land on MLX's actual grid)
 
+> **Update 2026-10-06:** matching the grid formula is necessary but not
+> sufficient: GPTQ's error feedback often leaves a group's extreme codes
+> unused, and MLX re-derives the grid from min / max, so some codes still
+> move. See [`docs/GPTQ_EXACT_CODES.md`](../../docs/GPTQ_EXACT_CODES.md); the
+> releases from this project predate the fix.
+
 The pipeline for the "plain N-bit, no rotation, no salient overlay" GPTQ path
 is two independent quantization passes: `poc/gptq_stock_convert.py` runs GPTQ
 and writes Hessian-corrected weights into a plain bf16 HF checkpoint, then

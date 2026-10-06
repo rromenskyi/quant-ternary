@@ -15,7 +15,8 @@ Rules:
     was changed>" modification notice (HF content policy: no misrepresentation).
   - Only the ipsupport-code LoRA models are CODE/agent models. Never label a
     chat/vision/image/music/drafter/plain-quant model as a coding model.
-  - Pick ONE Block A variant. Always end with Block B before "## License".
+  - Pick ONE Block A variant. Always end with Block B, then Block C
+    ("## Disclaimer"), before "## License".
 -->
 ---
 license: <apache-2.0 | other>
@@ -98,6 +99,18 @@ leaves your Mac.
   code model:   Run this model in LLMTray (serves an OpenAI-compatible API), then point IPSupport Code at that endpoint — the pairing is how it runs.
   GGUF:         This is the GGUF build (ollama / llama.cpp). For the MLX build LLMTray runs, see <org/mlx-sibling>.
 >
+
+<!-- ===== Block C — always, verbatim, right before "## License" ===== -->
+
+## Disclaimer
+
+This repository contains a quantized conversion of a third-party model,
+provided **"as is", without warranty of any kind**, express or implied.
+IPSupport LLC did not train the model and is **not responsible for its
+content, outputs or behavior, or for any damage, loss or liability** arising
+from its use. You are responsible for evaluating the model and for how you
+use it, including compliance with applicable laws and with the base model's
+license and terms.
 
 ## License
 
