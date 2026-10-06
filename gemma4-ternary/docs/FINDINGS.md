@@ -254,3 +254,15 @@ Chat (same 4 prompts as step 424, greedy, MLX 2-bit on the Mac):
 scp from the Spark ran at 0.6-0.7 MB/s; `hf upload` of the same 3 GB to a
 private repo took 82 s (~37 MB/s) and `hf download` on the Mac 58 s. The
 single ssh stream was the bottleneck, not the uplink.
+
+### In LLMTray (step 1281, `~/.lmstudio/models/roman220220/gemma-4-12B-it-ternary-pilot`)
+
+Loads as a plain folder (config + complete weight index), 23.8 tok/s with
+thinking. In a multi-turn chat it lags one turn: "Where is Sydney?" got
+the previous answer again ("The capital of Paris is Paris"), "What do you
+know about London?" got "Sydney is a ... city in the UK" with London
+landmarks (Tower of London, the Thames) mixed into invented ones. Two
+suspects: the 8 global-attention layers (1 KV head, K = V) carry the
+long-range lookup that tracks the latest turn, and ternary may hit them
+hardest — the attn4 probe (4-bit attention) tests that; and multi-turn
+is only 27% of the training replies.
