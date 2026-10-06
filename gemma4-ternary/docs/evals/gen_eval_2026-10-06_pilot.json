@@ -1,0 +1,214 @@
+{
+ "/Users/roman220/.lmstudio/models/roman220220/gemma-4-12B-it-ternary-pilot": {
+  "facts": 0.6,
+  "math_think": 0.5,
+  "russian": 0.0,
+  "code": 0.0,
+  "tools": 0.0,
+  "multi_turn": 0.0,
+  "thought_closed": 0.6666666666666666,
+  "repetition": 0.1557897281734224,
+  "detail": {
+   "facts": [
+    false,
+    true,
+    true,
+    true,
+    false,
+    true,
+    false,
+    true,
+    false,
+    true
+   ],
+   "math_think": [
+    true,
+    true,
+    false,
+    true,
+    false,
+    false
+   ],
+   "russian": [
+    false,
+    false,
+    false,
+    false
+   ],
+   "code": [
+    false,
+    false,
+    false,
+    false
+   ],
+   "tools": [
+    false,
+    false
+   ],
+   "multi_turn": [
+    false,
+    false,
+    false
+   ]
+  }
+ },
+ "/Users/roman220/.lmstudio/models/roman220220/gemma-4-E2B-it-qat-phone-mlx": {
+  "facts": 1.0,
+  "math_think": 1.0,
+  "russian": 1.0,
+  "code": 1.0,
+  "tools": 1.0,
+  "multi_turn": 1.0,
+  "thought_closed": 1.0,
+  "repetition": 0.007826884737078089,
+  "detail": {
+   "facts": [
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true
+   ],
+   "math_think": [
+    true,
+    true,
+    true,
+    true,
+    true,
+    true
+   ],
+   "russian": [
+    true,
+    true,
+    true,
+    true
+   ],
+   "code": [
+    true,
+    true,
+    true,
+    true
+   ],
+   "tools": [
+    true,
+    true
+   ],
+   "multi_turn": [
+    true,
+    true,
+    true
+   ]
+  }
+ },
+ "/Users/roman220/.lmstudio/models/roman220220/gemma-4-E4B-it-qat-mlx": {
+  "facts": 1.0,
+  "math_think": 1.0,
+  "russian": 1.0,
+  "code": 1.0,
+  "tools": 1.0,
+  "multi_turn": 1.0,
+  "thought_closed": 1.0,
+  "repetition": 0.009168362927188346,
+  "detail": {
+   "facts": [
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true
+   ],
+   "math_think": [
+    true,
+    true,
+    true,
+    true,
+    true,
+    true
+   ],
+   "russian": [
+    true,
+    true,
+    true,
+    true
+   ],
+   "code": [
+    true,
+    true,
+    true,
+    true
+   ],
+   "tools": [
+    true,
+    true
+   ],
+   "multi_turn": [
+    true,
+    true,
+    true
+   ]
+  }
+ },
+ "/Users/roman220/.lmstudio/models/roman220220/gemma-4-12B-it-qat-mlx": {
+  "facts": 1.0,
+  "math_think": 1.0,
+  "russian": 1.0,
+  "code": 1.0,
+  "tools": 1.0,
+  "multi_turn": 1.0,
+  "thought_closed": 1.0,
+  "repetition": 0.018181688120857464,
+  "detail": {
+   "facts": [
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true
+   ],
+   "math_think": [
+    true,
+    true,
+    true,
+    true,
+    true,
+    true
+   ],
+   "russian": [
+    true,
+    true,
+    true,
+    true
+   ],
+   "code": [
+    true,
+    true,
+    true,
+    true
+   ],
+   "tools": [
+    true,
+    true
+   ],
+   "multi_turn": [
+    true,
+    true,
+    true
+   ]
+  }
+ }
+}

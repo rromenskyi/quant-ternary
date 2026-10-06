@@ -349,3 +349,19 @@ checkpoint adapted to g128 ternary) are screening, not clean ablations:
 read their slopes, not their first points. muse's claim that generated
 documents lack BOS is wrong (every document starts with id 2; 1.7 BOS per
 2048-token row).
+
+### gen_eval.py, first run (run 3 final vs the size class; `docs/evals/`)
+
+| model | size | facts | math (thinking) | Russian | code (asserts) | tools | multi-turn | thoughts closed | repetition |
+|---|---|---|---|---|---|---|---|---|---|
+| 12B ternary (run 3 final) | 3.95 GB | 60% | 50% | 0% | 0% | 0% | 0% | 67% | 0.16 |
+| E2B phone MLX | 3.10 GB | 100% | 100% | 100% | 100% | 100% | 100% | 100% | 0.01 |
+| E4B QAT MLX | 5.95 GB | 100% | 100% | 100% | 100% | 100% | 100% | 100% | 0.01 |
+| 12B QAT MLX (4-bit) | 7.89 GB | 100% | 100% | 100% | 100% | 100% | 100% | 100% | 0.02 |
+
+The checks work (every reference model passes all of them) and they put a
+number on what the chat showed: the pilot gets some facts and half the
+thinking arithmetic, nothing that needs code, Russian, a tool call or
+memory across turns, a third of its thoughts never close, and its replies
+repeat 8-16x more. The set is too easy to rank good models (all at 100%);
+it will need harder items once the ternary model gets close.
