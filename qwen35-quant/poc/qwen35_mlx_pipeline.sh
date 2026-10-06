@@ -56,10 +56,20 @@ export HF_HOME="${HF_HOME:-$WORK/hf}"
 
 pipeline_init qwen35 "VARIANT=$VARIANT MODEL_ID=$MODEL_ID RECIPE=$RECIPE OUT_DIR=$OUT_DIR"
 
+# mlx[cuda] brings its own NCCL into the venv, and the image's torch then
+# fails to load (undefined ncclCommWindowRegister) wherever transformers
+# imports it -- mlx_lm does. The MLX steps preload the NCCL next to torch.
+TORCH_NCCL="$(python3 -c 'import importlib.util, pathlib; t = pathlib.Path(importlib.util.find_spec("torch").origin).parents[1]; print(next(iter(sorted((t / "nvidia" / "nccl" / "lib").glob("libnccl.so*"))), ""))' 2>/dev/null || true)"
+mlx_env () { if [ -n "$TORCH_NCCL" ]; then env LD_PRELOAD="$TORCH_NCCL" "$@"; else "$@"; fi; }
+
 # --- setup -------------------------------------------------------------------
 if [ "${SETUP:-0}" = 1 ]; then
   run_step setup "pip deps" bash -c "
-    pip install --quiet 'transformers>=5.8' accelerate safetensors huggingface_hub hf_transfer pillow numpy &&
+    pip install --quiet 'transformers>=5.8' accelerate safetensors huggingface_hub hf_transfer pillow numpy pandas pyarrow &&
+    { python3 -c 'import torchvision' 2>/dev/null || pip install --quiet --no-deps \
+        \"torchvision==\$(python3 -c 'import torch; m=int(torch.__version__.split(\".\")[1]); print(f\"0.{m + 15}.*\")')\" \
+        --index-url https://download.pytorch.org/whl/cu128; python3 -c 'import torchvision' 2>/dev/null \
+        || { pip uninstall -y -q torchvision; echo 'no torchvision: numpy image preprocessing'; }; } &&
     pip install --quiet --upgrade 'mlx[cuda]' &&
     pip install --quiet --force-reinstall --no-deps 'git+https://github.com/ipsupport-llc/mlx-lm.git@$MLX_LM_REF' &&
     pip install --quiet jinja2 protobuf sentencepiece"
@@ -133,17 +143,23 @@ if grep -q CONVERT_DONE "$LOG_DIR/qwen35_convert.log" 2>/dev/null && [ "$OUT_DIR
 else
   rm -rf "$OUT_DIR"
   run_step convert "MLX at the recipe's bits" \
-    python3 "$HERE/convert_mlx.py" --hf "$ONGRID" --out "$OUT_DIR" --gptq-work "$GPTQ" \
+    mlx_env python3 "$HERE/convert_mlx.py" --hf "$ONGRID" --out "$OUT_DIR" --gptq-work "$GPTQ" \
       --embed-bits "$EMBED_BITS" --head-bits "$HEAD_BITS" --vision-bits "$VISION_BITS"
 fi
 
 # --- check ---------------------------------------------------------------------
 run_step check "vision vs HF, image question, perplexity" \
-  python3 "$HERE/check_mlx.py" --model "$OUT_DIR" --ref "$REF" --wikitext "$DATA/wiki.test.raw"
+  mlx_env python3 "$HERE/check_mlx.py" --model "$OUT_DIR" --ref "$REF" --wikitext "$DATA/wiki.test.raw"
 
 # --- model card (LAST) -----------------------------------------------------------
 if [ -f "$CARD" ]; then
-  run_step card "copy $(basename "$CARD") -> README.md" cp "$CARD" "$OUT_DIR/README.md"
+  # The card and the banner images it shows (cards_assets/).
+  run_step card "copy $(basename "$CARD") -> README.md" bash -c '
+    cp "$1" "$2/README.md"
+    for img in $(grep -o "[a-z-]*banner\.png" "$1" | sort -u); do cp "$3/$img" "$2/$img"; done
+    # A base repo without a LICENSE file: ours (cards/licenses/<name>-LICENSE).
+    lic="$(dirname "$1")/licenses/$4-LICENSE"
+    if [ -f "$lic" ]; then cp "$lic" "$2/LICENSE"; fi' _ "$CARD" "$OUT_DIR" "$HERE/../../cards_assets" "${MODEL_ID#*/}"
 else
   skip_step card "no $CARD yet"
 fi

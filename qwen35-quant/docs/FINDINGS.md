@@ -1,4 +1,31 @@
-# FrogNano-4B-2609: findings
+# Qwen3.5 family (qwen3_5, qwen3_5_moe): findings
+
+One pipeline, `poc/qwen35_mlx_pipeline.sh` (README), for dense and MoE
+checkpoints. Models: FrogNano-4B-2609 (dense, below), Ornith-1.5-35B-A3B
+(MoE, at the end).
+
+## 0. GPTQ codes vs `mlx_lm.convert` (2026-10-06)
+
+The calibrate-then-`mlx_lm.convert` flow (this project's and the earlier
+ones: Nemotron, Gemma 4, FrogNano) assumed that MLX re-quantizing GPTQ's
+on-grid weights re-derives the same codes. It doesn't, in general: MLX
+recomputes each group's scale and bias from the group's min and max, and
+GPTQ's error feedback (later columns of a group absorb earlier columns'
+rounding error) often leaves the extreme codes 0 and 2^b - 1 unused, so the
+re-derived grid is narrower and some codes move by one step. Measured on a
+tiny random qwen3_5_moe in the dry run: a 3-bit expert tensor had 7.8 % of
+its codes changed; 12.5 % of all packed words differed. At 8 and 6 bits the
+differences were bf16 rounding only.
+
+Fix: `gptq_qwen35.py` saves GPTQ's scale and bias per group, and
+`convert_mlx.py --gptq-work` rewrites the decoder's quantized tensors after
+`mlx_lm.convert` with GPTQ's exact codes (packed as MLX packs them: a
+little-endian bit stream in uint32 words, verified bit for bit against
+`mx.quantize` for 2, 3, 4, 5, 6 and 8 bits), scales and biases. After the
+fix the MLX dequantized weights equal GPTQ's to bf16 rounding (2.4e-4 at a
+3-bit step of 2e-2). The FrogNano release predates the fix.
+
+# FrogNano-4B-2609
 
 Base: [microsoft/FrogNano-4B-2609](https://huggingface.co/microsoft/FrogNano-4B-2609)
 (Qwen3.5-4B architecture, `qwen3_5`, 4.66 B parameters: 32 decoder layers,

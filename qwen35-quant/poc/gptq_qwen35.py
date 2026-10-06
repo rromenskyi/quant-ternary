@@ -58,7 +58,7 @@ COMPONENTS = {
     "linear_attn.in_proj_qkv": "linear", "linear_attn.in_proj_z": "linear", "linear_attn.out_proj": "linear",
     "mlp.gate_proj": "mlp", "mlp.up_proj": "mlp", "mlp.down_proj": "mlp",
     "mlp.shared_expert.gate_proj": "shared", "mlp.shared_expert.up_proj": "shared", "mlp.shared_expert.down_proj": "shared",
-    "mlp.experts.gate_up_proj": "experts", "mlp.experts.down_proj": "experts",
+    "mlp.experts.gate_up_proj": "experts_gate_up", "mlp.experts.down_proj": "experts_down",
 }
 DEFAULT_KEEP_FLOAT = [r"linear_attn\.in_proj_[ab]$", r"mlp\.gate$", r"mlp\.shared_expert_gate$"]
 PREFIX = "model.language_model.layers"
@@ -67,6 +67,11 @@ DEVICE = "cuda"
 
 def parse_recipe(text: str) -> dict[str, int]:
     return {k.strip(): int(v) for k, v in (p.split("=") for p in text.split(","))}
+
+
+def bits_for(component: str, recipe: dict[str, int]) -> int | None:
+    """A component's bits; "experts_down" etc. fall back to "experts"."""
+    return recipe.get(component, recipe.get(component.split("_")[0]))
 
 
 def load_chunks(sources: list[str], tok, n: int, tokens: int) -> list[torch.Tensor]:
@@ -135,14 +140,14 @@ def batched_gptq(W: torch.Tensor, Xp: torch.Tensor, bits: int, group_size: int, 
 
 def expert_xp(rows: dict[int, torch.Tensor], experts: list[int], dim: int) -> torch.Tensor:
     n = max([rows[e].shape[0] for e in experts if e in rows] + [1])
-    Xp = torch.zeros(len(experts), n, dim, dtype=torch.float32)
+    Xp = torch.zeros(len(experts), n, dim, dtype=torch.float32, device=DEVICE)
     for j, e in enumerate(experts):
         if e in rows:
             Xp[j, : rows[e].shape[0]] = rows[e]
     return Xp
 
 
-def calibrate_experts(experts, rows: dict[int, torch.Tensor], bits: int, args) -> dict[str, torch.Tensor]:
+def calibrate_experts(experts, rows: dict[int, torch.Tensor], recipe: dict[str, int], args) -> dict[str, torch.Tensor]:
     E, inter = experts.num_experts, experts.intermediate_dim
     gate_up = experts.gate_up_proj.data
     down = experts.down_proj.data
@@ -154,7 +159,7 @@ def calibrate_experts(experts, rows: dict[int, torch.Tensor], bits: int, args) -
     for start in range(0, E, args.expert_batch):
         ids = list(range(start, min(E, start + args.expert_batch)))
         Xp = expert_xp(rows, ids, gate_up.shape[-1])
-        res = batched_gptq(gate_up[ids].float(), Xp, bits, args.group_size, args.percdamp)
+        res = batched_gptq(gate_up[ids].float(), Xp, bits_for("experts_gate_up", recipe), args.group_size, args.percdamp)
         W = res["W_hat"]
         gu_hat[ids] = W.to(torch.bfloat16).cpu()
         gu_s[ids], gu_b[ids] = res["scale"].float().cpu(), res["bias"].float().cpu()
@@ -162,9 +167,10 @@ def calibrate_experts(experts, rows: dict[int, torch.Tensor], bits: int, args) -
         down_rows = {}
         for j, e in enumerate(ids):
             if e in rows:
-                h = rows[e].to(DEVICE) @ W[j].to(DEVICE).t()
-                down_rows[e] = (experts.act_fn(h[:, :inter]) * h[:, inter:]).float().cpu()
-        res = batched_gptq(down[ids].float(), expert_xp(down_rows, ids, inter), bits, args.group_size, args.percdamp)
+                h = rows[e].float() @ W[j].to(DEVICE).t()
+                down_rows[e] = experts.act_fn(h[:, :inter]) * h[:, inter:]
+        res = batched_gptq(down[ids].float(), expert_xp(down_rows, ids, inter), bits_for("experts_down", recipe),
+                           args.group_size, args.percdamp)
         dn_hat[ids] = res["W_hat"].to(torch.bfloat16).cpu()
         dn_s[ids], dn_b[ids] = res["scale"].float().cpu(), res["bias"].float().cpu()
     experts.gate_up_proj.data.copy_(gu_hat.to(gate_up.device))
@@ -179,37 +185,45 @@ def calibrate_experts(experts, rows: dict[int, torch.Tensor], bits: int, args) -
 def calibrate_layer(layer, hidden: list[torch.Tensor], kwargs: dict, recipe: dict, floats, args) -> dict[str, torch.Tensor]:
     targets = {n: m for n, m in layer.named_modules()
                if n in COMPONENTS and isinstance(m, torch.nn.Linear) and not keep_float(n, floats)}
+    # Inputs stay on the GPU (bf16): per-chunk copies to the CPU and per-expert
+    # gathers in the hook made a layer CPU-bound (21 min on an A100).
     inputs: dict[str, list[torch.Tensor]] = {n: [] for n in targets}
-    hooks = [m.register_forward_hook(lambda m, a, o, n=n: inputs[n].append(a[0].detach().reshape(-1, a[0].shape[-1]).float().cpu()))
+    hooks = [m.register_forward_hook(lambda m, a, o, n=n: inputs[n].append(a[0].detach().reshape(-1, a[0].shape[-1])))
              for n, m in targets.items()]
     experts = getattr(getattr(layer, "mlp", None), "experts", None)
-    rows: dict[int, list[torch.Tensor]] = {}
-    if experts is not None and "mlp.experts.gate_up_proj" in COMPONENTS and not keep_float("mlp.experts", floats):
-        def grab(_m, a):
-            x, top = a[0], a[1]
-            for e in torch.unique(top).tolist():
-                token = (top == e).any(dim=-1).nonzero().squeeze(-1)
-                got = sum(t.shape[0] for t in rows.get(e, []))
-                if got < args.max_rows_per_expert:
-                    rows.setdefault(e, []).append(x[token[: args.max_rows_per_expert - got]].detach().float().cpu())
-        hooks.append(experts.register_forward_pre_hook(grab))
+    seen: list[tuple[torch.Tensor, torch.Tensor]] = []
+    if experts is not None and not keep_float("mlp.experts", floats):
+        hooks.append(experts.register_forward_pre_hook(lambda _m, a: seen.append((a[0].detach(), a[1].detach()))))
+    t0 = time.time()
     with torch.no_grad():
         for h in hidden:
             layer(h, **kwargs)
     for h in hooks:
         h.remove()
+    rows: dict[int, torch.Tensor] = {}
+    if seen:
+        x, top = torch.cat([a for a, _ in seen]), torch.cat([b for _, b in seen])
+        seen.clear()
+        for e in torch.unique(top).tolist():
+            rows[e] = x[(top == e).any(dim=-1)][: args.max_rows_per_expert]
+        del x, top
+    t1 = time.time()
 
     out: dict[str, torch.Tensor] = {}
     for n, m in targets.items():
-        bits = recipe[COMPONENTS[n]]
+        # (X moved to the GPU and cast inside gptq_nbit)
+        bits = bits_for(COMPONENTS[n], recipe)
         res = gptq_nbit(m.weight.data.float(), torch.cat(inputs.pop(n)), bits=bits, group_size=args.group_size,
                         percdamp=args.percdamp, device=DEVICE, scheme="affine")
         m.weight.data.copy_(res["W_hat"].to(m.weight.dtype).to(m.weight.device))
         out[f"{n}.weight"] = res["W_hat"].to(torch.bfloat16).cpu()
         out[f"{n}.weight.gptq_scales"] = res["scale"].float().cpu()
         out[f"{n}.weight.gptq_biases"] = res["bias"].float().cpu()
+    t2 = time.time()
     if rows:
-        out.update(calibrate_experts(experts, {e: torch.cat(r) for e, r in rows.items()}, recipe["experts"], args))
+        out.update(calibrate_experts(experts, rows, recipe, args))
+    print(f"  capture {t1 - t0:.0f}s, linears {t2 - t1:.0f}s, experts {time.time() - t2:.0f}s "
+          f"({len(rows)} experts hit)", flush=True)
     return out
 
 
@@ -241,11 +255,11 @@ def main() -> None:
     layers = lm.layers
     present = {COMPONENTS[n] for layer in layers for n, _ in layer.named_modules() if n in COMPONENTS}
     if any(getattr(getattr(layer, "mlp", None), "experts", None) is not None for layer in layers):
-        present.add("experts")
-    missing = present - recipe.keys()
+        present |= {"experts_gate_up", "experts_down"}
+    missing = {c for c in present if bits_for(c, recipe) is None}
     if missing:
         raise SystemExit(f"recipe has no bits for: {sorted(missing)} (model has {sorted(present)})")
-    json.dump({"recipe": {k: recipe[k] for k in sorted(present)}, "group_size": args.group_size,
+    json.dump({"recipe": {k: bits_for(k, recipe) for k in sorted(present)}, "group_size": args.group_size,
                "components": COMPONENTS, "keep_float": [p.pattern for p in floats],
                "calibration": {"chunks": args.calib_chunks, "tokens": args.calib_chunk_tokens, "sources": args.calib}},
               open(work / "quant_recipe.json", "w"), indent=2)

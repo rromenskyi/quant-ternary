@@ -41,8 +41,15 @@ MLX_COMPONENTS = {
     "linear_attn.in_proj_qkv": "linear", "linear_attn.in_proj_z": "linear", "linear_attn.out_proj": "linear",
     "mlp.gate_proj": "mlp", "mlp.up_proj": "mlp", "mlp.down_proj": "mlp",
     "mlp.shared_expert.gate_proj": "shared", "mlp.shared_expert.up_proj": "shared", "mlp.shared_expert.down_proj": "shared",
-    "mlp.switch_mlp.gate_proj": "experts", "mlp.switch_mlp.up_proj": "experts", "mlp.switch_mlp.down_proj": "experts",
+    "mlp.switch_mlp.gate_proj": "experts_gate_up", "mlp.switch_mlp.up_proj": "experts_gate_up",
+    "mlp.switch_mlp.down_proj": "experts_down",
 }
+
+
+def bits_for(component: str, recipe: dict) -> int:
+    """A component's bits; "experts_down" etc. fall back to "experts"
+    (recipes written before the split have only "experts")."""
+    return recipe.get(component, recipe.get(component.split("_")[0]))
 
 
 def pack(codes: np.ndarray, bits: int) -> np.ndarray:
@@ -61,7 +68,7 @@ def pack(codes: np.ndarray, bits: int) -> np.ndarray:
 def gptq_tensors(work: Path, recipe: dict) -> dict[str, tuple]:
     """MLX key prefix -> (W_hat, scale, bias, bits) from gptq_qwen35.py's
     layer files; fused experts split into switch_mlp gate / up / down."""
-    bits_of = {**{k: v for k, v in recipe["components"].items()}}
+    bits_of = recipe["components"]
     out = {}
     for f in sorted(glob.glob(str(work / "layers" / "*.safetensors"))):
         t = mx.load(f)
@@ -70,7 +77,7 @@ def gptq_tensors(work: Path, recipe: dict) -> dict[str, tuple]:
                 continue
             mod = key.split(".layers.", 1)[1].split(".", 1)[1]  # "<module>.weight" or "mlp.experts.gate_up_proj"
             mod = mod[: -len(".weight")] if mod.endswith(".weight") else mod
-            bits = recipe["recipe"][bits_of[mod]]
+            bits = bits_for(bits_of[mod], recipe["recipe"])
             prefix = "language_model.model.layers." + key.split(".layers.", 1)[1].split(".", 1)[0]
             W, S, B = t[key], t[key + ".gptq_scales"], t[key + ".gptq_biases"]
             if mod == "mlp.experts.gate_up_proj":
@@ -84,7 +91,20 @@ def gptq_tensors(work: Path, recipe: dict) -> dict[str, tuple]:
     return out
 
 
+def _gpu():
+    try:
+        mx.eval(mx.zeros(1, stream=mx.gpu))
+        return mx.gpu
+    except Exception:
+        return None
+
+
+GPU = None
+
+
 def write_gptq_codes(out: Path, work: Path, recipe: dict, group_size: int) -> None:
+    global GPU
+    GPU = _gpu()
     exact = gptq_tensors(work, recipe)
     changed = total = 0
     done = set()
@@ -96,9 +116,12 @@ def write_gptq_codes(out: Path, work: Path, recipe: dict, group_size: int) -> No
             if f"{prefix}.weight" not in tensors:
                 continue
             n = 2**bits - 1
-            Wg = W.astype(mx.float32).reshape(*W.shape[:-1], -1, group_size)
-            codes = mx.clip(mx.round((Wg - B[..., None]) / mx.where(S == 0, 1, S)[..., None]), 0, n)
-            codes = np.array(codes.reshape(W.shape).astype(mx.uint32))
+            # On the GPU when there is one: MLX's CPU backend on Linux took
+            # an hour for a 35B MoE's codes.
+            with mx.stream(GPU or mx.cpu):
+                Wg = W.astype(mx.float32).reshape(*W.shape[:-1], -1, group_size)
+                codes = mx.clip(mx.round((Wg - B[..., None]) / mx.where(S == 0, 1, S)[..., None]), 0, n)
+                codes = np.array(codes.reshape(W.shape).astype(mx.uint8))
             packed = mx.array(pack(codes, bits))
             old = tensors[f"{prefix}.weight"]
             assert packed.shape == old.shape, (prefix, packed.shape, old.shape)
@@ -149,7 +172,7 @@ def main() -> None:
         for suffix, component in MLX_COMPONENTS.items():
             # Whole path components: "mlp.gate_proj" must not match "switch_mlp.gate_proj".
             if path == suffix or path.endswith("." + suffix):
-                return {"group_size": gs, "bits": bits[component]}
+                return {"group_size": gs, "bits": bits_for(component, bits)}
         raise ValueError(f"no bits for {path}: add it to the recipe or keep_float")
 
     convert(str(hf), str(out), quantize=True, q_group_size=gs, q_bits=min(bits.values()), quant_predicate=predicate)
