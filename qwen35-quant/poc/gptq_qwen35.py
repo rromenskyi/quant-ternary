@@ -60,6 +60,12 @@ COMPONENTS = {
     "mlp.shared_expert.gate_proj": "shared", "mlp.shared_expert.up_proj": "shared", "mlp.shared_expert.down_proj": "shared",
     "mlp.experts.gate_up_proj": "experts_gate_up", "mlp.experts.down_proj": "experts_down",
 }
+# Per block a decoder layer may have, the projections it must show.
+EXPECTED = {
+    "self_attn": ["self_attn.q_proj", "self_attn.k_proj", "self_attn.v_proj", "self_attn.o_proj"],
+    "linear_attn": ["linear_attn.in_proj_qkv", "linear_attn.in_proj_z", "linear_attn.out_proj"],
+    "mlp.shared_expert": ["mlp.shared_expert.gate_proj", "mlp.shared_expert.up_proj", "mlp.shared_expert.down_proj"],
+}
 DEFAULT_KEEP_FLOAT = [r"linear_attn\.in_proj_[ab]$", r"mlp\.gate$", r"mlp\.shared_expert_gate$"]
 PREFIX = "model.language_model.layers"
 DEVICE = "cuda"
@@ -200,10 +206,14 @@ def calibrate_experts(experts, rows: dict[int, torch.Tensor], recipe: dict[str, 
 def calibrate_layer(layer, hidden: list[torch.Tensor], kwargs: dict, recipe: dict, floats, args) -> dict[str, torch.Tensor]:
     targets = {n: m for n, m in layer.named_modules()
                if n in COMPONENTS and isinstance(m, torch.nn.Linear) and not keep_float(n, floats)}
-    # A renamed module would otherwise stay bf16 without a word.
-    mixers = {COMPONENTS[n] for n in targets} & {"attn", "linear"}
-    if not mixers:
-        raise SystemExit(f"no attention or linear-attention projection found: {[n for n, _ in layer.named_modules()][:12]}")
+    # A renamed module would otherwise stay bf16 without a word: every block
+    # the layer has must show all its projections.
+    names = {n for n, _ in layer.named_modules()}
+    for block, expected in EXPECTED.items():
+        if block in names:
+            missing = {e for e in expected if e not in targets and not keep_float(e, floats)}
+            if missing:
+                raise SystemExit(f"{block}: no {sorted(missing)} (has {sorted(n for n in names if n.startswith(block))})")
     # Inputs stay on the GPU (bf16): per-chunk copies to the CPU and per-expert
     # gathers in the hook made a layer CPU-bound (21 min on an A100).
     inputs: dict[str, list[torch.Tensor]] = {n: [] for n in targets}
@@ -238,7 +248,7 @@ def calibrate_layer(layer, hidden: list[torch.Tensor], kwargs: dict, recipe: dic
         out[f"{n}.weight"] = res["W_hat"].to(torch.bfloat16).cpu()
         out[f"{n}.weight.gptq_scales"] = res["scale"].float().cpu()
         out[f"{n}.weight.gptq_biases"] = res["bias"].float().cpu()
-        out[f"{n}.weight.gptq_codes"] = codes(res["W_hat"], res["scale"], res["bias"], args.group_size, bits)
+        out[f"{n}.weight.gptq_codes"] = codes(res["W_hat"], res["scale"], res["bias"], args.group_size, bits).cpu()
     t2 = time.time()
     if rows:
         out.update(calibrate_experts(experts, rows, recipe, args))

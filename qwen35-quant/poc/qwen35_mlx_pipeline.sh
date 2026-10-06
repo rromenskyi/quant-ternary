@@ -136,9 +136,9 @@ else
 fi
 
 # --- calibrate -----------------------------------------------------------------
-# Done when every layer is in, made with this recipe and group size
-# (gptq_qwen35.py refuses to resume with others).
-if [ -s "$GPTQ/progress.json" ] && python3 -c "import json,sys; p=json.load(open('$GPTQ/progress.json')); m=p.get('made_with',{}); sys.exit(not (p['done']+1==p['layers'] and m.get('recipe')=='$RECIPE' and m.get('group_size')==$GROUP_SIZE))"; then
+# Done when every layer is in, made with this recipe, group size and number
+# of calibration chunks (gptq_qwen35.py refuses to resume with others).
+if [ -s "$GPTQ/progress.json" ] && python3 -c "import json,sys; p=json.load(open('$GPTQ/progress.json')); m=p.get('made_with',{}); sys.exit(not (p['done']+1==p['layers'] and m.get('recipe')=='$RECIPE' and m.get('group_size')==$GROUP_SIZE and m.get('calib_chunks')==$CALIB_CHUNKS))"; then
   skip_step calibrate "all layers in $GPTQ"
 else
   run_step calibrate "GPTQ $RECIPE (group $GROUP_SIZE)" \
