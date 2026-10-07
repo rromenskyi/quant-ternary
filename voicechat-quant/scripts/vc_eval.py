@@ -266,7 +266,7 @@ def main():
         comp["rest"] = round(comp["total"] - sum(v for k, v in comp.items() if k != "total"), 2)
     totals = np.array([f["total"] for f in steady])
     summary = {
-        "model": model_path,
+        "model": model_path.replace(os.path.expanduser("~"), "~"),  # no local user name in results
         "argv": sys.argv[1:],
         "variant": variant,
         "load_s": round(load_s, 1),
