@@ -47,6 +47,7 @@ from pathlib import Path
 
 import torch
 import torch.nn.functional as F
+from safetensors import safe_open
 from safetensors.torch import load_file, save_file
 from transformers import AutoModelForImageTextToText, AutoTokenizer
 
@@ -86,8 +87,13 @@ def codes(W: torch.Tensor, scale: torch.Tensor, bias: torch.Tensor, group_size: 
 
 
 def bits_for(component: str, recipe: dict[str, int]) -> int | None:
-    """A component's bits; "experts_down" etc. fall back to "experts"."""
-    return recipe.get(component, recipe.get(component.split("_")[0]))
+    """A component's bits, else its shorter prefixes': "experts_down" falls
+    back to "experts", "mtp_experts_down" to "mtp_experts", then "mtp"."""
+    parts = component.split("_")
+    for n in range(len(parts), 0, -1):
+        if "_".join(parts[:n]) in recipe:
+            return recipe["_".join(parts[:n])]
+    return None
 
 
 def load_chunks(sources: list[str], tok, n: int, tokens: int) -> list[torch.Tensor]:
@@ -162,7 +168,8 @@ def expert_xp(rows: dict[int, torch.Tensor], experts: list[int], dim: int) -> to
     return Xp
 
 
-def calibrate_experts(experts, rows: dict[int, torch.Tensor], recipe: dict[str, int], args) -> dict[str, torch.Tensor]:
+def calibrate_experts(experts, rows: dict[int, torch.Tensor], recipe: dict[str, int], args,
+                      prefix: str = "") -> dict[str, torch.Tensor]:
     E, inter = experts.num_experts, experts.intermediate_dim
     gate_up = experts.gate_up_proj.data
     down = experts.down_proj.data
@@ -176,22 +183,22 @@ def calibrate_experts(experts, rows: dict[int, torch.Tensor], recipe: dict[str, 
     for start in range(0, E, args.expert_batch):
         ids = list(range(start, min(E, start + args.expert_batch)))
         Xp = expert_xp(rows, ids, gate_up.shape[-1])
-        res = batched_gptq(gate_up[ids].float(), Xp, bits_for("experts_gate_up", recipe), args.group_size, args.percdamp)
+        res = batched_gptq(gate_up[ids].float(), Xp, bits_for(prefix + "experts_gate_up", recipe), args.group_size, args.percdamp)
         W = res["W_hat"]
         gu_hat[ids] = W.to(torch.bfloat16).cpu()
         gu_s[ids], gu_b[ids] = res["scale"].float().cpu(), res["bias"].float().cpu()
-        gu_c[ids] = codes(W.cpu(), gu_s[ids], gu_b[ids], args.group_size, bits_for("experts_gate_up", recipe))
+        gu_c[ids] = codes(W.cpu(), gu_s[ids], gu_b[ids], args.group_size, bits_for(prefix + "experts_gate_up", recipe))
         # down_proj sees act(gate) * up of the QUANTIZED gate_up, as at inference.
         down_rows = {}
         for j, e in enumerate(ids):
             if e in rows:
                 h = rows[e].float() @ W[j].to(DEVICE).t()
                 down_rows[e] = experts.act_fn(h[:, :inter]) * h[:, inter:]
-        res = batched_gptq(down[ids].float(), expert_xp(down_rows, ids, inter), bits_for("experts_down", recipe),
+        res = batched_gptq(down[ids].float(), expert_xp(down_rows, ids, inter), bits_for(prefix + "experts_down", recipe),
                            args.group_size, args.percdamp)
         dn_hat[ids] = res["W_hat"].to(torch.bfloat16).cpu()
         dn_s[ids], dn_b[ids] = res["scale"].float().cpu(), res["bias"].float().cpu()
-        dn_c[ids] = codes(res["W_hat"].cpu(), dn_s[ids], dn_b[ids], args.group_size, bits_for("experts_down", recipe))
+        dn_c[ids] = codes(res["W_hat"].cpu(), dn_s[ids], dn_b[ids], args.group_size, bits_for(prefix + "experts_down", recipe))
     experts.gate_up_proj.data.copy_(gu_hat.to(gate_up.device))
     experts.down_proj.data.copy_(dn_hat.to(down.device))
     # The GPTQ grid itself (scale per code, bias): convert_mlx.py writes these
@@ -203,7 +210,10 @@ def calibrate_experts(experts, rows: dict[int, torch.Tensor], recipe: dict[str, 
             "mlp.experts.down_proj.gptq_codes": dn_c}
 
 
-def calibrate_layer(layer, hidden: list[torch.Tensor], kwargs: dict, recipe: dict, floats, args) -> dict[str, torch.Tensor]:
+def calibrate_layer(layer, hidden: list[torch.Tensor], kwargs: dict, recipe: dict, floats, args,
+                    prefix: str = "") -> dict[str, torch.Tensor]:
+    """GPTQ of one decoder layer on its inputs `hidden`; the recipe key of a
+    component is `prefix` + its name (the MTP head's: "mtp_attn", ...)."""
     targets = {n: m for n, m in layer.named_modules()
                if n in COMPONENTS and isinstance(m, torch.nn.Linear) and not keep_float(n, floats)}
     # A renamed module would otherwise stay bf16 without a word: every block
@@ -244,7 +254,7 @@ def calibrate_layer(layer, hidden: list[torch.Tensor], kwargs: dict, recipe: dic
     out: dict[str, torch.Tensor] = {}
     for n, m in targets.items():
         # (X moved to the GPU and cast inside gptq_nbit)
-        bits = bits_for(COMPONENTS[n], recipe)
+        bits = bits_for(prefix + COMPONENTS[n], recipe)
         res = gptq_nbit(m.weight.data.float(), torch.cat(inputs.pop(n)), bits=bits, group_size=args.group_size,
                         percdamp=args.percdamp, device=DEVICE, scheme="affine")
         m.weight.data.copy_(res["W_hat"].to(m.weight.dtype).to(m.weight.device))
@@ -254,9 +264,102 @@ def calibrate_layer(layer, hidden: list[torch.Tensor], kwargs: dict, recipe: dic
         out[f"{n}.weight.gptq_codes"] = codes(res["W_hat"], res["scale"], res["bias"], args.group_size, bits).cpu()
     t2 = time.time()
     if rows:
-        out.update(calibrate_experts(experts, rows, recipe, args))
+        out.update(calibrate_experts(experts, rows, recipe, args, prefix))
     print(f"  capture {t1 - t0:.0f}s, linears {t2 - t1:.0f}s, experts {time.time() - t2:.0f}s "
           f"({len(rows)} experts hit)", flush=True)
+    return out
+
+
+def mtp_tensors(src: Path) -> dict[str, torch.Tensor]:
+    """The checkpoint's MTP head tensors (mtp.*), from the shards that hold
+    them; empty when it has none."""
+    index = json.load(open(src / "model.safetensors.index.json"))["weight_map"]
+    out = {}
+    for shard in sorted({f for k, f in index.items() if k.startswith("mtp.")}):
+        with safe_open(src / shard, "pt") as s:
+            out.update({k: s.get_tensor(k) for k in s.keys() if k.startswith("mtp.")})
+    return out
+
+
+def build_mtp(lm, weights: dict[str, torch.Tensor]) -> tuple[torch.nn.Module, int]:
+    """The MTP head from its tensors, made of the text model's own classes:
+    fc over [embedding, hidden] (each normed), then decoder layers like the
+    backbone's full-attention ones, then a norm. Per-expert tensors are
+    fused into the experts module's [E, 2I, H] / [E, H, I] layout.
+    Returns the head and the index of the backbone layer its layers copy."""
+    cfg = lm.config
+    full = cfg.layer_types.index("full_attention")
+    n = 1 + max(int(k.split(".")[2]) for k in weights if k.startswith("mtp.layers."))
+    norm = lambda: type(lm.norm)(cfg.hidden_size, eps=cfg.rms_norm_eps)  # noqa: E731
+    head = torch.nn.Module()
+    head.pre_fc_norm_embedding, head.pre_fc_norm_hidden, head.norm = norm(), norm(), norm()
+    head.fc = torch.nn.Linear(2 * cfg.hidden_size, cfg.hidden_size, bias=False)
+    head.layers = torch.nn.ModuleList([type(lm.layers[full])(cfg, full) for _ in range(n)])
+    state, experts = {}, {}
+    for k, v in weights.items():
+        m = re.match(r"mtp\.layers\.(\d+)\.mlp\.experts\.(\d+)\.(gate|up|down)_proj\.weight$", k)
+        if m:
+            experts.setdefault(int(m[1]), {}).setdefault(m[3], {})[int(m[2])] = v
+        else:
+            state[k[len("mtp."):]] = v
+    for i, parts in experts.items():
+        E = len(parts["gate"])
+        state[f"layers.{i}.mlp.experts.gate_up_proj"] = torch.stack(
+            [torch.cat([parts["gate"][e], parts["up"][e]]) for e in range(E)])
+        state[f"layers.{i}.mlp.experts.down_proj"] = torch.stack([parts["down"][e] for e in range(E)])
+    head.load_state_dict(state, strict=True)
+    return head.to(torch.bfloat16).eval(), full
+
+
+def split_experts(out: dict[str, torch.Tensor], layer: str) -> dict[str, torch.Tensor]:
+    """calibrate_experts' fused results as the checkpoint's per-expert MTP
+    tensors (mtp.layers.i.mlp.experts.e.{gate,up,down}_proj.weight[.gptq_*])."""
+    res = {}
+    for fused, names in (("gate_up_proj", ("gate_proj", "up_proj")), ("down_proj", ("down_proj",))):
+        for suffix in ("", ".gptq_scales", ".gptq_biases", ".gptq_codes"):
+            t = out.pop(f"mlp.experts.{fused}{suffix}")
+            rows = t.shape[1] // len(names)
+            for e in range(t.shape[0]):
+                for j, name in enumerate(names):
+                    key = f"{layer}.mlp.experts.{e}.{name}.weight{suffix}"
+                    res[key] = t[e, j * rows:(j + 1) * rows].contiguous()
+    return res
+
+
+def calibrate_mtp(lm, head, full: int, hidden: list[torch.Tensor], chunks: list[torch.Tensor], recipe: dict,
+                  floats, args) -> dict[str, torch.Tensor]:
+    """GPTQ of the MTP head on what it reads at inference: the backbone's
+    final (normed) hidden state at t, from the calibrated layers, and the
+    embedding of token t+1."""
+    for m in (lm.norm, lm.embed_tokens, head):
+        m.to(DEVICE)
+    with torch.no_grad():
+        xs = [torch.cat([head.pre_fc_norm_embedding(lm.embed_tokens(c[:, 1:].to(DEVICE))),
+                         head.pre_fc_norm_hidden(lm.norm(h)[:, :-1])], dim=-1) for h, c in zip(hidden, chunks)]
+    lm.norm.cpu()
+    lm.embed_tokens.cpu()
+    out: dict[str, torch.Tensor] = {}
+    bits = bits_for("mtp_fc", recipe)
+    res = gptq_nbit(head.fc.weight.data.float(), torch.cat([x.reshape(-1, x.shape[-1]) for x in xs]), bits=bits,
+                    group_size=args.group_size, percdamp=args.percdamp, device=DEVICE, scheme="affine")
+    head.fc.weight.data.copy_(res["W_hat"].to(head.fc.weight.dtype).to(DEVICE))
+    out["mtp.fc.weight"] = res["W_hat"].to(torch.bfloat16).cpu()
+    out["mtp.fc.weight.gptq_scales"] = res["scale"].float().cpu()
+    out["mtp.fc.weight.gptq_biases"] = res["bias"].float().cpu()
+    out["mtp.fc.weight.gptq_codes"] = codes(res["W_hat"], res["scale"], res["bias"], args.group_size, bits).cpu()
+    with torch.no_grad():
+        xs = [head.fc(x) for x in xs]
+    # The pairs are one token shorter than the chunks: their masks and rope.
+    kwargs = layer_kwargs(lm, chunks[0][:, :-1])[full]
+    for i, layer in enumerate(head.layers):
+        lo = calibrate_layer(layer, xs, kwargs, recipe, floats, args, prefix="mtp_")
+        with torch.no_grad():
+            xs = [layer(x, **kwargs) for x in xs]
+        if "mlp.experts.gate_up_proj" in lo:
+            out.update(split_experts(lo, f"mtp.layers.{i}"))
+        out.update({f"mtp.layers.{i}.{k}": v for k, v in lo.items()})
+        print(f"MTP layer {i} ({sum(1 for k in lo if '.gptq_' not in k)} tensors)", flush=True)
+    head.cpu()
     return out
 
 
@@ -289,6 +392,14 @@ def main() -> None:
     present = {COMPONENTS[n] for layer in layers for n, _ in layer.named_modules() if n in COMPONENTS}
     if any(getattr(getattr(layer, "mlp", None), "experts", None) is not None for layer in layers):
         present |= {"experts_gate_up", "experts_down"}
+    # The MTP head, when the recipe gives it bits ("mtp=4" or per component).
+    mtp = mtp_tensors(Path(args.model)) if bits_for("mtp_fc", recipe) is not None else {}
+    if bits_for("mtp_fc", recipe) is not None and not mtp:
+        raise SystemExit("the recipe has bits for the MTP head, the checkpoint has no mtp.* tensors")
+    if mtp:
+        moe = any(".mlp.experts." in k for k in mtp)
+        present |= {"mtp_fc", "mtp_attn"} | ({"mtp_shared", "mtp_experts_gate_up", "mtp_experts_down"}
+                                             if moe else {"mtp_mlp"})
     missing = {c for c in present if bits_for(c, recipe) is None}
     if missing:
         raise SystemExit(f"recipe has no bits for: {sorted(missing)} (model has {sorted(present)})")
@@ -301,7 +412,11 @@ def main() -> None:
 
     progress = work / "progress.json"
     # What the finished layers were made with: a resume must not mix recipes.
-    made_with = {"recipe": args.recipe, "group_size": args.group_size, "calib": args.calib,
+    # The MTP head's bits ("mtp...") aren't the layers': another head recipe
+    # recalibrates only the head (layers/mtp.safetensors keeps its own).
+    layer_recipe = ",".join(p for p in args.recipe.split(",") if not p.strip().startswith("mtp"))
+    head_recipe = ",".join(p for p in args.recipe.split(",") if p.strip().startswith("mtp"))
+    made_with = {"recipe": layer_recipe, "group_size": args.group_size, "calib": args.calib,
                  "calib_chunks": args.calib_chunks, "calib_chunk_tokens": args.calib_chunk_tokens,
                  "keep_float": [p.pattern for p in floats]}
     start = 0
@@ -339,6 +454,18 @@ def main() -> None:
             torch.cuda.empty_cache()
         n = sum(1 for k in out if ".gptq_" not in k)
         print(f"layer {i:2d}/{len(layers)} ({n} tensors) {time.time() - started:.0f}s", flush=True)
+    mtp_file = work / "layers" / "mtp.safetensors"
+    head_made_with = json.dumps({"recipe": head_recipe, **{k: v for k, v in made_with.items() if k != "recipe"}},
+                                sort_keys=True)
+    if mtp_file.exists():
+        with safe_open(mtp_file, "pt") as f:
+            if (f.metadata() or {}).get("made_with") != head_made_with:
+                mtp_file.unlink()
+    if mtp and not mtp_file.exists():
+        head, full = build_mtp(lm, mtp)
+        out = calibrate_mtp(lm, head, full, hidden, chunks, recipe, floats, args)
+        save_file({k: v.contiguous() for k, v in out.items()}, mtp_file, metadata={"made_with": head_made_with})
+        print(f"MTP head calibrated ({head_recipe})", flush=True)
     print("GPTQ_DONE", flush=True)
 
 

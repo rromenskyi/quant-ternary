@@ -30,6 +30,11 @@ EMBED_BITS="${EMBED_BITS:-8}"
 HEAD_BITS="${HEAD_BITS:-8}"
 VISION_BITS="${VISION_BITS:-8}"
 CALIB_CHUNKS="${CALIB_CHUNKS:-128}"
+# The MTP head's bits, joined to RECIPE ("mtp=4", or per component:
+# mtp_fc, mtp_attn, mtp_mlp / mtp_shared, mtp_experts_gate_up / _down).
+# Empty: no head. It goes to model-mtp.safetensors, a file an installed
+# model can get alone.
+MTP="${MTP-mtp=4}"
 MLX_LM_REF="${MLX_LM_REF:-main}"   # ipsupport-llc/mlx-lm ref (qwen3_5 / qwen3_5_moe vision)
 
 case "$VARIANT" in
@@ -58,6 +63,8 @@ DATA="$WORK/data"
 MAX_PPL_RATIO="${MAX_PPL_RATIO:-1.10}"
 CHECK_JSON="$WORK/check-$VARIANT.json"
 REF="$WORK/ref-${MODEL_ID##*/}"   # per model: variants of one model share it
+LAYER_RECIPE="$RECIPE"
+RECIPE="$RECIPE${MTP:+,$MTP}"
 GPTQ="$WORK/gptq-$VARIANT"
 ONGRID="$WORK/ongrid-$VARIANT"
 OUT_DIR="${OUT_DIR:-$WORK/$NAME}"
@@ -138,7 +145,21 @@ fi
 # --- calibrate -----------------------------------------------------------------
 # Done when every layer is in, made with this recipe, group size and number
 # of calibration chunks (gptq_qwen35.py refuses to resume with others).
-if [ -s "$GPTQ/progress.json" ] && python3 -c "import json,sys; p=json.load(open('$GPTQ/progress.json')); m=p.get('made_with',{}); sys.exit(not (p['done']+1==p['layers'] and m.get('recipe')=='$RECIPE' and m.get('group_size')==$GROUP_SIZE and m.get('calib_chunks')==$CALIB_CHUNKS))"; then
+# The head (MTP) is calibrated after them, with its own recipe in
+# layers/mtp.safetensors.
+if [ -s "$GPTQ/progress.json" ] && python3 -c "
+import json, sys
+from safetensors import safe_open
+p = json.load(open('$GPTQ/progress.json')); m = p.get('made_with', {})
+ok = p['done'] + 1 == p['layers'] and m.get('recipe') == '$LAYER_RECIPE' and m.get('group_size') == $GROUP_SIZE and m.get('calib_chunks') == $CALIB_CHUNKS
+head = '$GPTQ/layers/mtp.safetensors'
+if '$MTP':
+    try:
+        with safe_open(head, 'pt') as f:
+            ok = ok and json.loads(f.metadata()['made_with'])['recipe'] == '$MTP'
+    except Exception:
+        ok = False
+sys.exit(not ok)"; then
   skip_step calibrate "all layers in $GPTQ"
 else
   run_step calibrate "GPTQ $RECIPE (group $GROUP_SIZE)" \
@@ -148,7 +169,8 @@ else
 fi
 
 # --- assemble ------------------------------------------------------------------
-if grep -q ASSEMBLE_DONE "$LOG_DIR/qwen35_assemble.log" 2>/dev/null && [ "$ONGRID/quant_recipe.json" -nt "$GPTQ/progress.json" ]; then
+if grep -q ASSEMBLE_DONE "$LOG_DIR/qwen35_assemble.log" 2>/dev/null && [ "$ONGRID/quant_recipe.json" -nt "$GPTQ/progress.json" ] \
+   && { [ -z "$MTP" ] || [ "$ONGRID/quant_recipe.json" -nt "$GPTQ/layers/mtp.safetensors" ]; }; then
   skip_step assemble "$ONGRID newer than the calibration"
 else
   run_step assemble "calibrated decoder into $ONGRID" \
@@ -167,10 +189,10 @@ fi
 
 # --- check ---------------------------------------------------------------------
 if [ -s "$CHECK_JSON" ] && [ "$CHECK_JSON" -nt "$OUT_DIR/quant_recipe.json" ] \
-   && python3 -c "import json,sys; c=json.load(open('$CHECK_JSON')); sys.exit(not (c.get('passed') and 'ppl_code' in c and c.get('max_ppl_ratio')==$MAX_PPL_RATIO))"; then
+   && python3 -c "import json,sys; c=json.load(open('$CHECK_JSON')); sys.exit(not (c.get('passed') and 'ppl_code' in c and c.get('max_ppl_ratio')==$MAX_PPL_RATIO and ('mtp_accept' in c or not '$MTP')))"; then
   skip_step check "$CHECK_JSON passed, newer than the model"
 else
-  run_step check "vision vs HF, image question, perplexity (text, code)" \
+  run_step check "vision vs HF, image question, perplexity (text, code), MTP acceptance" \
     mlx_env python3 "$HERE/check_mlx.py" --model "$OUT_DIR" --ref "$REF" --wikitext "$DATA/wiki.test.raw" \
       --code "$DATA/code.test.txt" --out "$CHECK_JSON" --max-ppl-ratio "$MAX_PPL_RATIO"
 fi
@@ -191,7 +213,16 @@ fi
 # --- publish -------------------------------------------------------------------
 if [ "${PUBLISH:-0}" = 1 ]; then
   [ -f "$OUT_DIR/README.md" ] || { echo "no model card in $OUT_DIR" >&2; exit 1; }
-  run_step publish "hf upload $HF_REPO" hf upload "$HF_REPO" "$OUT_DIR" . --commit-message "qwen35_mlx_pipeline.sh VARIANT=$VARIANT"
+  if [ -n "${PUBLISH_FILES:-}" ]; then
+    # Some files only, e.g. the MTP head for an already published model:
+    # PUBLISH_FILES="model-mtp.safetensors model.safetensors.index.json README.md"
+    for f in $PUBLISH_FILES; do
+      run_step publish "hf upload $HF_REPO $f" hf upload "$HF_REPO" "$OUT_DIR/$f" "$f" \
+        --commit-message "qwen35_mlx_pipeline.sh VARIANT=$VARIANT: $f"
+    done
+  else
+    run_step publish "hf upload $HF_REPO" hf upload "$HF_REPO" "$OUT_DIR" . --commit-message "qwen35_mlx_pipeline.sh VARIANT=$VARIANT"
+  fi
 else
   skip_step publish "PUBLISH!=1"
 fi

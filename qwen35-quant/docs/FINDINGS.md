@@ -104,6 +104,55 @@ MacBook Air M5, 26 GB, MLX 0.32.3: 38.1 tokens/s decoding, 3.92 GB peak
 (short prompts; LLMTray had Gemma 4 E2B loaded at the same time, so this is
 a lower bound).
 
+## 4a. The MTP head (2026-10-07)
+
+Qwen3.5 checkpoints carry a multi-token-prediction head (`mtp.*`: `fc` over
+[normed embedding of token t+1, normed hidden state at t], one full-attention
+decoder layer like the backbone's, a norm; the output head is shared). Our
+first releases dropped it. The mlx-lm fork drafts with it since
+ipsupport-llc/mlx-lm#27 (self-speculative decoding, drafts checked against the
+backbone's own samples, so any temperature and the same output).
+
+What the head needs, measured on FrogNano-4B (M5, greedy unless said):
+
+| Question | Answer |
+|---|---|
+| Which hidden state goes in | the backbone's **final (normed)** one: first-draft acceptance 0.89 vs 0.83 before the norm |
+| Chaining a second draft | on the head's own output after `mtp.norm` (2.11 vs 1.97 accepted per step at 3 drafts) |
+| Bits | RTN 4-bit = RTN 8-bit (1.62 / 0.96 accepted per step, code / Russian); 68 MB |
+| Draft length | fixed 2–3 drafts made sampled text **slower** (×0.65–0.95); the fork picks 0–3 per step from measured acceptance and step time (`DraftLength`): never below ×1.0 |
+| A smaller draft vocabulary | dropped: the head's step is ~80 % output head (248K vocabulary), but Qwen's Russian tokens sit at ids > 150K, and a corpus-free cut (low ids, or ids seen in the chat) took Russian acceptance from 0.96 to 0.17–0.44 |
+| Memory | +0.1 GB peak at a 16K-token prompt (the head's KV cache is quantized like the backbone's) |
+
+Speed with the head (FrogNano, decode tok/s vs plain): code ×1.37–1.54
+greedy, ×1.09–1.32 at temperature 1.0; English text ×1.21 / ×1.08; Russian
+×1.17 / ×1.03.
+
+**In the pipeline** the head is calibrated after the last decoder layer, on
+what it reads at inference: the calibrated backbone's final hidden states
+(`hidden.pt`) and the embeddings of the next tokens. GPTQ like any layer,
+recipe key `mtp` (or `mtp_fc`, `mtp_attn`, `mtp_mlp` / `mtp_shared`,
+`mtp_experts_gate_up`, `mtp_experts_down`; `bits_for` falls back to shorter
+prefixes). The layers' resume key leaves the head's bits out, so another head
+recipe recalibrates only the head. `convert_mlx.py` writes its exact codes and
+moves it to `model-mtp.safetensors`: an installed model gets the head as one
+file. `check_mlx.py` measures first-draft acceptance (`--min-mtp-accept`,
+default 0.5).
+
+**Raw head norms.** Qwen3.5's norms are zero-centered in the checkpoint
+(MLX adds 1). #27 told a raw head from a converted one by the values ("near
+0"); a trained head's aren't (FrogNano's raw `mtp.norm` averages 2.58), so the
+first pipeline build loaded the head without its 1s and the check measured
+acceptance **0.000**. Fixed in ipsupport-llc/mlx-lm#28: by the tensor names
+(raw: `mtp.*`; converted: `language_model.mtp.*`).
+
+**FrogNano results** (GPTQ 4-bit head): first-draft acceptance 0.885 on
+wikitext-2 test, 0.913 on the Python stdlib. The published backbone predated
+the exact-codes fix (§0): with it the same head reached 0.837 / 0.851, so the
+whole new build was published (PPL 12.551, +1.5 %, as before) and the repo's
+history squashed (HF's `usedStorage`, which LLMTray showed as the size,
+counted the replaced 3.4 GB file too).
+
 ## 5. Base-model notes that shape the card
 
 - A coding agent for Microsoft's Leaf harness, not a general assistant; its

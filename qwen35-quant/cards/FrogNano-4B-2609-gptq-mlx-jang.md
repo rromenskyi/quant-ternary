@@ -48,6 +48,7 @@ calibrated codes instead of re-rounding):
 | Delta-rule gates (in_proj_a, in_proj_b) | bf16 | 0.005 B |
 | Embeddings (tied with the output head; round-to-nearest) | 8 | 0.64 B |
 | Vision tower (position embedding bf16) | 8 | 0.33 B |
+| MTP head (fc, one attention + MLP layer; `model-mtp.safetensors`) | 4 | 0.12 B |
 
 Calibration: 64 × 512 tokens of wikitext-2 train, layer by layer (each layer
 on the outputs of the already-quantized ones), on one L40S.
@@ -59,7 +60,7 @@ Perplexity on wikitext-2 test, 40 × 512 tokens:
 | | Size | PPL | vs bf16 |
 |---|---|---|---|
 | bf16 (HF transformers) | 9.3 GB | 12.366 | — |
-| **this model, 8/6/4 (MLX)** | **3.2 GB** | **12.548** | **+1.5 %** |
+| **this model, 8/6/4 (MLX)** | **3.2 GB** | **12.551** | **+1.5 %** |
 | same weights in HF transformers (decoder on-grid, embeddings bf16) | — | 12.521 | +1.3 % |
 | 8/6/3 (MLP at 3 bits; not released) | ≈2.9 GB | 13.377 (HF) | +8.2 % |
 
@@ -68,6 +69,27 @@ at 4 bits the whole model loses 1.5 %.
 
 Speed (MLX, MacBook Air M5, 26 GB): **38 tokens/s** decoding, 3.9 GB peak
 memory (another model was loaded in LLMTray at the time).
+
+## Speculative decoding (MTP head)
+
+Qwen3.5 ships a multi-token-prediction head; this repo keeps it, GPTQ
+4-bit like the rest, in its own file `model-mtp.safetensors` (68 MB), so a
+copy downloaded before it was added can get just that file. With the
+[ipsupport-llc/mlx-lm](https://github.com/ipsupport-llc/mlx-lm) fork the
+head drafts tokens and the model checks them in one pass: the same output
+as without it (each token is the model's own sample, at any temperature),
+faster. Stock `mlx-lm` drops the head on load.
+
+| | |
+|---|---|
+| First draft accepted (greedy; wikitext-2 test / Python stdlib) | 88.5 % / 91.3 % |
+| Decoding, MacBook Air M5 (code / English / Russian, greedy) | ×1.37–1.54 / ×1.21 / ×1.17 |
+| Decoding at temperature 1.0 | ×1.03–1.32 |
+| Memory at a 16K-token prompt | +0.1 GB |
+
+The fork picks 0–3 drafts per step by what is fastest at the moment, so
+the head never makes decoding slower. LLMTray uses it when "Speculative
+decoding (MTP)" is on in the model's profile.
 
 These are language-modelling numbers. The coding-agent benchmarks above are
 Microsoft's, for the bf16 model in their harness; they weren't re-run on
@@ -142,6 +164,6 @@ repository's metadata says MIT, which Apache 2.0 also satisfies) — see
 
 Modified from [microsoft/FrogNano-4B-2609](https://huggingface.co/microsoft/FrogNano-4B-2609):
 quantized with GPTQ to 8-bit attention, 6-bit linear attention and 4-bit MLP
-weights (8-bit embeddings and vision tower) and converted to MLX; the MTP
-head is not included. The weights and configuration files in this repo are
+weights (8-bit embeddings and vision tower), the MTP head to 4-bit, and
+converted to MLX. The weights and configuration files in this repo are
 therefore modified versions of the original, not the original files.
