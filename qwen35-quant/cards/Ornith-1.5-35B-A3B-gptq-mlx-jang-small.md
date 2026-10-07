@@ -96,14 +96,12 @@ GPTQ 4-bit, is in its own file `model-mtp.safetensors` (476 MB; the same
 file in this repo and in the 8/6/6/3 build: one base model). With the
 [ipsupport-llc/mlx-lm](https://github.com/ipsupport-llc/mlx-lm) fork the
 head drafts tokens and the model checks them in one pass: the same output
-(each token is the model's own sample, at any temperature), faster; the
-fork picks 0–3 drafts per step by what is fastest at the moment.
-Stock `mlx-lm` drops the head on load.
+(each token is the model's own sample, at any temperature). How much faster
+that decodes on a Mac isn't measured yet for this model; the fork picks 0–3
+drafts per step by what is fastest at the moment. Stock `mlx-lm` drops the head on load.
 
 First draft accepted (greedy, this repo's weights): **85.4 %** on
 wikitext-2 test, **82.7 %** on the Python standard library.
-Speed on a Mac not measured yet.
-
 It adds 0.48 GB to the 14.4 GB, which a 26 GB Mac has room for.
 
 ## Vision

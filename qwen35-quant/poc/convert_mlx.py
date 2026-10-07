@@ -159,6 +159,11 @@ def split_mtp(out: Path) -> int:
             mx.save_safetensors(str(f), {k: v for k, v in t.items() if k not in moved}, metadata={"format": "mlx"})
     if head:
         mx.save_safetensors(str(out / "model-mtp.safetensors"), head, metadata={"format": "mlx"})
+        # A single-file conversion has no index: one that names every tensor.
+        if not index["weight_map"]:
+            for f in sorted(out.glob("model*.safetensors")):
+                if f.name != "model-mtp.safetensors":
+                    index["weight_map"].update({k: f.name for k in mx.load(str(f))})
         index["weight_map"].update({k: "model-mtp.safetensors" for k in head})
         json.dump(index, open(index_path, "w"), indent=2)
     return len(head)
