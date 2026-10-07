@@ -97,8 +97,8 @@ file in this repo and in the 2-bit gate / up build: one base model). With the
 [ipsupport-llc/mlx-lm](https://github.com/ipsupport-llc/mlx-lm) fork the
 head drafts tokens and the model checks them in one pass: the same output
 (each token is the model's own sample, at any temperature), faster; the
-fork picks 0–3 drafts per step by what is fastest, so it never slows
-decoding down. Stock `mlx-lm` drops the head on load.
+fork picks 0–3 drafts per step by what is fastest at the moment.
+Stock `mlx-lm` drops the head on load.
 
 First draft accepted (greedy, this repo's weights): **80.8 %** on
 wikitext-2 test, **81.1 %** on the Python standard library.

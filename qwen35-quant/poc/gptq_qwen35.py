@@ -15,6 +15,8 @@ Writes, under --work:
   hidden.pt, progress.json  the activations after the last finished layer
   quant_recipe.json       the recipe, for assemble_checkpoint.py and
                           convert_mlx.py
+  layers/mtp.safetensors  the MTP head, when the recipe has "mtp" bits
+                          (its own recipe in the file's metadata)
 
 Components (module suffix within a decoder layer -> recipe key):
   self_attn.{q,k,v,o}_proj                        attn
@@ -87,7 +89,7 @@ def codes(W: torch.Tensor, scale: torch.Tensor, bias: torch.Tensor, group_size: 
 
 
 def bits_for(component: str, recipe: dict[str, int]) -> int | None:
-    """A component's bits, else its shorter prefixes': "experts_down" falls
+    """A component's bits, else its shorter prefixes' bits: "experts_down" falls
     back to "experts", "mtp_experts_down" to "mtp_experts", then "mtp"."""
     parts = component.split("_")
     for n in range(len(parts), 0, -1):
@@ -393,6 +395,8 @@ def main() -> None:
     if any(getattr(getattr(layer, "mlp", None), "experts", None) is not None for layer in layers):
         present |= {"experts_gate_up", "experts_down"}
     # The MTP head, when the recipe gives it bits ("mtp=4" or per component).
+    if any(k.startswith("mtp") for k in recipe) and bits_for("mtp_fc", recipe) is None:
+        raise SystemExit("the recipe gives the MTP head some bits but none for mtp_fc: use mtp=<bits> or add mtp_fc")
     mtp = mtp_tensors(Path(args.model)) if bits_for("mtp_fc", recipe) is not None else {}
     if bits_for("mtp_fc", recipe) is not None and not mtp:
         raise SystemExit("the recipe has bits for the MTP head, the checkpoint has no mtp.* tensors")
@@ -458,9 +462,13 @@ def main() -> None:
     head_made_with = json.dumps({"recipe": head_recipe, **{k: v for k, v in made_with.items() if k != "recipe"}},
                                 sort_keys=True)
     if mtp_file.exists():
-        with safe_open(mtp_file, "pt") as f:
-            if (f.metadata() or {}).get("made_with") != head_made_with:
-                mtp_file.unlink()
+        try:
+            with safe_open(mtp_file, "pt") as f:
+                stale = (f.metadata() or {}).get("made_with") != head_made_with
+        except Exception:
+            stale = True   # cut off while it was written
+        if stale:
+            mtp_file.unlink()
     if mtp and not mtp_file.exists():
         head, full = build_mtp(lm, mtp)
         out = calibrate_mtp(lm, head, full, hidden, chunks, recipe, floats, args)

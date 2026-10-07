@@ -133,6 +133,8 @@ def mtp_gptq_tensors(t: dict, recipe: dict) -> dict[str, tuple]:
         prefix = "language_model." + key[: -len(".weight")]
         out[prefix] = parts + (bits_for(mtp_component(prefix), recipe["recipe"]),)
     for (layer, proj), by_e in experts.items():
+        if sorted(by_e) != list(range(len(by_e))):
+            raise SystemExit(f"MTP layer {layer} {proj}: experts {sorted(by_e)[:3]}... aren't 0..{len(by_e) - 1}")
         prefix = f"language_model.mtp.layers.{layer}.mlp.switch_mlp.{proj}"
         stacked = [mx.stack([by_e[e][i] for e in range(len(by_e))]) if by_e[0][i] is not None else None
                    for i in range(4)]
@@ -164,6 +166,7 @@ def split_mtp(out: Path) -> int:
 
 def drop_mtp(out: Path) -> None:
     """No MTP bits in the recipe: the head isn't shipped (as before)."""
+    (out / "model-mtp.safetensors").unlink(missing_ok=True)
     for f in sorted(out.glob("model*.safetensors")):
         t = mx.load(str(f))
         if any(k.startswith("language_model.mtp.") for k in t):

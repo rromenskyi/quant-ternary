@@ -154,6 +154,9 @@ from safetensors import safe_open
 p = json.load(open('$GPTQ/progress.json')); m = p.get('made_with', {})
 ok = p['done'] + 1 == p['layers'] and m.get('recipe') == '$LAYER_RECIPE' and m.get('group_size') == $GROUP_SIZE and m.get('calib_chunks') == $CALIB_CHUNKS
 head = '$GPTQ/layers/mtp.safetensors'
+import os
+if not '$MTP' and os.path.exists(head):
+    ok = False   # a head this recipe no longer has: the run removes it
 if '$MTP':
     try:
         with safe_open(head, 'pt') as f:
@@ -171,7 +174,8 @@ fi
 
 # --- assemble ------------------------------------------------------------------
 if grep -q ASSEMBLE_DONE "$LOG_DIR/qwen35_assemble.log" 2>/dev/null && [ "$ONGRID/quant_recipe.json" -nt "$GPTQ/progress.json" ] \
-   && { [ -z "$MTP" ] || [ "$ONGRID/quant_recipe.json" -nt "$GPTQ/layers/mtp.safetensors" ]; }; then
+   && { [ -z "$MTP" ] || [ "$ONGRID/quant_recipe.json" -nt "$GPTQ/layers/mtp.safetensors" ]; } \
+   && { [ -n "$MTP" ] || ! grep -q '"mtp' "$ONGRID/quant_recipe.json"; }; then
   skip_step assemble "$ONGRID newer than the calibration"
 else
   run_step assemble "calibrated decoder into $ONGRID" \
@@ -195,7 +199,7 @@ if [ -s "$CHECK_JSON" ] && [ "$CHECK_JSON" -nt "$OUT_DIR/quant_recipe.json" ] \
 else
   run_step check "vision vs HF, image question, perplexity (text, code), MTP acceptance" \
     mlx_env python3 "$HERE/check_mlx.py" --model "$OUT_DIR" --ref "$REF" --wikitext "$DATA/wiki.test.raw" \
-      --code "$DATA/code.test.txt" --out "$CHECK_JSON" --max-ppl-ratio "$MAX_PPL_RATIO"
+      --code "$DATA/code.test.txt" --out "$CHECK_JSON" --max-ppl-ratio "$MAX_PPL_RATIO" ${MTP:+--expect-mtp}
 fi
 
 # --- model card (LAST) -----------------------------------------------------------

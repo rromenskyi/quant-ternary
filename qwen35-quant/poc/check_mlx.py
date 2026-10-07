@@ -5,15 +5,17 @@
      (Qwen35ImageInputs.build -> set_media_positions -> stream_generate with
      the fused input embeddings);
   3. perplexity, 40 x 512 tokens, as hf_reference.py measures bf16: on
-     wikitext-2 test, and with --code on held-out Python code.
+     wikitext-2 test, and with --code on held-out Python code;
+  4. with an MTP head: how often greedy decoding accepts its first draft
+     (--min-mtp-accept; --expect-mtp fails a model without the head).
 
     python check_mlx.py --model /workspace/Ornith-1.5-35B-A3B-gptq-mlx-jang \
         --ref /workspace/ref --wikitext /workspace/data/wiki.test.raw \
         --code /workspace/data/code.test.txt --out /workspace/check-ornith-35b.json
 
 Adds its results to --out (default <ref>/check.json) and fails when the
-vision features or a perplexity are off (--min-vision-cos; --max-ppl-ratio
-against hf_reference.py's ref.json).
+vision features, a perplexity or the MTP head are off (--min-vision-cos;
+--max-ppl-ratio against hf_reference.py's ref.json; --min-mtp-accept).
 """
 
 from __future__ import annotations
@@ -61,7 +63,9 @@ def mtp_acceptance(model, tok, path: str, prompts: int = 8, prompt_tokens: int =
         out = list(mtp_generate_step(prompt, model, num_draft_tokens=1, adaptive=False, max_tokens=new))
         n_acc = sum(1 for _, _, from_draft in out if from_draft)
         accepted += n_acc
-        steps += len(out) - 1 - n_acc  # one verify pass per backbone token after the first
+        # One draft per verify pass: each backbone token after the first
+        # ends one, and an accepted draft cut off by max_tokens is one more.
+        steps += len(out) - 1 - n_acc + (1 if out and out[-1][2] else 0)
     return accepted / max(steps, 1)
 
 
@@ -78,6 +82,7 @@ def main() -> None:
     ap.add_argument("--max-ppl-ratio", type=float, default=1.10, help="vs ref.json's bf16 PPL")
     ap.add_argument("--min-mtp-accept", type=float, default=0.5,
                     help="MTP head: least share of first drafts the model accepts (greedy)")
+    ap.add_argument("--expect-mtp", action="store_true", help="fail if the model has no MTP head")
     args = ap.parse_args()
     ref = Path(args.ref).expanduser()
     out_path = Path(args.out) if args.out else ref / "check.json"
@@ -131,12 +136,18 @@ def main() -> None:
             print(f"  vs bf16 {bf16[ref_key]:.4f}: {100 * (ppl / bf16[ref_key] - 1):+.2f} %")
     # 4. The MTP head (model-mtp.safetensors): how often the model accepts
     # its first draft, greedy, continuing held-out text and code.
+    failures = []
     if getattr(model, "mtp", None) is not None:
         for suffix, path in [("", args.wikitext)] + ([("_code", args.code)] if args.code else []):
             rate = mtp_acceptance(model, tok, path)
             result[f"mtp_accept{suffix}"] = rate
             print(f"MTP first-draft acceptance{suffix}: {rate:.3f}")
-    failures = []
+    else:
+        # An earlier run's numbers don't describe this model.
+        result.pop("mtp_accept", None)
+        result.pop("mtp_accept_code", None)
+        if args.expect_mtp:
+            failures.append("no MTP head in the model (model-mtp.safetensors missing or not loaded)")
     for key in ("mtp_accept", "mtp_accept_code"):
         if key in result and result[key] < args.min_mtp_accept:
             failures.append(f"MTP head off: {key} {result[key]:.3f} < {args.min_mtp_accept}")

@@ -120,7 +120,7 @@ What the head needs, measured on FrogNano-4B (M5, greedy unless said):
 | Which hidden state goes in | the backbone's **final (normed)** one: first-draft acceptance 0.89 vs 0.83 before the norm |
 | Chaining a second draft | on the head's own output after `mtp.norm` (2.11 vs 1.97 accepted per step at 3 drafts) |
 | Bits | RTN 4-bit = RTN 8-bit (1.62 / 0.96 accepted per step, code / Russian); 68 MB |
-| Draft length | fixed 2–3 drafts made sampled text **slower** (×0.65–0.95); the fork picks 0–3 per step from measured acceptance and step time (`DraftLength`): never below ×1.0 |
+| Draft length | fixed 2–3 drafts made sampled text **slower** (×0.65–0.95); the fork picks 0–3 per step from measured acceptance and step time (`DraftLength`): never below ×1.0 in these runs (the head's prefill pass is a small fixed cost) |
 | A smaller draft vocabulary | dropped: the head's step is ~80 % output head (248K vocabulary), but Qwen's Russian tokens sit at ids > 150K, and a corpus-free cut (low ids, or ids seen in the chat) took Russian acceptance from 0.96 to 0.17–0.44 |
 | Memory | +0.1 GB peak at a 16K-token prompt (the head's KV cache is quantized like the backbone's) |
 
@@ -147,11 +147,22 @@ acceptance **0.000**. Fixed in ipsupport-llc/mlx-lm#28: by the tensor names
 (raw: `mtp.*`; converted: `language_model.mtp.*`).
 
 **FrogNano results** (GPTQ 4-bit head): first-draft acceptance 0.885 on
-wikitext-2 test, 0.913 on the Python stdlib. The published backbone predated
-the exact-codes fix (§0): with it the same head reached 0.837 / 0.851, so the
-whole new build was published (PPL 12.551, +1.5 %, as before) and the repo's
-history squashed (HF's `usedStorage`, which LLMTray showed as the size,
-counted the replaced 3.4 GB file too).
+wikitext-2 test, 0.913 on the Python stdlib, with the backbone of the same
+build. The previously published backbone predated the exact-codes fix (§0);
+on it the new head reached only 0.837 / 0.851, so the whole new build was
+published (PPL 12.551, +1.5 %, as before) and the repo's history squashed
+(HF's `usedStorage`, which LLMTray showed as the size, counted the replaced
+3.4 GB file too).
+
+**Ornith results.** The head (one MoE layer, 256 experts; 476 MB at 4 bits)
+was calibrated on the 8/6/6/3 build. On that build's own backbone: 0.761 /
+0.824; on the published 8/6/6/3 weights 0.808 / 0.811 and on the published
+2/3-bit "small" weights 0.854 / 0.827 (one base model, so one head file
+serves both repos; the published backbones were kept, only the head and the
+index were uploaded). The new 8/6/6/3 build's perplexity: +5.6 % text,
++15.3 % code (published: +6.8 / +15.7). Speed on a Mac isn't measured: on a
+26 GB Mac the 17 GB model fills the default GPU limit, and the head (0.48 GB)
+leaves no room for the prompt cache there.
 
 ## 5. Base-model notes that shape the card
 

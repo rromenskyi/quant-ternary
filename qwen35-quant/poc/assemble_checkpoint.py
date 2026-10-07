@@ -1,6 +1,7 @@
 """The source checkpoint with gptq_qwen35.py's quantized decoder weights
-swapped in, shard by shard (the vision tower, MTP head, embeddings, norms,
-router and everything else copied byte for byte), plus quant_recipe.json.
+swapped in, shard by shard (the calibrated MTP head too, when there is
+one; the vision tower, embeddings, norms, router and everything else copied
+byte for byte), plus quant_recipe.json.
 convert_mlx.py turns it into MLX at the same bits and, with --gptq-work,
 writes GPTQ's own codes (MLX's re-quantization alone changes some:
 docs/GPTQ_EXACT_CODES.md).

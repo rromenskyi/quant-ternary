@@ -74,7 +74,8 @@ memory (another model was loaded in LLMTray at the time).
 
 Qwen3.5 ships a multi-token-prediction head; this repo keeps it, GPTQ
 4-bit like the rest, in its own file `model-mtp.safetensors` (68 MB), so a
-copy downloaded before it was added can get just that file. With the
+copy downloaded before it was added can get just that file (and the
+updated `model.safetensors.index.json`). With the
 [ipsupport-llc/mlx-lm](https://github.com/ipsupport-llc/mlx-lm) fork the
 head drafts tokens and the model checks them in one pass: the same output
 as without it (each token is the model's own sample, at any temperature),
@@ -87,8 +88,8 @@ faster. Stock `mlx-lm` drops the head on load.
 | Decoding at temperature 1.0 | ×1.03–1.32 |
 | Memory at a 16K-token prompt | +0.1 GB |
 
-The fork picks 0–3 drafts per step by what is fastest at the moment, so
-the head never makes decoding slower. LLMTray uses it when "Speculative
+The fork picks 0–3 drafts per step by what is fastest at the moment; in
+our runs it was never slower than decoding without the head. LLMTray uses it when "Speculative
 decoding (MTP)" is on in the model's profile.
 
 These are language-modelling numbers. The coding-agent benchmarks above are
