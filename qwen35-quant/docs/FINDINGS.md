@@ -163,6 +163,99 @@ index were uploaded). The new 8/6/6/3 build's perplexity: +5.6 % text,
 26 GB Mac the 17 GB model fills the default GPU limit, and the head (0.48 GB)
 leaves no room for the prompt cache there.
 
+## 4b. An ipsupport-code LoRA for FrogNano (2026-10-07)
+
+`lora/lora_pipeline.sh`: the agent's own conversations, LoRA, merge, the
+MTP head retrained, the release pipeline, a behavior gate.
+
+**Data** (`lora/build_dataset.py`, `lora/synth.py`; private HF dataset
+`roman220220/ipsupport-code-sft`). The earlier Nemotron dataset was lost
+with its pods: rebuilt from `~/.config/ipsupport-code/traces.jsonl` (863
+goals, 5,433 tool calls). A captured real request gives the system prompt
+and the 8 tool schemas (`file`, `run`, `git`, `web`, `help`, `calc`,
+`done`, `agent`; every call `{"action", "params"}`).
+
+- One goal = one conversation; 720 episodes -> 511 kept (60 duplicates).
+- Malformed calls (unknown tool / action, missing params, params as a JSON
+  string...) and their error observations are cut out: the corrected call
+  that followed stays. Actions the schema doesn't list (parser leakage the
+  agent repaired, e.g. `shell\n<parameter=command>...`) drop the episode;
+  an empty action of a single-action tool becomes that action. The agent's
+  stand-in final ("(done — finished without a written summary...)") drops it.
+- 225 of them are plain replies **with the tools available** — the case
+  the Nemotron LoRA never saw (§2.5 of nemotron-extreme-quant: it called
+  tools on "привет").
+- Real traces barely use git (≤ 3 calls per action), calc, help, done,
+  agent, web.stackexchange: 243 synthetic conversations cover them (RU/EN,
+  one language per conversation; a few scenarios have fewer distinct
+  combinations than `--per-scenario`). The `help` lessons start from a
+  deliberately wrong call; that turn is marked `"weight": 0` and kept out
+  of the loss (added after this release: its adapter learned from it too).
+
+**Training** (`lora/train_lora.py`): rendered with FrogNano's own template
+(tool arguments as objects, as mlx_lm.server passes them); loss on the
+assistant turns after their think block only (the data has no reasoning:
+the template's empty `<think></think>` stays out of the loss). Attention
+only (full-attention q/k/v/o, delta-rule in_proj_qkv / in_proj_z /
+out_proj; MLP untouched: adapting both cost Nemotron-Nano-4B its coding),
+r 16, alpha 32, lr 1e-4, 2 epochs, 729 conversations up to 16K tokens.
+12.4 M trainable parameters; ~30 min on an A100.
+
+| | held-out loss | bf16 PPL text | bf16 PPL code |
+|---|---|---|---|
+| FrogNano | 0.8045 | 12.369 | 3.166 |
+| + LoRA | **0.5992** | **12.166** | 3.171 (+0.15 %) |
+
+Coding perplexity held; text got better.
+
+**The MTP head** sits on hidden states the LoRA moved: the base's head on
+the merged model (requantized by the pipeline) drafts 0.865 / 0.894 first
+tokens right (wikitext / stdlib) against 0.885 / 0.913 on the base.
+`lora/train_mtp.py` retrains it on the merged backbone (frozen): the
+agent's conversations plus wikitext / code chunks, the head's own task
+(hidden at t + token t+1 -> token t+2), lr 5e-5, 2 epochs, ~35 min on an
+A100. Teacher-forced top-1 on the held-out conversations went 0.556 ->
+0.967, but that counts the system prompt and tool schemas, which the head
+memorizes and which are never drafted. On plain text the requantized head
+drafts **0.776 / 0.850** (wikitext / stdlib) against the old head's 0.865 /
+0.894. Released with the retrained head (the user's call: the model serves
+the agent); the honest measure would be acceptance on the agent's own
+answers only, not done. A head retrain should be judged by acceptance, not
+by top-1 over whole conversations.
+
+**Release build** (the pipeline's `frognano-4b-ipsupport-code` preset, the
+same 8/6/4 recipe): MLX PPL 12.308 text / 3.224 code (base build 12.551 /
+3.229).
+
+**Behaviour** (`lora/eval_lora.py --backend mlx`, both 8/6/4 builds, the
+agent's system prompt and tools, temperature 1.0 / top-p 0.95):
+
+| | valid first step (75) | same tool + action as the reference | greeting tool calls (80) | of them not `done` |
+|---|---|---|---|---|
+| FrogNano 8/6/4 | 64 | 26 | 4 | 1 |
+| + LoRA | **74** | 26 | 7 | 5 |
+
+Valid first moves went up; the greeting reflex got slightly worse (a bare
+"ок, понял" / "как дела?" sometimes starts work: `file list`, `file read`,
+`run shell`). With 24 samples the first reflex run showed 0 vs 1 — noise at
+that size; `EVAL_REFLEX_SAMPLES` (10 per greeting) is now the default. 6 of
+the LoRA's 7 calls came on Russian messages: in the real sessions a short
+Russian "ок" / "понял" mostly comes in the middle of a task, where going on
+working is right. The gate failed on it; `PUBLISH=1` would have stopped
+here — published by hand on the owner's call (the model serves an agent
+that sends real goals, not small talk), the weakness on the card. Next
+time: plain replies to bare acknowledgements outside a task in the data,
+the reflex split by language.
+
+This release ran its steps one by one on the pod (the same scripts);
+`lora_pipeline.sh` as a whole hasn't run end to end yet (a quoting bug in
+its train / merge / mtp steps was found in review and fixed). The gate now
+also compares the same-tool rate on goals whose reference calls a tool (a
+model that never calls a tool passed the old checks).
+
+Published: `roman220220/FrogNano-4B-2609-gptq-mlx-jang-ipsupport-code-lora`
+(public), adapter `roman220220/FrogNano-4B-2609-ipsupport-code-lora` (private).
+
 ## 5. Base-model notes that shape the card
 
 - A coding agent for Microsoft's Leaf harness, not a general assistant; its

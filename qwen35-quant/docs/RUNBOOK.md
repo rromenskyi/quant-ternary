@@ -136,3 +136,46 @@ commits go; ask first).
 
 Measure speed and memory on a Mac from the published repo and add them to
 the card. Stop the pod (or delete it when the work is finished).
+
+## 8. A LoRA for an agent (`lora/lora_pipeline.sh`)
+
+Fine-tunes the checkpoint on the agent's own conversations, then runs the
+release pipeline above on the merged model. Resumable the same way.
+
+The dataset is built on the Mac that has the agent's traces, then kept in
+a **private** HF dataset (it holds real working sessions):
+
+```bash
+# a request the agent really sends (system prompt + tool schemas): run it
+# once against a stub OpenAI server that saves the body, HOME pointed at a
+# temp copy of its config so nothing of the real session changes
+python3 lora/build_dataset.py --traces ~/.config/ipsupport-code/traces.jsonl \
+  --request captured_request.json --out sft.jsonl        # + sft.eval.jsonl
+python3 lora/synth.py --request captured_request.json --out synth.jsonl
+# upload sft.jsonl, sft.eval.jsonl, synth.jsonl to roman220220/ipsupport-code-sft (private)
+```
+
+On the pod (the HF token on stdin, as in §6):
+
+```bash
+cd /workspace/qt/qwen35-quant/lora
+SETUP=1 ./lora_pipeline.sh                       # train, merge, head, quantize, eval, gate
+PUBLISH=1 ./lora_pipeline.sh                     # then publish (only past the gate)
+```
+
+`BASE_MODEL`, `LORA_NAME`, `DATASET`, `QUANT_VARIANT` (a preset of the
+release pipeline whose `MODEL_ID` is the merged folder), `BASE_MLX` (the
+base's release, the eval's reference), `LORA_TARGETS` (`attention` or
+`attention+mlp`), `LORA_R`, `LORA_ALPHA`, `LORA_LR`, `LORA_EPOCHS`,
+`LORA_MAX_LEN`, `MTP_RETRAIN` (0 keeps the base's head), `EVAL_SAMPLES`,
+`EVAL_TOLERANCE`, `ADAPTER_REPO` (private). Times on one A100 for a 4B
+model: training ~30 min (2 epochs, ~730 conversations up to 16K tokens),
+merge 1 min, head ~?, the release pipeline ~25 min, the eval ~20 min.
+
+Install nothing that compiles: `flash-linear-attention` is pure Triton.
+The private `mamba-ssm-wheel-cache` dataset's `causal_conv1d` wheel was
+built for another torch (undefined symbol at import): without it the
+delta-rule convolution runs torch's reference code, slower but fine.
+
+Over SSH, never `pkill -f <script name>`: the SSH command naming it dies
+too. And `cd X && cmd &` runs the `cd` in the background subshell only.
