@@ -210,11 +210,37 @@ the merged model (requantized by the pipeline) drafts 0.865 / 0.894 first
 tokens right (wikitext / stdlib) against 0.885 / 0.913 on the base.
 `lora/train_mtp.py` retrains it on the merged backbone (frozen): the
 agent's conversations plus wikitext / code chunks, the head's own task
-(hidden at t + token t+1 -> token t+2). Results: see below.
+(hidden at t + token t+1 -> token t+2), lr 5e-5, 2 epochs, ~35 min on an
+A100. Teacher-forced top-1 on the held-out conversations went 0.556 ->
+0.967, but that counts the system prompt and tool schemas, which the head
+memorizes and which are never drafted. On plain text the requantized head
+drafts **0.776 / 0.850** (wikitext / stdlib) against the old head's 0.865 /
+0.894. Released with the retrained head (the user's call: the model serves
+the agent); the honest measure would be acceptance on the agent's own
+answers only, not done. A head retrain should be judged by acceptance, not
+by top-1 over whole conversations.
 
 **Release build** (the pipeline's `frognano-4b-ipsupport-code` preset, the
 same 8/6/4 recipe): MLX PPL 12.308 text / 3.224 code (base build 12.551 /
 3.229).
+
+**Behaviour** (`lora/eval_lora.py --backend mlx`, both 8/6/4 builds, the
+agent's system prompt and tools, temperature 1.0 / top-p 0.95):
+
+| | valid first step (75) | same tool + action as the reference | greeting tool calls (80) | of them not `done` |
+|---|---|---|---|---|
+| FrogNano 8/6/4 | 64 | 26 | 4 | 1 |
+| + LoRA | **74** | 26 | 7 | 5 |
+
+Valid first moves went up; the greeting reflex got slightly worse (a bare
+"ок, понял" / "как дела?" sometimes starts work: `file list`, `file read`,
+`run shell`). With 24 samples the first reflex run showed 0 vs 1 — noise at
+that size; `EVAL_REFLEX_SAMPLES` (10 per greeting) is now the default. The
+gate failed on it; published anyway with the weakness on the card. Next
+time: more plain replies to bare acknowledgements in the data.
+
+Published: `roman220220/FrogNano-4B-2609-gptq-mlx-jang-ipsupport-code-lora`
+(public), adapter `roman220220/FrogNano-4B-2609-ipsupport-code-lora` (private).
 
 ## 5. Base-model notes that shape the card
 
