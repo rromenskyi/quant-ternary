@@ -63,5 +63,7 @@ skip_step () {
 
 # Resolve an HF repo to its local snapshot dir (downloads if needed).
 hf_snapshot () {
+  # A local checkpoint (e.g. a merged LoRA) is used as it is.
+  if [ -d "$1" ]; then echo "$1"; return; fi
   python3 -c "from huggingface_hub import snapshot_download; print(snapshot_download('$1'))"
 }

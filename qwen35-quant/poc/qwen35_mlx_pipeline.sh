@@ -56,7 +56,14 @@ case "$VARIANT" in
     RECIPE="${RECIPE:-attn=8,linear=6,mlp=4}"
     HF_REPO="${HF_REPO:-roman220220/FrogNano-4B-2609-gptq-mlx-jang}"
     ;;
-  *) echo "VARIANT must be ornith-35b, ornith-35b-small or frognano-4b (or add a preset)" >&2; exit 2 ;;
+  frognano-4b-ipsupport-code)
+    # FrogNano with the ipsupport-code LoRA merged in (lora/merge_lora.py):
+    # MODEL_ID is that local checkpoint.
+    MODEL_ID="${MODEL_ID:?set MODEL_ID to the merged checkpoint (lora/merge_lora.py)}"
+    RECIPE="${RECIPE:-attn=8,linear=6,mlp=4}"
+    HF_REPO="${HF_REPO:-roman220220/FrogNano-4B-2609-gptq-mlx-jang-ipsupport-code-lora}"
+    ;;
+  *) echo "VARIANT must be ornith-35b, ornith-35b-small, frognano-4b or frognano-4b-ipsupport-code (or add a preset)" >&2; exit 2 ;;
 esac
 NAME="${HF_REPO#*/}"
 CARD="${CARD:-$HERE/../cards/$NAME.md}"
@@ -211,7 +218,7 @@ if [ -f "$CARD" ]; then
     for img in $(grep -o "[a-z-]*banner\.png" "$1" | sort -u); do cp "$3/$img" "$2/$img"; done
     # A base repo without a LICENSE file: ours (cards/licenses/<name>-LICENSE).
     lic="$(dirname "$1")/licenses/$4-LICENSE"
-    if [ -f "$lic" ]; then cp "$lic" "$2/LICENSE"; fi' _ "$CARD" "$OUT_DIR" "$HERE/../../cards_assets" "${MODEL_ID#*/}"
+    if [ -f "$lic" ]; then cp "$lic" "$2/LICENSE"; fi' _ "$CARD" "$OUT_DIR" "$HERE/../../cards_assets" "${MODEL_ID##*/}"
 else
   skip_step card "no $CARD yet"
 fi
