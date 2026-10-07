@@ -111,7 +111,7 @@ elif ! python3 -c "import json,sys; sys.exit(not any(k.startswith('mtp.') for k 
   skip_step mtp "the checkpoint has no MTP head"
 else
   run_step mtp "MTP head on the merged backbone" bash -c "python3 '$LORA/train_mtp.py' --model '$MERGED' $(printf "%q " "${TRAIN_ARGS[@]}") \
-    --eval '$DATA/sft.eval.jsonl' $(printf "%q " "${TEXT_ARGS[@]}") && touch '$MERGED/.mtp-retrained'"
+    --eval '$DATA/sft.eval.jsonl' ${TEXT_ARGS[@]+$(printf "%q " "${TEXT_ARGS[@]}")} && touch '$MERGED/.mtp-retrained'"
 fi
 
 # --- quant ------------------------------------------------------------------------------------
@@ -124,7 +124,8 @@ run_step quant "qwen35_mlx_pipeline.sh VARIANT=$QUANT_VARIANT" \
 OUT_DIR="$(sed -n 's/^QWEN35_MLX_PIPELINE_DONE //p' "$LOG_DIR/lora_quant.log" | tail -1)"
 
 # --- eval -------------------------------------------------------------------------------------------
-if [ -s "$EVAL_JSON" ] && [ "$EVAL_JSON" -nt "$OUT_DIR/quant_recipe.json" ]; then
+# An eval.json from before tool_refs / tool_same is redone (the gate needs them).
+if [ -s "$EVAL_JSON" ] && [ "$EVAL_JSON" -nt "$OUT_DIR/quant_recipe.json" ] && grep -q '"tool_refs"' "$EVAL_JSON"; then
   skip_step eval "$EVAL_JSON newer than the build"
 else
   BASE_DIR="$(hf_snapshot "$BASE_MLX")"
