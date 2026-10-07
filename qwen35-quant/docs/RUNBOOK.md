@@ -77,6 +77,16 @@ can be overridden: `MODEL_ID`, `RECIPE` (keys `attn`, `linear`, `mlp`,
 `shared`, `experts`, or `experts_gate_up` / `experts_down`), `HF_REPO`,
 `GROUP_SIZE`, `EMBED_BITS`, `HEAD_BITS`, `VISION_BITS`, `CALIB_CHUNKS`.
 
+The MTP head: `MTP` (default `mtp=4`; per component `mtp_fc`, `mtp_attn`,
+`mtp_mlp` / `mtp_shared`, `mtp_experts_gate_up`, `mtp_experts_down`; empty:
+no head). It is calibrated after the layers and goes to
+`model-mtp.safetensors`; another `MTP` on a finished run recalibrates only
+the head (FINDINGS §4a). The check fails below `--min-mtp-accept` (0.5).
+
+Two runs at once (another variant, or a publish of a finished one) need a
+launcher of their own: `pkill -f qwen35_mlx_pipeline` over SSH also kills
+the SSH command that names it.
+
 Expected times on the A100 for the 35B MoE: download ~5 min, HF reference
 ~6 min, calibration ~25 min (~30 s a layer: if a layer takes minutes, the
 calibration is CPU-bound, see FINDINGS), assembly ~5 min, conversion with
@@ -93,7 +103,8 @@ runs: read them from the latest start, not the whole file.
 ## 5. Check before publishing
 
 `$WORK/check-<variant>.json` has the vision cosine against HF, the image
-answer and both perplexities against bf16 (`$WORK/ref-<model>/ref.json`).
+answer, both perplexities against bf16 (`$WORK/ref-<model>/ref.json`) and,
+with a head, its first-draft acceptance (`mtp_accept`, `mtp_accept_code`).
 The check step fails above `MAX_PPL_RATIO` (default 1.10). Write the
 numbers into `cards/<repo>.md` (template rules: `HF_CARD_TEMPLATE.md`,
 including the Disclaimer block) and, if the base repo has no LICENSE file,
@@ -111,7 +122,15 @@ printf '%s' "$TOKEN" | ssh <pod> 'read -r T; export HF_TOKEN="$T"; export PATH=/
 
 The card step copies the card, its banner and the license; the publish step
 uploads the model directory. A card-only update: `hf upload <repo>
-README.md README.md`.
+README.md README.md`. Some files only: `PUBLISH_FILES="model-mtp.safetensors
+model.safetensors.index.json README.md"` (e.g. the MTP head for a model
+already published; if its backbone is an older build, publish the whole new
+build: the head is calibrated on this one).
+
+Re-uploading a weight file keeps the old one in the repo's history, and
+HF's `usedStorage` (what LLMTray showed as the size until #255) counts both:
+squash it (`HfApi().super_squash_history(repo_id)`; the files stay, the old
+commits go; ask first).
 
 ## 7. Afterwards
 

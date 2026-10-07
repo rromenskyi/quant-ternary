@@ -1,6 +1,7 @@
 """The source checkpoint with gptq_qwen35.py's quantized decoder weights
-swapped in, shard by shard (the vision tower, MTP head, embeddings, norms,
-router and everything else copied byte for byte), plus quant_recipe.json.
+swapped in, shard by shard (the calibrated MTP head too, when there is
+one; the vision tower, embeddings, norms, router and everything else copied
+byte for byte), plus quant_recipe.json.
 convert_mlx.py turns it into MLX at the same bits and, with --gptq-work,
 writes GPTQ's own codes (MLX's re-quantization alone changes some:
 docs/GPTQ_EXACT_CODES.md).
@@ -29,6 +30,9 @@ def main() -> None:
     progress = json.load(open(work / "progress.json"))
     if progress["done"] + 1 != progress["layers"]:
         raise SystemExit(f"calibration not finished: {progress}")
+    recipe = json.load(open(work / "quant_recipe.json"))["recipe"]
+    if any(k.startswith("mtp") for k in recipe) and not (work / "layers" / "mtp.safetensors").exists():
+        raise SystemExit("the recipe has an MTP head but layers/mtp.safetensors is missing: rerun the calibration")
 
     where: dict[str, Path] = {}
     for f in sorted((work / "layers").glob("*.safetensors")):

@@ -60,6 +60,7 @@ scales and biases.
 | Router, shared-expert gate, delta-rule gates | bf16 | 0.03 B |
 | Embeddings and output head (untied; round-to-nearest) | 8 | 1.02 B |
 | Vision tower (position embedding bf16) | 8 | 0.4 B |
+| MTP head (fc, one attention + MoE layer; `model-mtp.safetensors`) | 4 | 0.85 B |
 
 Calibration: 128 chunks of 512 tokens, half wikitext-2 train and half
 Python source code, layer by layer (each layer on the outputs of the
@@ -88,6 +89,21 @@ These are language-modelling numbers. The coding and agentic benchmarks on
 the base model's card are Ornith AI's, for the bf16 model; they weren't
 re-run on this quantization.
 
+## Speculative decoding (MTP head)
+
+The base model's multi-token-prediction head (one MoE layer, 256 experts),
+GPTQ 4-bit, is in its own file `model-mtp.safetensors` (476 MB; the same
+file in this repo and in the 8/6/6/3 build: one base model). With the
+[ipsupport-llc/mlx-lm](https://github.com/ipsupport-llc/mlx-lm) fork the
+head drafts tokens and the model checks them in one pass: the same output
+(each token is the model's own sample, at any temperature). How much faster
+that decodes on a Mac isn't measured yet for this model; the fork picks 0–3
+drafts per step by what is fastest at the moment. Stock `mlx-lm` drops the head on load.
+
+First draft accepted (greedy, this repo's weights): **85.4 %** on
+wikitext-2 test, **82.7 %** on the Python standard library.
+It adds 0.48 GB to the 14.4 GB, which a 26 GB Mac has room for.
+
 ## Vision
 
 The vision tower works as in the base model: on a test image the MLX
@@ -101,8 +117,7 @@ weight's dtype, which quantized is an integer).
 
 Image input needs the [ipsupport-llc/mlx-lm](https://github.com/ipsupport-llc/mlx-lm)
 fork (Qwen3.5 / Qwen3.5-MoE vision tower, interleaved mRoPE, image
-preprocessing); stock `mlx-lm` loads this model text-only. The base model's
-multi-token-prediction head is not carried.
+preprocessing); stock `mlx-lm` loads this model text-only.
 
 ## Usage
 
@@ -158,5 +173,5 @@ ships no license file, so the standard MIT text is included here.
 Modified from [ornith-ai/Ornith-1.5-35B-A3B](https://huggingface.co/ornith-ai/Ornith-1.5-35B-A3B):
 quantized with GPTQ (8/6/6/2-3 bits by component; embeddings, output
 head and vision tower 8-bit) and converted to MLX; the multi-token-prediction
-head was removed. The weights and configuration files in this repo are
-therefore modified versions of the original, not the original files.
+head quantized to 4-bit (`model-mtp.safetensors`). The weights and
+configuration files in this repo are therefore modified versions of the original, not the original files.

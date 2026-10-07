@@ -46,13 +46,29 @@ MLX_COMPONENTS = {
 }
 
 
-def bits_for(component: str, recipe: dict) -> int:
-    """A component's bits; "experts_down" etc. fall back to "experts"
-    (recipes written before the split have only "experts")."""
-    bits = recipe.get(component, recipe.get(component.split("_")[0]))
-    if bits is None:
+def bits_for(component: str, recipe: dict, required: bool = True) -> int | None:
+    """A component's bits, else its shorter prefixes' ("experts_down" ->
+    "experts", "mtp_experts_down" -> "mtp_experts" -> "mtp"), as in
+    gptq_qwen35.py."""
+    parts = component.split("_")
+    for n in range(len(parts), 0, -1):
+        if "_".join(parts[:n]) in recipe:
+            return recipe["_".join(parts[:n])]
+    if required:
         raise SystemExit(f"quant_recipe.json has no bits for {component}")
-    return bits
+    return None
+
+
+def mtp_component(path: str) -> str | None:
+    """The recipe component of an MTP head module path, or None."""
+    if ".mtp." not in "." + path:
+        return None
+    if path.endswith("mtp.fc"):
+        return "mtp_fc"
+    for suffix, component in MLX_COMPONENTS.items():
+        if path.endswith("." + suffix):
+            return "mtp_" + component
+    return None
 
 
 def pack(codes: np.ndarray, bits: int) -> np.ndarray:
@@ -76,7 +92,10 @@ def gptq_tensors(work: Path, recipe: dict) -> dict[str, tuple]:
     up / down."""
     bits_of = recipe["components"]
     out = {}
-    for f in sorted(glob.glob(str(work / "layers" / "*.safetensors"))):
+    mtp_file = work / "layers" / "mtp.safetensors"
+    if mtp_file.exists():
+        out.update(mtp_gptq_tensors(mx.load(str(mtp_file)), recipe))
+    for f in sorted(glob.glob(str(work / "layers" / "[0-9]*.safetensors"))):
         t = mx.load(f)
         for key in t:
             if ".gptq_" in key:
@@ -97,6 +116,73 @@ def gptq_tensors(work: Path, recipe: dict) -> dict[str, tuple]:
             else:
                 out[f"{prefix}.{mod}"] = (W, S, B, C, bits)
     return out
+
+
+def mtp_gptq_tensors(t: dict, recipe: dict) -> dict[str, tuple]:
+    """The MTP head's entries for gptq_tensors: checkpoint names (per-expert
+    tensors) to MLX module paths, the experts stacked like mlx_lm's sanitize."""
+    out, experts = {}, {}
+    for key in t:
+        if ".gptq_" in key:
+            continue
+        m = re.match(r"mtp\.layers\.(\d+)\.mlp\.experts\.(\d+)\.(\w+_proj)\.weight$", key)
+        parts = (t[key], t[key + ".gptq_scales"], t[key + ".gptq_biases"], t.get(key + ".gptq_codes"))
+        if m:
+            experts.setdefault((m[1], m[3]), {})[int(m[2])] = parts
+            continue
+        prefix = "language_model." + key[: -len(".weight")]
+        out[prefix] = parts + (bits_for(mtp_component(prefix), recipe["recipe"]),)
+    for (layer, proj), by_e in experts.items():
+        if sorted(by_e) != list(range(len(by_e))):
+            raise SystemExit(f"MTP layer {layer} {proj}: experts {sorted(by_e)[:3]}... aren't 0..{len(by_e) - 1}")
+        prefix = f"language_model.mtp.layers.{layer}.mlp.switch_mlp.{proj}"
+        stacked = [mx.stack([by_e[e][i] for e in range(len(by_e))]) if by_e[0][i] is not None else None
+                   for i in range(4)]
+        out[prefix] = tuple(stacked) + (bits_for(mtp_component(prefix), recipe["recipe"]),)
+    return out
+
+
+def split_mtp(out: Path) -> int:
+    """Moves the MTP head's tensors into model-mtp.safetensors: a model
+    already installed gets the head by downloading that one file."""
+    index_path = out / "model.safetensors.index.json"
+    index = json.load(open(index_path)) if index_path.exists() else {"metadata": {}, "weight_map": {}}
+    head = {}
+    for f in sorted(out.glob("model*.safetensors")):
+        if f.name == "model-mtp.safetensors":
+            continue
+        t = mx.load(str(f))
+        mx.eval(t)  # loaded lazily from the file rewritten below
+        moved = {k: v for k, v in t.items() if k.startswith("language_model.mtp.")}
+        if moved:
+            head.update(moved)
+            mx.save_safetensors(str(f), {k: v for k, v in t.items() if k not in moved}, metadata={"format": "mlx"})
+    if head:
+        mx.save_safetensors(str(out / "model-mtp.safetensors"), head, metadata={"format": "mlx"})
+        # A single-file conversion has no index: one that names every tensor.
+        if not index["weight_map"]:
+            for f in sorted(out.glob("model*.safetensors")):
+                if f.name != "model-mtp.safetensors":
+                    index["weight_map"].update({k: f.name for k in mx.load(str(f))})
+        index["weight_map"].update({k: "model-mtp.safetensors" for k in head})
+        json.dump(index, open(index_path, "w"), indent=2)
+    return len(head)
+
+
+def drop_mtp(out: Path) -> None:
+    """No MTP bits in the recipe: the head isn't shipped (as before)."""
+    (out / "model-mtp.safetensors").unlink(missing_ok=True)
+    for f in sorted(out.glob("model*.safetensors")):
+        t = mx.load(str(f))
+        if any(k.startswith("language_model.mtp.") for k in t):
+            mx.eval(t)  # loaded lazily from the file rewritten below
+            mx.save_safetensors(str(f), {k: v for k, v in t.items() if not k.startswith("language_model.mtp.")},
+                                metadata={"format": "mlx"})
+    index_path = out / "model.safetensors.index.json"
+    if index_path.exists():
+        index = json.load(open(index_path))
+        index["weight_map"] = {k: v for k, v in index["weight_map"].items() if not k.startswith("language_model.mtp.")}
+        json.dump(index, open(index_path, "w"), indent=2)
 
 
 def _gpu():
@@ -190,6 +276,9 @@ def main() -> None:
             return {"group_size": gs, "bits": args.head_bits}
         if any(p.search(path) for p in floats):
             return False
+        if (component := mtp_component(path)) is not None:
+            b = bits_for(component, bits, required=False)
+            return {"group_size": gs, "bits": b} if b else False  # no bits: dropped below
         for suffix, component in MLX_COMPONENTS.items():
             # Whole path components: "mlp.gate_proj" must not match "switch_mlp.gate_proj".
             if path == suffix or path.endswith("." + suffix):
@@ -198,7 +287,13 @@ def main() -> None:
 
     convert(str(hf), str(out), quantize=True, q_group_size=gs, q_bits=min(bits.values()), quant_predicate=predicate)
     if args.gptq_work:
+        if bits_for("mtp_fc", bits, required=False) and not (Path(args.gptq_work) / "layers" / "mtp.safetensors").exists():
+            raise SystemExit("the recipe has an MTP head but its GPTQ codes (layers/mtp.safetensors) are missing")
         write_gptq_codes(out, Path(args.gptq_work), recipe, gs)
+    if bits_for("mtp_fc", bits, required=False):
+        print(f"MTP head: {split_mtp(out)} tensors in model-mtp.safetensors", flush=True)
+    else:
+        drop_mtp(out)
     shutil.copy(hf / "quant_recipe.json", out / "quant_recipe.json")
     print("CONVERT_DONE", flush=True)
 
