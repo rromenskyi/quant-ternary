@@ -15,6 +15,7 @@ import argparse
 import json
 import os
 import re
+import time
 
 import kagglehub
 from google.protobuf.field_mask_pb2 import FieldMask
@@ -49,6 +50,27 @@ def hf_readme(repo: str) -> str:
     return text.strip()
 
 
+def call(fn, req, what: str, tries: int = 6) -> bool:
+    """Kaggle answers bursts with a non-JSON body (rate limit): back off and retry."""
+    for i in range(tries):
+        try:
+            fn(req)
+            return True
+        except Exception as e:
+            msg = str(e)
+            if "403" in msg:  # model or variation not there (not uploaded yet)
+                print(f"{what}: skipped ({msg[:100]})", flush=True)
+                return False
+            if "Expecting value" in msg:
+                # Kaggle applied the update but answered with an empty body,
+                # which the SDK fails to parse (checked: the field is set)
+                return True
+            time.sleep(10 * (i + 1))
+            last = msg
+    print(f"{what}: failed after {tries} tries ({last[:120]})", flush=True)
+    return False
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("releases")
@@ -65,11 +87,9 @@ def main() -> None:
             r.owner_slug, r.model_slug = user, slug
             r.title, r.subtitle, r.description = c["title"], c["subtitle"], c["description"]
             r.update_mask = FieldMask(paths=["title", "subtitle", "description"])
-            try:
-                api.update_model(r)
+            if call(api.update_model, r, f"model {slug}"):
                 print(f"model {slug}: card set", flush=True)
-            except Exception as e:  # not uploaded yet
-                print(f"model {slug}: skipped ({str(e)[:120]})", flush=True)
+            time.sleep(2)
         for rel in releases:
             info = hf.model_info(rel["hf"])
             base = (info.card_data or {}).get("base_model") if info.card_data else None
@@ -87,11 +107,9 @@ def main() -> None:
                 r.external_base_model_url = f"https://huggingface.co/{base}"
                 paths += ["model_instance_type", "external_base_model_url"]
             r.update_mask = FieldMask(paths=paths)
-            try:
-                api.update_model_instance(r)
+            if call(api.update_model_instance, r, handle):
                 print(f"{handle}: card set (base {base})", flush=True)
-            except Exception as e:  # a variation not uploaded yet
-                print(f"{handle}: skipped ({str(e)[:120]})", flush=True)
+            time.sleep(2)
 
 
 if __name__ == "__main__":
