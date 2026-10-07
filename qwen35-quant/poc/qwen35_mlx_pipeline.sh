@@ -42,6 +42,7 @@ case "$VARIANT" in
     MODEL_ID="${MODEL_ID:-ornith-ai/Ornith-1.5-35B-A3B}"
     RECIPE="${RECIPE:-attn=8,linear=6,shared=6,experts=3}"
     HF_REPO="${HF_REPO:-roman220220/Ornith-1.5-35B-A3B-gptq-mlx-jang}"
+    MAX_PPL_RATIO="${MAX_PPL_RATIO:-1.2}"   # 3-bit experts: code +15 % (the card says so)
     ;;
   ornith-35b-small)
     # Smaller: the routed experts' gate / up at 2 bits, down at 3.
