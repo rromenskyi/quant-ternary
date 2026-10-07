@@ -82,9 +82,9 @@ def mlx_generator(path):
     return generate
 
 
-def evaluate(generate, evals, tools, valid, samples):
+def evaluate(generate, evals, tools, valid, samples, reflex_samples, only="all"):
     first = {"valid": 0, "same": 0, "malformed": 0, "n": 0}
-    for conv in evals:
+    for conv in evals if only != "reflex" else []:
         msgs = as_template_input(conv)
         ref = next(m for m in msgs[2:] if m["role"] == "assistant")
         ref_call = ref.get("tool_calls", [{}])[0].get("function") if ref.get("tool_calls") else None
@@ -99,14 +99,18 @@ def evaluate(generate, evals, tools, valid, samples):
             ok = tool == "" or (tool in valid and action in valid[tool])
             first["valid"] += ok
             first["same"] += ok and (tool, action) == ref_key
-    reflex = {"calls": 0, "n": 0}
+    reflex = {"calls": 0, "n": 0, "replies": []}
     template = evals[0]["messages"][0]["content"]
-    for text in REFLEX:
+    for text in REFLEX if only != "first" else []:
         msgs = [{"role": "system", "content": system_prompt(template, "2026-10-07")}, {"role": "user", "content": text}]
-        for _ in range(samples):
-            got = parse(generate(msgs, tools, max_new=768))
+        for _ in range(reflex_samples):
+            reply = generate(msgs, tools, max_new=768)
+            got = parse(reply)
             reflex["n"] += 1
-            reflex["calls"] += got is None or got[0] != ""
+            if got is None or got[0] != "":
+                reflex["calls"] += 1
+                # Kept to see which greeting got a call, and how.
+                reflex["replies"].append({"user": text, "reply": reply.split("</think>", 1)[-1][-600:]})
     return {"first_step": first, "reflex": reflex}
 
 
@@ -118,12 +122,15 @@ def main() -> None:
     ap.add_argument("--compare", help="mlx: a second MLX model (e.g. the LoRA build) to compare")
     ap.add_argument("--eval", required=True)
     ap.add_argument("--samples", type=int, default=3)
+    ap.add_argument("--reflex-samples", type=int, help="per greeting (default: --samples)")
+    ap.add_argument("--only", choices=["all", "first", "reflex"], default="all")
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
     evals = [json.loads(line) for line in open(args.eval)]
     tools = evals[0]["tools"]
     valid = {t["function"]["name"]: set(re.findall(r"^\s+- (\w+):", t["function"]["description"], re.MULTILINE))
              for t in tools}
+    reflex_samples = args.reflex_samples or args.samples
     results = {}
     if args.backend == "mlx":
         import mlx.core as mx
@@ -132,7 +139,7 @@ def main() -> None:
             if not path:
                 continue
             mx.random.seed(0)
-            results[name] = evaluate(mlx_generator(path), evals, tools, valid, args.samples)
+            results[name] = evaluate(mlx_generator(path), evals, tools, valid, args.samples, reflex_samples, args.only)
             print(name, json.dumps(results[name]), flush=True)
     else:
         import torch
@@ -141,12 +148,12 @@ def main() -> None:
         torch.manual_seed(0)
         tok = AutoTokenizer.from_pretrained(args.model)
         model = AutoModelForImageTextToText.from_pretrained(args.model, dtype=torch.bfloat16, device_map="cuda").eval()
-        results["base"] = evaluate(hf_generator(model, tok), evals, tools, valid, args.samples)
+        results["base"] = evaluate(hf_generator(model, tok), evals, tools, valid, args.samples, reflex_samples, args.only)
         print("base", json.dumps(results["base"]), flush=True)
         if args.adapter:
             from peft import PeftModel
             model = PeftModel.from_pretrained(model, args.adapter).eval()
-            results["lora"] = evaluate(hf_generator(model, tok), evals, tools, valid, args.samples)
+            results["lora"] = evaluate(hf_generator(model, tok), evals, tools, valid, args.samples, reflex_samples, args.only)
             print("lora", json.dumps(results["lora"]), flush=True)
     json.dump(results, open(args.out, "w"), indent=2)
     print("EVAL_DONE", flush=True)

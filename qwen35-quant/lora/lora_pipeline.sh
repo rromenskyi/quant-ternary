@@ -40,6 +40,7 @@ LORA_EPOCHS="${LORA_EPOCHS:-2}"
 LORA_MAX_LEN="${LORA_MAX_LEN:-16384}"
 MTP_RETRAIN="${MTP_RETRAIN:-1}"
 EVAL_SAMPLES="${EVAL_SAMPLES:-3}"
+EVAL_REFLEX_SAMPLES="${EVAL_REFLEX_SAMPLES:-10}"   # per greeting: a rare call needs a big sample
 EVAL_TOLERANCE="${EVAL_TOLERANCE:-0.05}"
 export HF_HOME="${HF_HOME:-$WORK/hf}"
 
@@ -127,7 +128,7 @@ if [ -s "$EVAL_JSON" ] && [ "$EVAL_JSON" -nt "$OUT_DIR/quant_recipe.json" ]; the
 else
   BASE_DIR="$(hf_snapshot "$BASE_MLX")"
   run_step eval "$BASE_MLX vs $OUT_DIR" mlx_env python3 "$LORA/eval_lora.py" --backend mlx --model "$BASE_DIR" \
-    --compare "$OUT_DIR" --eval "$DATA/sft.eval.jsonl" --samples "$EVAL_SAMPLES" --out "$EVAL_JSON"
+    --compare "$OUT_DIR" --eval "$DATA/sft.eval.jsonl" --samples "$EVAL_SAMPLES" --reflex-samples "$EVAL_REFLEX_SAMPLES" --out "$EVAL_JSON"
 fi
 
 # --- gate ---------------------------------------------------------------------------------------------
