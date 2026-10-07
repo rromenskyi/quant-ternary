@@ -163,6 +163,59 @@ index were uploaded). The new 8/6/6/3 build's perplexity: +5.6 % text,
 26 GB Mac the 17 GB model fills the default GPU limit, and the head (0.48 GB)
 leaves no room for the prompt cache there.
 
+## 4b. An ipsupport-code LoRA for FrogNano (2026-10-07)
+
+`lora/lora_pipeline.sh`: the agent's own conversations, LoRA, merge, the
+MTP head retrained, the release pipeline, a behavior gate.
+
+**Data** (`lora/build_dataset.py`, `lora/synth.py`; private HF dataset
+`roman220220/ipsupport-code-sft`). The earlier Nemotron dataset was lost
+with its pods: rebuilt from `~/.config/ipsupport-code/traces.jsonl` (863
+goals, 5,433 tool calls). A captured real request gives the system prompt
+and the 8 tool schemas (`file`, `run`, `git`, `web`, `help`, `calc`,
+`done`, `agent`; every call `{"action", "params"}`).
+
+- One goal = one conversation; 720 episodes -> 511 kept (60 duplicates).
+- Malformed calls (unknown tool / action, missing params, params as a JSON
+  string...) and their error observations are cut out: the corrected call
+  that followed stays. Actions the schema doesn't list (parser leakage the
+  agent repaired, e.g. `shell\n<parameter=command>...`) drop the episode;
+  an empty action of a single-action tool becomes that action. The agent's
+  stand-in final ("(done — finished without a written summary...)") drops it.
+- 225 of them are plain replies **with the tools available** — the case
+  the Nemotron LoRA never saw (§2.5 of nemotron-extreme-quant: it called
+  tools on "привет").
+- Real traces barely use git (≤ 3 calls per action), calc, help, done,
+  agent, web.stackexchange: 250 synthetic conversations cover them (RU/EN,
+  one language per conversation).
+
+**Training** (`lora/train_lora.py`): rendered with FrogNano's own template
+(tool arguments as objects, as mlx_lm.server passes them); loss on the
+assistant turns after their think block only (the data has no reasoning:
+the template's empty `<think></think>` stays out of the loss). Attention
+only (full-attention q/k/v/o, delta-rule in_proj_qkv / in_proj_z /
+out_proj; MLP untouched: adapting both cost Nemotron-Nano-4B its coding),
+r 16, alpha 32, lr 1e-4, 2 epochs, 729 conversations up to 16K tokens.
+12.4 M trainable parameters; ~30 min on an A100.
+
+| | held-out loss | bf16 PPL text | bf16 PPL code |
+|---|---|---|---|
+| FrogNano | 0.8045 | 12.369 | 3.166 |
+| + LoRA | **0.5992** | **12.166** | 3.171 (+0.15 %) |
+
+Coding perplexity held; text got better.
+
+**The MTP head** sits on hidden states the LoRA moved: the base's head on
+the merged model (requantized by the pipeline) drafts 0.865 / 0.894 first
+tokens right (wikitext / stdlib) against 0.885 / 0.913 on the base.
+`lora/train_mtp.py` retrains it on the merged backbone (frozen): the
+agent's conversations plus wikitext / code chunks, the head's own task
+(hidden at t + token t+1 -> token t+2). Results: see below.
+
+**Release build** (the pipeline's `frognano-4b-ipsupport-code` preset, the
+same 8/6/4 recipe): MLX PPL 12.308 text / 3.224 code (base build 12.551 /
+3.229).
+
 ## 5. Base-model notes that shape the card
 
 - A coding agent for Microsoft's Leaf harness, not a general assistant; its
