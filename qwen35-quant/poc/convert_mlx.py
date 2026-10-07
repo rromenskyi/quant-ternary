@@ -287,6 +287,8 @@ def main() -> None:
 
     convert(str(hf), str(out), quantize=True, q_group_size=gs, q_bits=min(bits.values()), quant_predicate=predicate)
     if args.gptq_work:
+        if bits_for("mtp_fc", bits, required=False) and not (Path(args.gptq_work) / "layers" / "mtp.safetensors").exists():
+            raise SystemExit("the recipe has an MTP head but its GPTQ codes (layers/mtp.safetensors) are missing")
         write_gptq_codes(out, Path(args.gptq_work), recipe, gs)
     if bits_for("mtp_fc", bits, required=False):
         print(f"MTP head: {split_mtp(out)} tensors in model-mtp.safetensors", flush=True)

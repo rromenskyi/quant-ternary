@@ -137,6 +137,8 @@ def main() -> None:
     # 4. The MTP head (model-mtp.safetensors): how often the model accepts
     # its first draft, greedy, continuing held-out text and code.
     failures = []
+    if not args.code:
+        result.pop("mtp_accept_code", None)   # not measured this run
     if getattr(model, "mtp", None) is not None:
         for suffix, path in [("", args.wikitext)] + ([("_code", args.code)] if args.code else []):
             rate = mtp_acceptance(model, tok, path)

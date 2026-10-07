@@ -103,7 +103,8 @@ runs: read them from the latest start, not the whole file.
 ## 5. Check before publishing
 
 `$WORK/check-<variant>.json` has the vision cosine against HF, the image
-answer and both perplexities against bf16 (`$WORK/ref-<model>/ref.json`).
+answer, both perplexities against bf16 (`$WORK/ref-<model>/ref.json`) and,
+with a head, its first-draft acceptance (`mtp_accept`, `mtp_accept_code`).
 The check step fails above `MAX_PPL_RATIO` (default 1.10). Write the
 numbers into `cards/<repo>.md` (template rules: `HF_CARD_TEMPLATE.md`,
 including the Disclaimer block) and, if the base repo has no LICENSE file,

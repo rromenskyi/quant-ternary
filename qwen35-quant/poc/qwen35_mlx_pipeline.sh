@@ -18,7 +18,7 @@
 #   calibrate   GPTQ, layer by layer (gptq_qwen35.py)
 #   assemble    the source checkpoint with the calibrated decoder swapped in
 #   convert     MLX at the recipe's bits, then GPTQ's exact codes (convert_mlx.py)
-#   check       vision vs HF, an image question, perplexity (check_mlx.py)
+#   check       vision vs HF, an image question, perplexity, MTP acceptance (check_mlx.py)
 #   card        model card copied in LAST
 #   publish     hf upload (PUBLISH=1 only)
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../gemma4-quant/poc/pipeline_lib.sh"
@@ -64,6 +64,7 @@ DATA="$WORK/data"
 MAX_PPL_RATIO="${MAX_PPL_RATIO:-1.10}"
 CHECK_JSON="$WORK/check-$VARIANT.json"
 REF="$WORK/ref-${MODEL_ID##*/}"   # per model: variants of one model share it
+case ",$RECIPE," in *,mtp*) echo "RECIPE has mtp* keys: the head's bits go in MTP" >&2; exit 2 ;; esac
 LAYER_RECIPE="$RECIPE"
 RECIPE="$RECIPE${MTP:+,$MTP}"
 GPTQ="$WORK/gptq-$VARIANT"

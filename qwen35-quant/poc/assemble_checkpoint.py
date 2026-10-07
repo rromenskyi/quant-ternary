@@ -30,6 +30,9 @@ def main() -> None:
     progress = json.load(open(work / "progress.json"))
     if progress["done"] + 1 != progress["layers"]:
         raise SystemExit(f"calibration not finished: {progress}")
+    recipe = json.load(open(work / "quant_recipe.json"))["recipe"]
+    if any(k.startswith("mtp") for k in recipe) and not (work / "layers" / "mtp.safetensors").exists():
+        raise SystemExit("the recipe has an MTP head but layers/mtp.safetensors is missing: rerun the calibration")
 
     where: dict[str, Path] = {}
     for f in sorted((work / "layers").glob("*.safetensors")):
