@@ -1,0 +1,67 @@
+{
+ "gemma-4-26b-a4b-it-ipsupport": {
+  "title": "Gemma 4 26B-A4B IT — IPSupport quants",
+  "subtitle": "GGUF and MLX builds of Google's 26B MoE with per-expert GPTQ",
+  "description": "Quantized builds of Google's Gemma 4 26B-A4B instruction model (128-expert MoE, ~4B active per token).\n\n| Variation | Format | Notes |\n|---|---|---|\n| `gguf/jang-imatrix` | GGUF (llama.cpp, Ollama) | bit map by component role, imatrix; MTP drafter and vision projector included |\n| `other/mlx-gptq-jang` | MLX (Apple Silicon) | per-expert GPTQ, attention at 8 bits, experts at 4 bits: 15 GB from 51.6 GB |\n| `other/mlx-mtp-drafter-8bit` | MLX | Google's multi-token-prediction drafter for speculative decoding (35.8 -> 52.9 tok/s on a short prompt, base M5) |\n\nEach variation's overview is its Hugging Face model card.\n\n---\n**IPSupport LLC** · [ipsupport.us](https://www.ipsupport.us) · all our releases: [huggingface.co/roman220220](https://huggingface.co/roman220220) · how we quantize: [whitepaper](https://github.com/rromenskyi/quant-ternary/blob/main/IPSupport-quantization-whitepaper.pdf) · run MLX builds on a Mac with [LLMTray](https://www.ipsupport.us/llmtray/)."
+ },
+ "gemma-4-31b-it-ipsupport": {
+  "title": "Gemma 4 31B IT — IPSupport QAT MLX",
+  "subtitle": "Google's QAT weights on the MLX grid, 20.65 GB",
+  "description": "Google's quantization-aware-trained Gemma 4 31B, transported to MLX losslessly (the same 4-bit codes as Google's own GGUF) plus a measured set of 8-bit Linears.\n\n- 20.65 GB (bf16: 62 GB), KL 0.021 and 94.9% top-1 agreement with the QAT master\n- about 8 GB smaller than the community MLX build\n\nEach variation's overview is its Hugging Face model card.\n\n---\n**IPSupport LLC** · [ipsupport.us](https://www.ipsupport.us) · all our releases: [huggingface.co/roman220220](https://huggingface.co/roman220220) · how we quantize: [whitepaper](https://github.com/rromenskyi/quant-ternary/blob/main/IPSupport-quantization-whitepaper.pdf) · run MLX builds on a Mac with [LLMTray](https://www.ipsupport.us/llmtray/)."
+ },
+ "gemma-4-12b-it-ipsupport": {
+  "title": "Gemma 4 12B IT — IPSupport QAT MLX",
+  "subtitle": "Text, vision and audio on Google's QAT grid, 7.89 GB",
+  "description": "Google's quantization-aware-trained Gemma 4 12B on the MLX grid, with vision and audio.\n\n- 7.89 GB, KL 0.0253 to the QAT master: the community QAT build's fidelity in 3.1 GB less\n- about 1.5x faster decode than that build on a base M5\n\nEach variation's overview is its Hugging Face model card.\n\n---\n**IPSupport LLC** · [ipsupport.us](https://www.ipsupport.us) · all our releases: [huggingface.co/roman220220](https://huggingface.co/roman220220) · how we quantize: [whitepaper](https://github.com/rromenskyi/quant-ternary/blob/main/IPSupport-quantization-whitepaper.pdf) · run MLX builds on a Mac with [LLMTray](https://www.ipsupport.us/llmtray/)."
+ },
+ "gemma-4-e4b-it-ipsupport": {
+  "title": "Gemma 4 E4B IT — IPSupport QAT MLX",
+  "subtitle": "Google's QAT weights on the MLX grid, 5.95 GB",
+  "description": "Google's quantization-aware-trained Gemma 4 E4B on the MLX grid plus a few scanned 8-bit Linears.\n\n- 5.95 GB, KL 0.026 to the QAT master (community 4-bit build: 6.80 GB, KL 0.055)\n\nEach variation's overview is its Hugging Face model card.\n\n---\n**IPSupport LLC** · [ipsupport.us](https://www.ipsupport.us) · all our releases: [huggingface.co/roman220220](https://huggingface.co/roman220220) · how we quantize: [whitepaper](https://github.com/rromenskyi/quant-ternary/blob/main/IPSupport-quantization-whitepaper.pdf) · run MLX builds on a Mac with [LLMTray](https://www.ipsupport.us/llmtray/)."
+ },
+ "gemma-4-e2b-it-ipsupport": {
+  "title": "Gemma 4 E2B IT — IPSupport QAT builds",
+  "subtitle": "Phone-sized GGUF and MLX builds on Google's QAT weights",
+  "description": "Google's quantization-aware-trained Gemma 4 E2B in three builds.\n\n| Variation | Format | Size | Notes |\n|---|---|---|---|\n| `gguf/qat-phone` | GGUF | 2.86 GB | Google's exact 4-bit codes + a few Q8_0 Linears; PPL ratio 0.986 to bf16 (Google's q4_0: 3.35 GB, 1.085) |\n| `other/mlx-qat-phone` | MLX | 3.10 GB | per-layer embeddings at 4 bits; KL 0.0242, about 70 tok/s on a base M5 |\n| `other/mlx-qat` | MLX | 4.04 GB | KL 0.030 to the QAT master (community 4-bit: 4.33 GB, KL 0.067) |\n\nEach variation's overview is its Hugging Face model card.\n\n---\n**IPSupport LLC** · [ipsupport.us](https://www.ipsupport.us) · all our releases: [huggingface.co/roman220220](https://huggingface.co/roman220220) · how we quantize: [whitepaper](https://github.com/rromenskyi/quant-ternary/blob/main/IPSupport-quantization-whitepaper.pdf) · run MLX builds on a Mac with [LLMTray](https://www.ipsupport.us/llmtray/)."
+ },
+ "nemotron-3-5-lightning-30b-a3b-ipsupport": {
+  "title": "Nemotron 3.5 Lightning 30B-A3B — IPSupport",
+  "subtitle": "MLX quants of NVIDIA's hybrid MoE, incl. our coding-agent LoRA",
+  "description": "MLX builds of NVIDIA Nemotron 3.5 Lightning 30B-A3B (hybrid Mamba-2 / attention / 128-expert MoE).\n\n| Variation | Notes |\n|---|---|\n| `mlx-jang-gptq-code-lora` | JANG bit map + our GPTQ, with the IPSupport Code tool-calling LoRA merged; 16.7 GB |\n| `mlx-jang-gptq-code-lora-mtp` | the same with the multi-token-prediction head kept for self-speculative decoding |\n| `mlx-gptq-jang` | JANG + GPTQ, no LoRA: wikitext-2 PPL 5.24 at 4.24 bits/weight (bf16 5.11) |\n| `mlx-gptq-3bit` | uniform 3-bit GPTQ: the latency end of the frontier (PPL 6.24), answers degrade markedly |\n\nEach variation's overview is its Hugging Face model card; the license is the base model's (see each card).\n\n---\n**IPSupport LLC** · [ipsupport.us](https://www.ipsupport.us) · all our releases: [huggingface.co/roman220220](https://huggingface.co/roman220220) · how we quantize: [whitepaper](https://github.com/rromenskyi/quant-ternary/blob/main/IPSupport-quantization-whitepaper.pdf) · run MLX builds on a Mac with [LLMTray](https://www.ipsupport.us/llmtray/)."
+ },
+ "nemotron-3-nano-4b-ipsupport": {
+  "title": "Nemotron 3 Nano 4B — IPSupport",
+  "subtitle": "MLX build with our coding-agent LoRA, 4 GB",
+  "description": "NVIDIA Nemotron 3 Nano 4B with the IPSupport Code tool-calling LoRA (attention-only) merged, 8-bit MLX: 4.0 GB from 7.5 GB.\n\nEach variation's overview is its Hugging Face model card; the license is the base model's (see each card).\n\n---\n**IPSupport LLC** · [ipsupport.us](https://www.ipsupport.us) · all our releases: [huggingface.co/roman220220](https://huggingface.co/roman220220) · how we quantize: [whitepaper](https://github.com/rromenskyi/quant-ternary/blob/main/IPSupport-quantization-whitepaper.pdf) · run MLX builds on a Mac with [LLMTray](https://www.ipsupport.us/llmtray/)."
+ },
+ "nemotronlabs-voicechat-11b-ipsupport": {
+  "title": "NemotronLabs VoiceChat 11B — IPSupport",
+  "subtitle": "Full-duplex voice on a base M5: GPTQ-3 LLM, MLX",
+  "description": "MLX builds of NVIDIA's NemotronLabs VoiceChat 11B full-duplex voice model (streaming encoder, Nemotron Nano 9B LLM, TTS, codec).\n\n| Variation | Notes |\n|---|---|\n| `mlx-gptq-mixed` | GPTQ-3 LLM + 8-bit perception / TTS backbone / MoG head; 6.43 GB, 83.3 ms per 80 ms frame (cool, base M5) |\n| `mlx-gptq-3bit` | GPTQ-3 LLM; 87.7 ms per 80 ms frame (base M5, from 185 ms) |\n\nEach variation's overview is its Hugging Face model card; the license is the base model's (see each card).\n\n---\n**IPSupport LLC** · [ipsupport.us](https://www.ipsupport.us) · all our releases: [huggingface.co/roman220220](https://huggingface.co/roman220220) · how we quantize: [whitepaper](https://github.com/rromenskyi/quant-ternary/blob/main/IPSupport-quantization-whitepaper.pdf) · run MLX builds on a Mac with [LLMTray](https://www.ipsupport.us/llmtray/)."
+ },
+ "flux-2-klein-4b-ipsupport": {
+  "title": "FLUX.2 klein 4B — IPSupport GPTQ MLX",
+  "subtitle": "GPTQ-quantized image model for mflux on Apple Silicon",
+  "description": "Black Forest Labs' FLUX.2 klein 4B for mflux, GPTQ-quantized (mixed precision). GPTQ cuts velocity error 17-20% vs. round-to-nearest at equal size.\n\nEach variation's overview is its Hugging Face model card; the license is the base model's (see each card).\n\n---\n**IPSupport LLC** · [ipsupport.us](https://www.ipsupport.us) · all our releases: [huggingface.co/roman220220](https://huggingface.co/roman220220) · how we quantize: [whitepaper](https://github.com/rromenskyi/quant-ternary/blob/main/IPSupport-quantization-whitepaper.pdf) · run MLX builds on a Mac with [LLMTray](https://www.ipsupport.us/llmtray/)."
+ },
+ "z-image-turbo-ipsupport": {
+  "title": "Z-Image Turbo — IPSupport GPTQ MLX",
+  "subtitle": "GPTQ 4-bit, 8-bit and mixed builds for mflux",
+  "description": "Tongyi-MAI Z-Image Turbo for mflux in three GPTQ builds (`mlx-gptq-4bit`, `mlx-gptq-mixed`, `mlx-gptq-8bit`). GPTQ keeps the composition at 4 bits where plain rounding drifts; the mixed 8/4 build has the best PSNR.\n\nEach variation's overview is its Hugging Face model card; the license is the base model's (see each card).\n\n---\n**IPSupport LLC** · [ipsupport.us](https://www.ipsupport.us) · all our releases: [huggingface.co/roman220220](https://huggingface.co/roman220220) · how we quantize: [whitepaper](https://github.com/rromenskyi/quant-ternary/blob/main/IPSupport-quantization-whitepaper.pdf) · run MLX builds on a Mac with [LLMTray](https://www.ipsupport.us/llmtray/)."
+ },
+ "ace-step-1-5-sft-ipsupport": {
+  "title": "ACE-Step 1.5 sft — IPSupport MLX",
+  "subtitle": "Music generation on Apple Silicon: bf16, 8-bit and GPTQ 4-bit",
+  "description": "ACE-Step 1.5 (sft) music model for MLX in three builds (`mlx-bf16`, `mlx-8bit`, `mlx-gptq-4bit`). GPTQ 4-bit cuts velocity error 25% vs. round-to-nearest; 8-bit sounds like bf16 by ear.\n\nEach variation's overview is its Hugging Face model card; the license is the base model's (see each card).\n\n---\n**IPSupport LLC** · [ipsupport.us](https://www.ipsupport.us) · all our releases: [huggingface.co/roman220220](https://huggingface.co/roman220220) · how we quantize: [whitepaper](https://github.com/rromenskyi/quant-ternary/blob/main/IPSupport-quantization-whitepaper.pdf) · run MLX builds on a Mac with [LLMTray](https://www.ipsupport.us/llmtray/)."
+ },
+ "frognano-4b-2609-ipsupport": {
+  "title": "FrogNano 4B 2609 — IPSupport GPTQ JANG MLX",
+  "subtitle": "GPTQ with a JANG bit map, vision included",
+  "description": "Microsoft FrogNano 4B (2609) for MLX: GPTQ with a JANG 8/6/4 bit map by component role, vision tower included.\n\nEach variation's overview is its Hugging Face model card; the license is the base model's (see each card).\n\n---\n**IPSupport LLC** · [ipsupport.us](https://www.ipsupport.us) · all our releases: [huggingface.co/roman220220](https://huggingface.co/roman220220) · how we quantize: [whitepaper](https://github.com/rromenskyi/quant-ternary/blob/main/IPSupport-quantization-whitepaper.pdf) · run MLX builds on a Mac with [LLMTray](https://www.ipsupport.us/llmtray/)."
+ },
+ "ornith-1-5-35b-a3b-ipsupport": {
+  "title": "Ornith 1.5 35B-A3B — IPSupport GPTQ JANG MLX",
+  "subtitle": "MoE in 17 GB, or 14 GB for smaller Macs",
+  "description": "Ornith 1.5 35B-A3B for MLX: GPTQ with a JANG bit map by component role. `mlx-gptq-jang`: 17 GB; `mlx-gptq-jang-small`: 14 GB for smaller memory budgets.\n\nEach variation's overview is its Hugging Face model card; the license is the base model's (see each card).\n\n---\n**IPSupport LLC** · [ipsupport.us](https://www.ipsupport.us) · all our releases: [huggingface.co/roman220220](https://huggingface.co/roman220220) · how we quantize: [whitepaper](https://github.com/rromenskyi/quant-ternary/blob/main/IPSupport-quantization-whitepaper.pdf) · run MLX builds on a Mac with [LLMTray](https://www.ipsupport.us/llmtray/)."
+ }
+}
