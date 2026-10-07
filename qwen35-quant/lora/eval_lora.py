@@ -85,7 +85,8 @@ def mlx_generator(path):
 
 
 def evaluate(generate, evals, tools, valid, samples, reflex_samples, only="all"):
-    first = {"valid": 0, "same": 0, "malformed": 0, "n": 0}
+    # tool_*: only the goals whose reference starts with a tool call.
+    first = {"valid": 0, "same": 0, "malformed": 0, "n": 0, "tool_refs": 0, "tool_same": 0}
     for conv in evals if only != "reflex" else []:
         msgs = as_template_input(conv)
         ref = next(m for m in msgs[2:] if m["role"] == "assistant")
@@ -94,6 +95,7 @@ def evaluate(generate, evals, tools, valid, samples, reflex_samples, only="all")
         for _ in range(samples):
             got = parse(generate(msgs[:2], tools))
             first["n"] += 1
+            first["tool_refs"] += ref_call is not None
             if got is None:
                 first["malformed"] += 1
                 continue
@@ -101,6 +103,7 @@ def evaluate(generate, evals, tools, valid, samples, reflex_samples, only="all")
             ok = tool == "" or (tool in valid and action in valid[tool])
             first["valid"] += ok
             first["same"] += ok and (tool, action) == ref_key
+            first["tool_same"] += ok and ref_call is not None and (tool, action) == ref_key
     reflex = {"calls": 0, "n": 0, "replies": []}
     template = evals[0]["messages"][0]["content"]
     for text in REFLEX if only != "first" else []:

@@ -84,7 +84,7 @@ if [ -s "$ADAPTER/adapter_model.safetensors" ] && [ "$(cat "$ADAPTER/made_with" 
   skip_step train "$ADAPTER ($WANT)"
 else
   rm -rf "$ADAPTER"
-  run_step train "LoRA $WANT" bash -c "python3 '$LORA/train_lora.py --model '$SNAPSHOT' $(printf "%q " "${TRAIN_ARGS[@]}") \
+  run_step train "LoRA $WANT" bash -c "python3 '$LORA/train_lora.py' --model '$SNAPSHOT' $(printf "%q " "${TRAIN_ARGS[@]}") \
     --eval '$DATA/sft.eval.jsonl' --out '$ADAPTER' --targets '$LORA_TARGETS' --r $LORA_R --alpha $LORA_ALPHA \
     --lr $LORA_LR --epochs $LORA_EPOCHS --max-len $LORA_MAX_LEN && echo '$WANT' > '$ADAPTER/made_with'"
 fi
@@ -94,7 +94,7 @@ if [ -f "$MERGED/.merged" ] && [ "$MERGED/.merged" -nt "$ADAPTER/made_with" ]; t
   skip_step merge "$MERGED newer than the adapter"
 else
   rm -rf "$MERGED"
-  run_step merge "adapter into $MERGED" bash -c "python3 '$LORA/merge_lora.py --model '$SNAPSHOT' --adapter '$ADAPTER' --out '$MERGED' && touch '$MERGED/.merged'"
+  run_step merge "adapter into $MERGED" bash -c "python3 '$LORA/merge_lora.py' --model '$SNAPSHOT' --adapter '$ADAPTER' --out '$MERGED' && touch '$MERGED/.merged'"
 fi
 
 # --- mtp ----------------------------------------------------------------------------------
@@ -110,7 +110,7 @@ elif [ -f "$MERGED/.mtp-retrained" ] && [ "$MERGED/.mtp-retrained" -nt "$MERGED/
 elif ! python3 -c "import json,sys; sys.exit(not any(k.startswith('mtp.') for k in json.load(open('$MERGED/model.safetensors.index.json'))['weight_map']))"; then
   skip_step mtp "the checkpoint has no MTP head"
 else
-  run_step mtp "MTP head on the merged backbone" bash -c "python3 '$LORA/train_mtp.py --model '$MERGED' $(printf "%q " "${TRAIN_ARGS[@]}") \
+  run_step mtp "MTP head on the merged backbone" bash -c "python3 '$LORA/train_mtp.py' --model '$MERGED' $(printf "%q " "${TRAIN_ARGS[@]}") \
     --eval '$DATA/sft.eval.jsonl' $(printf "%q " "${TEXT_ARGS[@]}") && touch '$MERGED/.mtp-retrained'"
 fi
 
@@ -140,14 +140,21 @@ def share(m, k):
     f = r[m]["first_step"]
     return f[k] / max(f["n"], 1)
 reflex = {m: r[m]["reflex"]["calls"] / max(r[m]["reflex"]["n"], 1) for m in ("base", "lora")}
-print({m: {"valid": share(m, "valid"), "same": share(m, "same"), "reflex_calls": reflex[m]} for m in ("base", "lora")})
+print({m: {"valid": share(m, "valid"), "same": share(m, "same"), "reflex_calls": reflex[m],
+           "tool_same": r[m]["first_step"]["tool_same"] / max(r[m]["first_step"]["tool_refs"], 1)} for m in ("base", "lora")})
 bad = []
 if reflex["lora"] > reflex["base"]:
     bad.append(f"tool calls on greetings: {reflex['lora']:.2f} > base {reflex['base']:.2f}")
+def tool_share(m):
+    f = r[m]["first_step"]
+    return f["tool_same"] / max(f["tool_refs"], 1)
 for k in ("valid", "same"):
-    # "same" too: a model that only ever replies in text is always "valid".
     if share("lora", k) < share("base", k) - tol:
         bad.append(f"{k} first steps: {share('lora', k):.2f} < base {share('base', k):.2f} - {tol}")
+# Where the reference calls a tool: a model that only replies in text is
+# "valid" everywhere and "same" on the plain references.
+if tool_share("lora") < tool_share("base") - tol:
+    bad.append(f"same tool call where one is due: {tool_share('lora'):.2f} < base {tool_share('base'):.2f} - {tol}")
 if bad:
     sys.exit("; ".join(bad))
 print("GATE_PASSED")

@@ -247,6 +247,12 @@ that sends real goals, not small talk), the weakness on the card. Next
 time: plain replies to bare acknowledgements outside a task in the data,
 the reflex split by language.
 
+This release ran its steps one by one on the pod (the same scripts);
+`lora_pipeline.sh` as a whole hasn't run end to end yet (a quoting bug in
+its train / merge / mtp steps was found in review and fixed). The gate now
+also compares the same-tool rate on goals whose reference calls a tool (a
+model that never calls a tool passed the old checks).
+
 Published: `roman220220/FrogNano-4B-2609-gptq-mlx-jang-ipsupport-code-lora`
 (public), adapter `roman220220/FrogNano-4B-2609-ipsupport-code-lora` (private).
 
