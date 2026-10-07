@@ -172,8 +172,8 @@ def main() -> None:
     all_res = {}
     for p in args.models:
         r = evaluate(p, args.max_answer, args.max_think)
-        all_res[p] = r
         name = p.rstrip("/").split("/")[-1]
+        all_res["/".join(p.rstrip("/").split("/")[-2:])] = r  # <org>/<model>, no local paths
         print(f"{name}: " + "  ".join(f"{k} {v:.0%}" for k, v in r.items()
                                       if k not in ("detail", "repetition") and v is not None)
               + f"  repetition {r['repetition']:.2f}", flush=True)
