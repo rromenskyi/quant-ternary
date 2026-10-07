@@ -8,7 +8,7 @@ What the numbers mean is in [FINDINGS.md](FINDINGS.md).
 ## 0. Prerequisites
 
 - Mac: the mlx-audio fork `ipsupport-llc/mlx-audio@llmtray` (`b99f797`) in
-  `/Users/roman220/gh/mlx-audio-fork/.venv`, and
+  `~/gh/mlx-audio-fork/.venv`, and
   `mlx-community/NemotronLabs-VoiceChat-11B-4bit` in the HF cache.
 - Independent ASR for scoring: `mlx-community/whisper-large-v3-turbo`
   (1.6 GB). Its repo has no tokenizer, so `score.py` takes the processor
@@ -23,7 +23,7 @@ What the numbers mean is in [FINDINGS.md](FINDINGS.md).
 
 ```bash
 cd ~/gh/quant-ternary/voicechat-quant
-PY=/Users/roman220/gh/mlx-audio-fork/.venv/bin/python
+PY=~/gh/mlx-audio-fork/.venv/bin/python
 export HF_HUB_OFFLINE=1
 ```
 

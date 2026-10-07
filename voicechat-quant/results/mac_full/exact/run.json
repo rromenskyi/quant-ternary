@@ -1,5 +1,5 @@
 {
-  "model": "/Users/roman220/.cache/huggingface/hub/models--mlx-community--NemotronLabs-VoiceChat-11B-4bit/snapshots/dffd203fef7a380081da89479c55848e50b98413",
+  "model": "mlx-community/NemotronLabs-VoiceChat-11B-4bit@dffd203fef7a380081da89479c55848e50b98413",
   "argv": [
     "--out",
     "results/mac_full/exact",

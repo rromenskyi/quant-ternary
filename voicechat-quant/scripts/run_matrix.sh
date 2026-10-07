@@ -9,7 +9,7 @@
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 MATRIX="$1"; OUT="$2"; shift 2
-PY="${PY:-/Users/roman220/gh/mlx-audio-fork/.venv/bin/python}"
+PY="${PY:-$HOME/gh/mlx-audio-fork/.venv/bin/python}"
 export HF_HUB_OFFLINE=1
 
 busy() { pgrep -f mlx_lm.server >/dev/null || pgrep -f llmtray_music_runner >/dev/null; }

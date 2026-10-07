@@ -1,8 +1,8 @@
 Traceback (most recent call last):
-  File "/Users/roman220/gh/quant-ternary/voicechat-quant/scripts/vc_eval.py", line 273, in <module>
+  File "voicechat-quant/scripts/vc_eval.py", line 273, in <module>
     main()
     ~~~~^^
-  File "/Users/roman220/gh/quant-ternary/voicechat-quant/scripts/vc_eval.py", line 207, in main
+  File "voicechat-quant/scripts/vc_eval.py", line 207, in main
     model_path = glob.glob(os.path.expanduser(args.model))[0]
                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^
 IndexError: list index out of range
