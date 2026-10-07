@@ -1,0 +1,55 @@
+{
+ "roman220220/gemma-4-12B-it-ternary-attn4": {
+  "facts": 0.5,
+  "math_think": 0.16666666666666666,
+  "russian": 0.0,
+  "code": 0.5,
+  "tools": 0.0,
+  "multi_turn": 0.0,
+  "thought_closed": 0.6666666666666666,
+  "repetition": 0.38568319420708647,
+  "detail": {
+   "facts": [
+    false,
+    true,
+    true,
+    true,
+    false,
+    true,
+    false,
+    false,
+    false,
+    true
+   ],
+   "math_think": [
+    true,
+    false,
+    false,
+    false,
+    false,
+    false
+   ],
+   "russian": [
+    false,
+    false,
+    false,
+    false
+   ],
+   "code": [
+    true,
+    true,
+    false,
+    false
+   ],
+   "tools": [
+    false,
+    false
+   ],
+   "multi_turn": [
+    false,
+    false,
+    false
+   ]
+  }
+ }
+}

@@ -1,0 +1,175 @@
+[
+ {
+  "hf": "roman220220/gemma-4-26B-A4B-it-GGUF-jang-imatrix",
+  "model": "gemma-4-26b-a4b-it-ipsupport",
+  "framework": "gguf",
+  "variation": "jang-imatrix"
+ },
+ {
+  "hf": "roman220220/gemma-4-26B-A4B-it-gptq-mlx-jang",
+  "model": "gemma-4-26b-a4b-it-ipsupport",
+  "framework": "other",
+  "variation": "mlx-gptq-jang"
+ },
+ {
+  "hf": "roman220220/gemma-4-26B-A4B-it-assistant-mlx-8bit",
+  "model": "gemma-4-26b-a4b-it-ipsupport",
+  "framework": "other",
+  "variation": "mlx-mtp-drafter-8bit"
+ },
+ {
+  "hf": "roman220220/gemma-4-31B-it-qat-mlx",
+  "model": "gemma-4-31b-it-ipsupport",
+  "framework": "other",
+  "variation": "mlx-qat"
+ },
+ {
+  "hf": "roman220220/gemma-4-12B-it-qat-mlx",
+  "model": "gemma-4-12b-it-ipsupport",
+  "framework": "other",
+  "variation": "mlx-qat"
+ },
+ {
+  "hf": "roman220220/gemma-4-E4B-it-qat-mlx",
+  "model": "gemma-4-e4b-it-ipsupport",
+  "framework": "other",
+  "variation": "mlx-qat"
+ },
+ {
+  "hf": "roman220220/gemma-4-E2B-it-qat-phone-GGUF",
+  "model": "gemma-4-e2b-it-ipsupport",
+  "framework": "gguf",
+  "variation": "qat-phone"
+ },
+ {
+  "hf": "roman220220/gemma-4-E2B-it-qat-phone-mlx",
+  "model": "gemma-4-e2b-it-ipsupport",
+  "framework": "other",
+  "variation": "mlx-qat-phone"
+ },
+ {
+  "hf": "roman220220/gemma-4-E2B-it-qat-mlx",
+  "model": "gemma-4-e2b-it-ipsupport",
+  "framework": "other",
+  "variation": "mlx-qat"
+ },
+ {
+  "hf": "roman220220/Nemotron-3.5-Lightning-30B-A3B-JANG-GPTQ-ipsupport-code-lora",
+  "model": "nemotron-3-5-lightning-30b-a3b-ipsupport",
+  "framework": "other",
+  "variation": "mlx-jang-gptq-code-lora",
+  "license": "Other"
+ },
+ {
+  "hf": "roman220220/Nemotron-3.5-Lightning-30B-A3B-JANG-GPTQ-ipsupport-code-lora-MTP",
+  "model": "nemotron-3-5-lightning-30b-a3b-ipsupport",
+  "framework": "other",
+  "variation": "mlx-jang-gptq-code-lora-mtp",
+  "license": "Other"
+ },
+ {
+  "hf": "roman220220/nemotron-30b-a3b-gptq-jang-component",
+  "model": "nemotron-3-5-lightning-30b-a3b-ipsupport",
+  "framework": "other",
+  "variation": "mlx-gptq-jang",
+  "license": "Other"
+ },
+ {
+  "hf": "roman220220/nemotron-30b-a3b-gptq3bit-g64",
+  "model": "nemotron-3-5-lightning-30b-a3b-ipsupport",
+  "framework": "other",
+  "variation": "mlx-gptq-3bit",
+  "license": "Other"
+ },
+ {
+  "hf": "roman220220/NVIDIA-Nemotron-3-Nano-4B-JANG-GPTQ-ipsupport-code-lora",
+  "model": "nemotron-3-nano-4b-ipsupport",
+  "framework": "other",
+  "variation": "mlx-jang-gptq-code-lora",
+  "license": "Other"
+ },
+ {
+  "hf": "roman220220/NemotronLabs-VoiceChat-11B-gptq-mlx-mixed",
+  "model": "nemotronlabs-voicechat-11b-ipsupport",
+  "framework": "other",
+  "variation": "mlx-gptq-mixed",
+  "license": "Other"
+ },
+ {
+  "hf": "roman220220/NemotronLabs-VoiceChat-11B-gptq-mlx-3bit",
+  "model": "nemotronlabs-voicechat-11b-ipsupport",
+  "framework": "other",
+  "variation": "mlx-gptq-3bit",
+  "license": "Other"
+ },
+ {
+  "hf": "roman220220/flux2-klein-4b-mlx-mixed",
+  "model": "flux-2-klein-4b-ipsupport",
+  "framework": "other",
+  "variation": "mlx-gptq-mixed",
+  "license": "Apache 2.0"
+ },
+ {
+  "hf": "roman220220/z-image-turbo-gptq-mlx-mixed",
+  "model": "z-image-turbo-ipsupport",
+  "framework": "other",
+  "variation": "mlx-gptq-mixed",
+  "license": "Apache 2.0"
+ },
+ {
+  "hf": "roman220220/z-image-turbo-gptq-mlx-4bit",
+  "model": "z-image-turbo-ipsupport",
+  "framework": "other",
+  "variation": "mlx-gptq-4bit",
+  "license": "Apache 2.0"
+ },
+ {
+  "hf": "roman220220/z-image-turbo-gptq-mlx-8bit",
+  "model": "z-image-turbo-ipsupport",
+  "framework": "other",
+  "variation": "mlx-gptq-8bit",
+  "license": "Apache 2.0"
+ },
+ {
+  "hf": "roman220220/ACE-Step1.5-sft-MLX-gptq-4bit",
+  "model": "ace-step-1-5-sft-ipsupport",
+  "framework": "other",
+  "variation": "mlx-gptq-4bit",
+  "license": "MIT"
+ },
+ {
+  "hf": "roman220220/ACE-Step1.5-sft-MLX-8bit",
+  "model": "ace-step-1-5-sft-ipsupport",
+  "framework": "other",
+  "variation": "mlx-8bit",
+  "license": "MIT"
+ },
+ {
+  "hf": "roman220220/ACE-Step1.5-sft-MLX-bf16",
+  "model": "ace-step-1-5-sft-ipsupport",
+  "framework": "other",
+  "variation": "mlx-bf16",
+  "license": "MIT"
+ },
+ {
+  "hf": "roman220220/FrogNano-4B-2609-gptq-mlx-jang",
+  "model": "frognano-4b-2609-ipsupport",
+  "framework": "other",
+  "variation": "mlx-gptq-jang",
+  "license": "Apache 2.0"
+ },
+ {
+  "hf": "roman220220/Ornith-1.5-35B-A3B-gptq-mlx-jang",
+  "model": "ornith-1-5-35b-a3b-ipsupport",
+  "framework": "other",
+  "variation": "mlx-gptq-jang",
+  "license": "MIT"
+ },
+ {
+  "hf": "roman220220/Ornith-1.5-35B-A3B-gptq-mlx-jang-small",
+  "model": "ornith-1-5-35b-a3b-ipsupport",
+  "framework": "other",
+  "variation": "mlx-gptq-jang-small",
+  "license": "MIT"
+ }
+]
