@@ -186,8 +186,11 @@ and the 8 tool schemas (`file`, `run`, `git`, `web`, `help`, `calc`,
   the Nemotron LoRA never saw (§2.5 of nemotron-extreme-quant: it called
   tools on "привет").
 - Real traces barely use git (≤ 3 calls per action), calc, help, done,
-  agent, web.stackexchange: 250 synthetic conversations cover them (RU/EN,
-  one language per conversation).
+  agent, web.stackexchange: 243 synthetic conversations cover them (RU/EN,
+  one language per conversation; a few scenarios have fewer distinct
+  combinations than `--per-scenario`). The `help` lessons start from a
+  deliberately wrong call; that turn is marked `"weight": 0` and kept out
+  of the loss (added after this release: its adapter learned from it too).
 
 **Training** (`lora/train_lora.py`): rendered with FrogNano's own template
 (tool arguments as objects, as mlx_lm.server passes them); loss on the
@@ -235,9 +238,14 @@ agent's system prompt and tools, temperature 1.0 / top-p 0.95):
 Valid first moves went up; the greeting reflex got slightly worse (a bare
 "ок, понял" / "как дела?" sometimes starts work: `file list`, `file read`,
 `run shell`). With 24 samples the first reflex run showed 0 vs 1 — noise at
-that size; `EVAL_REFLEX_SAMPLES` (10 per greeting) is now the default. The
-gate failed on it; published anyway with the weakness on the card. Next
-time: more plain replies to bare acknowledgements in the data.
+that size; `EVAL_REFLEX_SAMPLES` (10 per greeting) is now the default. 6 of
+the LoRA's 7 calls came on Russian messages: in the real sessions a short
+Russian "ок" / "понял" mostly comes in the middle of a task, where going on
+working is right. The gate failed on it; `PUBLISH=1` would have stopped
+here — published by hand on the owner's call (the model serves an agent
+that sends real goals, not small talk), the weakness on the card. Next
+time: plain replies to bare acknowledgements outside a task in the data,
+the reflex split by language.
 
 Published: `roman220220/FrogNano-4B-2609-gptq-mlx-jang-ipsupport-code-lora`
 (public), adapter `roman220220/FrogNano-4B-2609-ipsupport-code-lora` (private).

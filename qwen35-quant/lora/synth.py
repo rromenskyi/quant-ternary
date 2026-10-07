@@ -35,13 +35,15 @@ def call(tool, action, **params):
 class Conv:
     def __init__(self, goal: str):
         self.goal = goal
-        self.steps = []      # [(calls, observations, text)]
+        self.steps = []      # [(calls, observations, text, learn)]
         self.final = None
         self.done = False
 
-    def step(self, calls, observations, text=""):
+    def step(self, calls, observations, text="", learn=True):
+        """learn=False: a deliberate mistake the conversation recovers from,
+        context only (train_lora.py keeps it out of the loss)."""
         self.steps.append((calls if isinstance(calls, list) else [calls],
-                           observations if isinstance(observations, list) else [observations], text))
+                           observations if isinstance(observations, list) else [observations], text, learn))
         return self
 
     def end(self, text, next_step=None, done=False):
@@ -53,13 +55,15 @@ class Conv:
         messages = [{"role": "system", "content": system_prompt(template, date)},
                     {"role": "user", "content": self.goal}]
         n = 0
-        for calls, observations, text in self.steps:
+        for calls, observations, text, learn in self.steps:
             tcs = []
             for tool, action, params in calls:
                 n += 1
                 tcs.append({"id": f"call_{n}", "type": "function", "function": {
                     "name": tool, "arguments": json.dumps({"action": action, "params": params}, ensure_ascii=False)}})
             messages.append({"role": "assistant", "content": text, "tool_calls": tcs})
+            if not learn:
+                messages[-1]["weight"] = 0
             for tc, obs in zip(tcs, observations):
                 messages.append({"role": "tool", "tool_call_id": tc["id"], "content": obs})
         if self.done:
@@ -207,7 +211,7 @@ def help_lessons():
     lessons = f"{domain} usage:\n" + {"git": "commit: {\"message\": str}", "run": "shell: {\"command\": str, \"cwd\"?: str}",
                                       "file": "edit: {\"path\": str, \"find\"?: str, \"replace\"?: str}", "web": "fetch: {\"url\": str}"}[domain] + \
         "\nlessons:\n- use the exact param names above"
-    c = Conv(goal).step(call(*bad[:2], **bad[2]), bad[3]).step(call("help", "lessons", domain=domain), lessons).step(
+    c = Conv(goal).step(call(*bad[:2], **bad[2]), bad[3], learn=False).step(call("help", "lessons", domain=domain), lessons).step(
         call(bad[0], bad[1], **good), "ok")
     return c.end("Готово." if ru() else "Done.", None)
 

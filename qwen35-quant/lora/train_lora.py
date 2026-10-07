@@ -4,7 +4,8 @@
 - Rendered with the checkpoint's own chat template (tool-call arguments as
   objects, as mlx_lm.server passes them), so training text = inference text.
 - Loss on the assistant turns only: from after each turn's think block
-  through its <|im_end|>. The data has no reasoning; the template's empty
+  through its <|im_end|>; not on a turn marked "weight": 0 (a deliberate
+  mistake kept as context). The data has no reasoning; the template's empty
   <think></think> stays out of the loss, so the model isn't taught to stop
   thinking.
 - Adapters on the attention only by default (full attention q/k/v/o, the
@@ -51,6 +52,13 @@ def encode(tok, conv: dict, max_len: int):
     if len(ids) > max_len:
         return None
     spans = [m.span(1) for m in TURN.finditer(text)]
+    # One span per assistant message, in order; weight 0 = context only
+    # (synth.py's deliberate mistakes).
+    weights = [m.get("weight", 1) for m in conv["messages"] if m["role"] == "assistant"]
+    if len(weights) == len(spans):
+        spans = [sp for sp, w in zip(spans, weights) if w]
+    elif any(w == 0 for w in weights):
+        return None
     labels = [-100] * len(ids)
     for i, (a, _) in enumerate(offsets):
         if any(s <= a < e for s, e in spans):

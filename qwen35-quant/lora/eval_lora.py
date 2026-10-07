@@ -49,6 +49,8 @@ def parse(text: str):
     if not m:
         return None if "<tool_call>" in answer else ("", "", None)
     params = dict(PARAM.findall(m.group(2)))
+    if "params" not in params:
+        return None   # every call is {"action", "params"}
     action = params.get("action", "").strip()
     try:
         p = json.loads(params.get("params", "{}") or "{}")

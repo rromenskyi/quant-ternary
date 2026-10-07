@@ -45,7 +45,7 @@ as [FrogNano-4B-2609-gptq-mlx-jang](https://huggingface.co/roman220220/FrogNano-
 - **Data:** IPSupport Code's own sessions (one goal = one conversation, with
   its system prompt and its 8 tools: `file`, `run`, `git`, `web`, `help`,
   `calc`, `done`, `agent`), malformed calls cut out and the corrected call
-  kept; 225 of them are plain replies with the tools available. Plus 250
+  kept; 225 of them are plain replies with the tools available. Plus 243
   synthetic conversations (Russian / English) for the tools and actions real
   sessions rarely use. 729 conversations for training, 25 held out. The
   dataset is private (real sessions).

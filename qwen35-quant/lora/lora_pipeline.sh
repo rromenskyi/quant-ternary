@@ -18,7 +18,8 @@
 #   eval       base MLX build vs the new one, the agent's way (eval_lora.py
 #              --backend mlx): first steps on held-out goals, reflex on greetings
 #   gate       the new build must call tools on greetings no more often than
-#              the base, and get no fewer first steps valid (EVAL_TOLERANCE)
+#              the base, and get no fewer first steps valid or the same as
+#              the reference's (EVAL_TOLERANCE)
 #   publish    PUBLISH=1 and the gate passed: the MLX build (quant pipeline's
 #              publish) and the adapter (private repo)
 set -euo pipefail
@@ -132,7 +133,7 @@ else
 fi
 
 # --- gate ---------------------------------------------------------------------------------------------
-run_step gate "reflex no worse, first steps no worse than -$EVAL_TOLERANCE" python3 - "$EVAL_JSON" "$EVAL_TOLERANCE" <<'PY'
+run_step gate "reflex no worse, first steps (valid, same as the reference) no worse than -$EVAL_TOLERANCE" python3 - "$EVAL_JSON" "$EVAL_TOLERANCE" <<'PY'
 import json, sys
 r, tol = json.load(open(sys.argv[1])), float(sys.argv[2])
 def share(m, k):
@@ -143,8 +144,10 @@ print({m: {"valid": share(m, "valid"), "same": share(m, "same"), "reflex_calls":
 bad = []
 if reflex["lora"] > reflex["base"]:
     bad.append(f"tool calls on greetings: {reflex['lora']:.2f} > base {reflex['base']:.2f}")
-if share("lora", "valid") < share("base", "valid") - tol:
-    bad.append(f"valid first steps: {share('lora', 'valid'):.2f} < base {share('base', 'valid'):.2f} - {tol}")
+for k in ("valid", "same"):
+    # "same" too: a model that only ever replies in text is always "valid".
+    if share("lora", k) < share("base", k) - tol:
+        bad.append(f"{k} first steps: {share('lora', k):.2f} < base {share('base', k):.2f} - {tol}")
 if bad:
     sys.exit("; ".join(bad))
 print("GATE_PASSED")
