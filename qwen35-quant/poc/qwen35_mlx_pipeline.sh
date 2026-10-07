@@ -64,7 +64,7 @@ DATA="$WORK/data"
 MAX_PPL_RATIO="${MAX_PPL_RATIO:-1.10}"
 CHECK_JSON="$WORK/check-$VARIANT.json"
 REF="$WORK/ref-${MODEL_ID##*/}"   # per model: variants of one model share it
-case ",$RECIPE," in *,mtp*) echo "RECIPE has mtp* keys: the head's bits go in MTP" >&2; exit 2 ;; esac
+case ",$(printf %s "$RECIPE" | tr -d '[:space:]')," in *,mtp*) echo "RECIPE has mtp* keys: the head's bits go in MTP" >&2; exit 2 ;; esac
 LAYER_RECIPE="$RECIPE"
 RECIPE="$RECIPE${MTP:+,$MTP}"
 GPTQ="$WORK/gptq-$VARIANT"

@@ -64,8 +64,7 @@ vision tower 8-bit except its position embedding. 3.2 GB, 6.08 bits per weight
 overall (3.5 GB with the tower in bf16). MLX perplexity: **12.5476 (+1.5 %)**;
 the 0.03 over the HF number is the 8-bit embeddings.
 
-The MTP layer isn't carried: mlx-lm's qwen3_5 drops `mtp.*` (no MTP decoding
-for qwen3_5 in the fork yet).
+The first releases didn't carry the MTP layer (mlx-lm's qwen3_5 dropped `mtp.*` then); since 2026-10-07 it is a pipeline step (§4a).
 
 ### Vision tower at 8 bits: the position embedding stays bf16
 
