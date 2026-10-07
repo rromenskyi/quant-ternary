@@ -373,11 +373,15 @@ it will need harder items once the ternary model gets close.
 | control (lr 2e-5) | 0.696 | 73.5% | 6.01 |
 | lr 5e-5 | 0.723 | 72.9% | 6.21 |
 | attn4 (attention 4-bit g64, MLP ternary) | **0.654** | **74.3%** | **5.76** |
+| g64 (ternary everywhere, group 64) | 0.697 | 73.4% | 6.00 |
 
 attn4 started worse (0.746: latents adapted to ternary attention, re-rounded
 to 4 bits) and passed control within 50 steps, then held a ~0.04 KL lead
 at every point. lr 5e-5 dipped to 0.81 and recovered to 0.72, still behind
-control: on repeated data a higher lr hurts.
+control: on repeated data a higher lr hurts. g64 tracked control to the
+third decimal (0.6965 vs 0.6958): halving the group buys nothing at this
+stage and costs +0.125 bit per weight (2.5 vs 2.25), so the group stays
+128 and the extra bits go to attention (attn4) instead.
 
 attn4 exported with per-layer grids (184 attention Linears 4-bit g64, 144
 MLP Linears 2-bit g128; 4.63 GB model). gen_eval did **not** follow the KL:
