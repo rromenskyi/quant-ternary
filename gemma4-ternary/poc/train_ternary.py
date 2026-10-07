@@ -397,7 +397,9 @@ def main() -> None:
     model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
     model.train()
     opt = SRAdamW(params, weight_decay=args.weight_decay)
-    log(f"{len(params)} ternary Linears, {sum(p.numel() for p in params) / 1e9:.2f}B params; "
+    n_alpha = sum(n.endswith(".alpha") for n in names)
+    log(f"{len(params) - n_alpha} quantized Linears" + (f" + {n_alpha} learned scale tensors" if n_alpha else "")
+        + f", {sum(p.numel() for p in params) / 1e9:.2f}B params; "
         f"{total_steps} optimizer steps of {per_step * seq} tokens")
 
     step, cursor = 0, 0

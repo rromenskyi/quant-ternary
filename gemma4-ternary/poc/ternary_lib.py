@@ -223,6 +223,9 @@ def _adamw_sr(p, g, m, v, lr, b1, b2, bc1, bc2, eps, wd):
     return sr_bf16(pf), sr_bf16(mf), sr_bf16(vf)
 
 
+# one specialization per tensor shape: ternary/affine weights and learned
+# scales give more than dynamo's default 8, past which it falls back to eager
+torch._dynamo.config.recompile_limit = 64
 _adamw_sr_compiled = torch.compile(_adamw_sr, dynamic=False)
 
 
