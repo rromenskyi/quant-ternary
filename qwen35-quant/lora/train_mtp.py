@@ -107,7 +107,8 @@ def main() -> None:
     for p in model.parameters():
         p.requires_grad_(False)
     old = mtp_tensors(path)
-    save_file({k: v.contiguous() for k, v in old.items()}, str(path / "mtp-before-retrain.safetensors.bak"))
+    # Next to the checkpoint, not in it: the quant pipeline copies its files.
+    save_file({k: v.contiguous() for k, v in old.items()}, str(path.parent / f"{path.name}.mtp-before-retrain.safetensors"))
     head, _ = build_mtp(model.model.language_model, old)
     head = head.float().cuda().train()
     for p in head.parameters():

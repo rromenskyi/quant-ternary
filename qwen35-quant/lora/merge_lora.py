@@ -54,8 +54,11 @@ def main() -> None:
     if left:
         raise SystemExit(f"adapted weights not in the checkpoint: {sorted(left)[:5]}")
     for f in src.iterdir():
-        if f.is_file() and not f.name.endswith(".safetensors"):
-            shutil.copy(f, out / f.name)
+        # Not the shards, the pipeline's own marks (.merged ...) or backups.
+        if f.is_file() and not f.name.endswith((".safetensors", ".bak")) and not f.name.startswith("."):
+            # A snapshot's files can be read-only: a re-run replaces them.
+            (out / f.name).unlink(missing_ok=True)
+            shutil.copyfile(f, out / f.name)
     print(f"MERGE_DONE {len(deltas)} weights", flush=True)
 
 
