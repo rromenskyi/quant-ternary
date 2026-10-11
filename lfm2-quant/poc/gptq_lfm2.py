@@ -34,7 +34,8 @@ from pathlib import Path
 
 import torch
 from safetensors.torch import save_file
-from transformers import AutoModelForCausalLM, AutoTokenizer
+import transformers
+from transformers import AutoTokenizer
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "qwen35-quant" / "poc"))
 import gptq_qwen35 as q  # noqa: E402
@@ -51,7 +52,6 @@ EXPECTED = {
     "self_attn": ["self_attn.q_proj", "self_attn.k_proj", "self_attn.v_proj", "self_attn.out_proj"],
     "conv": ["conv.in_proj", "conv.out_proj"],
 }
-PREFIX = "model.layers"
 
 
 def calibrate_experts(experts, rows, recipe, args) -> dict[str, torch.Tensor]:
@@ -145,6 +145,12 @@ def main() -> None:
     ap.add_argument("--expert-batch", type=int, default=32)
     ap.add_argument("--max-rows-per-expert", type=int, default=8192)
     ap.add_argument("--device", default="cuda")
+    ap.add_argument("--auto-class", default="AutoModelForCausalLM",
+                    help="transformers class to load with (AutoModelForImageTextToText for lfm2_vl)")
+    ap.add_argument("--text-module", default="model",
+                    help="attribute path of the decoder (model.language_model for lfm2_vl)")
+    ap.add_argument("--prefix", default="model.layers",
+                    help="checkpoint name prefix of the decoder layers (model.language_model.layers for lfm2_vl)")
     args = ap.parse_args()
     q.DEVICE = args.device
     recipe = parse_recipe(args.recipe)
@@ -152,8 +158,11 @@ def main() -> None:
     (work / "layers").mkdir(parents=True, exist_ok=True)
 
     tok = AutoTokenizer.from_pretrained(args.model)
-    model = AutoModelForCausalLM.from_pretrained(args.model, dtype=torch.bfloat16).eval()  # CPU memory
-    lm = model.model
+    auto = getattr(transformers, args.auto_class)
+    model = auto.from_pretrained(args.model, dtype=torch.bfloat16).eval()  # CPU memory
+    lm = model
+    for name in args.text_module.split("."):
+        lm = getattr(lm, name)
     layers = lm.layers
     present = {COMPONENTS[n] for layer in layers for n, _ in layer.named_modules() if n in COMPONENTS}
     if any(getattr(layer.feed_forward, "experts", None) is not None for layer in layers):
@@ -171,7 +180,7 @@ def main() -> None:
     progress = work / "progress.json"
     made_with = {"recipe": args.recipe, "group_size": args.group_size, "calib": args.calib,
                  "calib_chunks": args.calib_chunks, "calib_chunk_tokens": args.calib_chunk_tokens,
-                 "max_rows_per_expert": args.max_rows_per_expert}
+                 "max_rows_per_expert": args.max_rows_per_expert, "prefix": args.prefix}
     start = 0
     if progress.exists():
         old = json.load(open(progress))
@@ -198,7 +207,7 @@ def main() -> None:
         out = calibrate_layer(layer, hidden, kwargs[i], recipe, args)
         with torch.no_grad():
             hidden = [layer(h, **kwargs[i]) for h in hidden]
-        save_file({f"{PREFIX}.{i}.{k}": v.contiguous() for k, v in out.items()}, work / "layers" / f"{i:03d}.safetensors")
+        save_file({f"{args.prefix}.{i}.{k}": v.contiguous() for k, v in out.items()}, work / "layers" / f"{i:03d}.safetensors")
         torch.save([h.cpu() for h in hidden], work / "hidden.pt")
         json.dump({"done": i, "layers": len(layers), "made_with": made_with}, open(progress, "w"))
         layers[i] = layer.cpu()

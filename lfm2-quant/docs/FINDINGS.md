@@ -59,10 +59,37 @@ on-grid weights and differs from GPTQ's codes in 8.01 % of packed words on
 the 8B; `convert_lfm2.py` overwrites them with the calibrated codes
 (`convert_mlx.write_gptq_codes`, given this model's tensor names).
 
-## Not done
+## LFM2.5-VL-3B (2026-10-11)
 
-- **LFM2.5-VL-3B**: mlx-lm's `lfm2-vl` drops `vision_tower` on load, so an
-  MLX quant would be the text model only. Needs the vision encoder in the
-  ipsupport-llc/mlx-lm fork first.
+mlx-lm could not load `lfm2_vl` at all (no module for the model type; its
+`lfm2-vl.py` was unreachable and dropped the vision weights). The fork now
+has it (ipsupport-llc/mlx-lm#36): SigLIP2 NaFlex tower (position grid resized
+per crop, bilinear with antialias), pixel-unshuffle projector, and a
+torch-free tiling processor (512 tiles on the grid closest to the aspect
+ratio, up to 10, plus a thumbnail; tile / thumbnail marker tokens).
+
+Port check against HF transformers 5.19 (two tiled photos, one small image):
+token ids identical; pixels within 1-2 levels (PIL vs torchvision bicubic);
+image features **fp32 vs fp32 cosine 1.00000, min 1.0000**. In bf16 a few
+tokens of the 1024-patch tiles fall to cosine 0.5-0.8 -- HF's own bf16 run
+does the same on the same tokens (bf16 vs fp32 min 0.61 / 0.84), so it is
+bf16, not the port; the mean stays 0.998.
+
+Quantized: the decoder as the 2.6B (8/6/4, GPTQ; it is the same decoder),
+vision tower and projector RTN 8-bit except the tower's fc2 (input 4304,
+not a multiple of 64: bf16) and the position grid (float, resized not looked
+up).
+
+| | Size GB | PPL text | PPL code | image feature cosine vs HF fp32 (3 images) |
+|---|---|---|---|---|
+| bf16 (MLX) | 6.25 | 51.77 | 13.451 | 0.998 / 0.998 / 0.9995 |
+| published | 2.36 | +2.3 % | +1.5 % | 0.997 / 0.997 / 0.998 |
+
+Greedy answers keep their content (e.g. "an insect on the flower" -> "a bee
+on a flower"). The older mlx-community/LFM2-VL-1.6B-6bit (model_type
+`lfm2-vl`, `image_token_index`, `vision_feature_layer -2` with 26 of 27 tower
+layers stored) also loads with vision in the fork.
+
+## Not done
 - Speed on a Mac was not measured (pod MLX/CUDA numbers in the results are
   not representative).
