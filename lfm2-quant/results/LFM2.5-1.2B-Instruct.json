@@ -1,0 +1,38 @@
+{
+  "bf16": {
+    "model": "/workspace/hf/hub/models--LiquidAI--LFM2.5-1.2B-Instruct/snapshots/0f604ada3f766f9f257460c4c9f0b5d6f69d431b",
+    "size_gb": 2.341,
+    "answer": "```python\ndef is_prime(n):\n    if n <= 1:\n        return False\n    if n <= 3:\n        return True\n    if n % 2 == 0 or n % 3 == 0:\n        return False\n    i = 5\n    while i * i <= n:\n        if n % i == 0 or n % (i + 2) == 0:\n            return False\n        i += 6\n    return True\n```",
+    "tok_s": 116.8,
+    "ppl_text": 143.73626752046508,
+    "ppl_code": 14.710050821407838,
+    "peak_gb": 2.98,
+    "passed": true
+  },
+  "baseline": {
+    "model": "LiquidAI/LFM2.5-1.2B-Instruct-MLX-4bit",
+    "size_gb": 0.659,
+    "answer": "```python\ndef is_prime(n):\n    if n <= 1:\n        return False\n    if n <= 3:\n        return True\n    if n % 2 == 0 or n % 3 == 0:\n        return False\n    i = 5\n    while i * i <= n:\n        if n % i == 0 or n % (i + 2) == 0:\n            return False\n        i += 6\n    return True\n```",
+    "tok_s": 139.2,
+    "ppl_text": 170.95799715382935,
+    "ppl_code": 17.114172198050728,
+    "peak_gb": 1.34,
+    "ppl_text_ratio": 1.1893866461329148,
+    "ppl_code_ratio": 1.1634339273079957,
+    "max_ppl_ratio": 100.0,
+    "passed": true
+  },
+  "lfm2-1.2b-instruct": {
+    "model": "/workspace/LFM2.5-1.2B-Instruct-gptq-mlx-jang",
+    "size_gb": 0.799,
+    "answer": "```python\ndef is_prime(n):\n    if n <= 1:\n        return False\n    if n <= 3:\n        return True\n    if n % 2 == 0 or n % 3 == 0:\n        return False\n    i = 5\n    while i * i <= n:\n        if n % i == 0 or n % (i + 2) == 0:\n            return False\n        i += 6\n    return True\n```",
+    "tok_s": 123.7,
+    "ppl_text": 150.182600834886,
+    "ppl_code": 15.550951403516107,
+    "peak_gb": 1.49,
+    "ppl_text_ratio": 1.044848342214696,
+    "ppl_code_ratio": 1.0571650358192162,
+    "max_ppl_ratio": 1.1,
+    "passed": true
+  }
+}

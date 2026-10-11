@@ -171,5 +171,40 @@
   "framework": "other",
   "variation": "mlx-gptq-jang-small",
   "license": "MIT"
+ },
+ {
+  "hf": "roman220220/LFM2.5-8B-A1B-gptq-mlx-jang-q4",
+  "model": "lfm2-5-8b-a1b-ipsupport",
+  "framework": "other",
+  "variation": "mlx-gptq-jang-q4",
+  "license": "Other"
+ },
+ {
+  "hf": "roman220220/LFM2.5-8B-A1B-gptq-mlx-jang",
+  "model": "lfm2-5-8b-a1b-ipsupport",
+  "framework": "other",
+  "variation": "mlx-gptq-jang",
+  "license": "Other"
+ },
+ {
+  "hf": "roman220220/LFM2.5-2.6B-gptq-mlx-jang",
+  "model": "lfm2-5-2-6b-ipsupport",
+  "framework": "other",
+  "variation": "mlx-gptq-jang",
+  "license": "Other"
+ },
+ {
+  "hf": "roman220220/LFM2.5-1.2B-Instruct-gptq-mlx-jang",
+  "model": "lfm2-5-1-2b-instruct-ipsupport",
+  "framework": "other",
+  "variation": "mlx-gptq-jang",
+  "license": "Other"
+ },
+ {
+  "hf": "roman220220/LFM2.5-1.2B-Thinking-gptq-mlx-jang",
+  "model": "lfm2-5-1-2b-thinking-ipsupport",
+  "framework": "other",
+  "variation": "mlx-gptq-jang",
+  "license": "Other"
  }
 ]
