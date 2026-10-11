@@ -1,0 +1,25 @@
+{
+  "bf16": {
+    "model": "/workspace/hf/hub/models--LiquidAI--LFM2.5-2.6B/snapshots/654f9463ce32b05d0429d76fe1f580b27d4c1ac0",
+    "size_gb": 5.394,
+    "answer": "The user wants a Python function to check if a number is prime. The code should be self-contained and only the function (and necessary imports if any). I need to write a function that takes an integer and returns a boolean (or perhaps a string, but boolean is standard). I should handle edge cases: numbers less than 2 are not prime. For efficiency, I can check divisibility up to the square root of the number. I'll write a function named `is_prime` or similar. The code should be clean and correct. I'll include a docstring for clarity. No extra text outside the code block? The instruction says \"Code only.\" So I should output only the Python code, no markdown? Usually, when they say \"Code only\", they mean the code block with the function definition. But to be safe, I'll output just the code, possibly within a markdown code block? The instruction says \"Write a Python function that checks whether a number is prime. Code only",
+    "tok_s": 97.2,
+    "ppl_text": 51.769848429010736,
+    "ppl_code": 5.007072987349589,
+    "peak_gb": 6.16,
+    "passed": true
+  },
+  "lfm2-2.6b": {
+    "model": "/workspace/LFM2.5-2.6B-gptq-mlx-jang",
+    "size_gb": 1.783,
+    "answer": "The user wants a Python function to check if a number is prime. The code should be self-contained and only the function (and necessary imports if any). I need to write a function that returns True if the number is prime, False otherwise. I should consider edge cases: numbers less than 2 are not prime. 2 is prime. Even numbers greater than 2 are not prime. I can implement a simple trial division up to the square root of n. That's efficient enough for typical use. I'll write the function `is_prime(n)`. I'll include a docstring for clarity. The code should be only the function, no extra text. But the instruction says \"Code only.\" So I should output just the Python code, no markdown? The user said \"Write a Python function... Code only.\" Usually that means the response should be the code block, but they might want just the code without any explanation. To be safe, I'll provide a code block with the",
+    "tok_s": 147.4,
+    "ppl_text": 51.51121251635983,
+    "ppl_code": 5.091340596614085,
+    "peak_gb": 2.71,
+    "ppl_text_ratio": 0.9950041207285827,
+    "ppl_code_ratio": 1.0168297145812333,
+    "max_ppl_ratio": 1.1,
+    "passed": true
+  }
+}

@@ -1,0 +1,64 @@
+{
+  "bf16": {
+    "model": "/workspace/hf/hub/models--LiquidAI--LFM2.5-8B-A1B/snapshots/5dd22602c2e9f6a097b1de4c4efe0658b605015c",
+    "size_gb": 16.936,
+    "answer": "<think>\nOkay, I need to write a Python function to check if a number is prime. Let's think about how primes work. A prime number is a number greater than 1 that has no divisors other than 1 and itself. So first, if the number is less than 2, it's not prime. That's the first check I should do.\n\nThen, for numbers 2 and above. For example, 2 is prime, 3 is prime, 4 is not. So the function should return False for numbers less than 2. For numbers 2 and above, I need to check divisibility.\n\nThe basic approach is to check if any number from 2 up to the square root of n divides n. Because if n has a factor larger than its square root, the corresponding factor would be smaller than the square root. So checking up to sqrt(n) is efficient.\n\nSo the steps are:\n\n1. If n <= 1, return False.\n2.",
+    "tok_s": 12.2,
+    "ppl_text": 91.76284882458373,
+    "ppl_code": 13.128073518929806,
+    "peak_gb": 32.44,
+    "passed": true
+  },
+  "baseline": {
+    "model": "LiquidAI/LFM2.5-8B-A1B-MLX-4bit",
+    "size_gb": 4.834,
+    "answer": "<think>\nOkay, I need to write a Python function to check if a number is prime. Let's think about how primes work. A prime number is a number greater than 1 that has no divisors other than 1 and itself. So first, I should handle numbers less than 2 by returning False immediately.\n\nFor numbers 2 and above, I need to check for divisors. The basic approach is to try dividing the number by all integers from 2 up to the square root of the number. If any of those divide evenly, it's not prime. Otherwise, it is.\n\nWait, why up to the square root? Because if a number n has a factor larger than its square root, the corresponding factor would be smaller than the square root. So checking up to sqrt(n) is sufficient. That's more efficient than checking up to n-1.\n\nSo the steps are:\n\n1. If n <= 1, return False.\n2. If n is 2, return",
+    "tok_s": 2.9,
+    "ppl_text": 100.24499140489924,
+    "ppl_code": 14.00394999178769,
+    "peak_gb": 5.53,
+    "ppl_text_ratio": 1.09243547567415,
+    "ppl_code_ratio": 1.0667178220471518,
+    "max_ppl_ratio": 100.0,
+    "passed": true
+  },
+  "lfm2-8b": {
+    "model": "/workspace/LFM2.5-8B-A1B-gptq-mlx-jang",
+    "size_gb": 4.057,
+    "answer": "<think>\nOkay, I need to write a Python function to check if a number is prime. Let's think about how to do this. \n\nFirst, what's a prime number? A prime number is a number greater than 1 that has no divisors other than 1 and itself. So, the function should return True if the number is prime, False otherwise.\n\nLet me start by handling edge cases. If the input number is less than 2, it's not prime. So, return False for numbers less than 2.\n\nFor numbers 2 and above, I need to check for divisors. The basic approach is to check divisibility from 2 up to the square root of the number. Because if a number n has a factor larger than its square root, the corresponding factor would be smaller than the square root. So checking up to sqrt(n) is efficient.\n\nWait, how do I compute the square root in Python? Oh right, I can use math.sqrt, but I need",
+    "tok_s": 2.8,
+    "ppl_text": 99.99908262294866,
+    "ppl_code": 14.148810643575809,
+    "peak_gb": 4.74,
+    "ppl_text_ratio": 1.089755646254069,
+    "ppl_code_ratio": 1.0777522401267914,
+    "max_ppl_ratio": 1.1,
+    "passed": true
+  },
+  "lfm2-8b-small": {
+    "model": "/workspace/LFM2.5-8B-A1B-gptq-mlx-jang-small",
+    "size_gb": 3.411,
+    "answer": "<think>\nOkay, I need to write a Python function that checks if a number is prime. Let's think about how primes work. A prime number is a number greater than 1 that has no divisors other than 1 and itself. So, the function should return True if the number is prime, and False otherwise.\n\nFirst, the function will take a number as input. Let's call it n. The first check is if n is less than 2. Because numbers less than 2 can't be prime. So if n is 0, 1, or negative, return False.\n\nThen, for numbers 2 and above, we need to check for divisors. The efficient way is to check up to the square root of n. Because if a number has a factor larger than its square root, the corresponding factor would be smaller than the square root. So checking up to sqrt(n) is sufficient.\n\nSo, for each possible divisor from 2 up to sqrt(n), we",
+    "tok_s": 10.4,
+    "ppl_text": 122.11839968159398,
+    "ppl_code": 16.503237978280946,
+    "peak_gb": 4.09,
+    "ppl_text_ratio": 1.330804364139116,
+    "ppl_code_ratio": 1.2570951826621308,
+    "max_ppl_ratio": 1.5,
+    "passed": true
+  },
+  "lfm2-8b-q4": {
+    "model": "/workspace/LFM2.5-8B-A1B-gptq-mlx-jang-q4",
+    "size_gb": 5.026,
+    "answer": "<think>\nOkay, I need to write a Python function to check if a number is prime. Let's think about how primes work. A prime number is a number greater than 1 that has no divisors other than 1 and itself. So first, if the number is less than 2, it's not prime. That's the first check.\n\nThen, for numbers 2 and above. For numbers greater than 2, I need to check if any number from 2 up to the square root of the number divides it evenly. Because if there's a factor larger than the square root, there would be a corresponding factor smaller than the square root. So checking up to sqrt(n) is efficient.\n\nWait, how do I handle even numbers? Maybe first check if the number is even, then check odd divisors. That could save some time. But for simplicity, maybe start with the basic approach first.\n\nSo the steps are:\n\n1. If n <= 1, return False.\n",
+    "tok_s": 86.6,
+    "ppl_text": 93.76786378329632,
+    "ppl_code": 13.467674400952305,
+    "peak_gb": 5.7,
+    "ppl_text_ratio": 1.0218499641673662,
+    "ppl_code_ratio": 1.0258682952630342,
+    "max_ppl_ratio": 1.1,
+    "passed": true
+  }
+}

@@ -63,5 +63,25 @@
   "title": "Ornith 1.5 35B-A3B — IPSupport GPTQ JANG MLX",
   "subtitle": "MoE in 17 GB, or 14 GB for smaller Macs",
   "description": "Ornith 1.5 35B-A3B for MLX: GPTQ with a JANG bit map by component role. `mlx-gptq-jang`: 17 GB; `mlx-gptq-jang-small`: 14 GB for smaller memory budgets.\n\nEach variation's overview is its Hugging Face model card; the license is the base model's (see each card).\n\n---\n**IPSupport LLC** · [ipsupport.us](https://www.ipsupport.us) · all our releases: [huggingface.co/roman220220](https://huggingface.co/roman220220) · how we quantize: [whitepaper](https://github.com/rromenskyi/quant-ternary/blob/main/IPSupport-quantization-whitepaper.pdf) · run MLX builds on a Mac with [LLMTray](https://www.ipsupport.us/llmtray/)."
+ },
+ "lfm2-5-8b-a1b-ipsupport": {
+  "title": "LFM2.5-8B-A1B — IPSupport GPTQ MLX",
+  "subtitle": "Liquid AI's 8B MoE with per-expert GPTQ, 4.06-5.03 GB",
+  "description": "Liquid AI's on-device mixture-of-experts model (8.5B parameters, ~1.5B active), quantized for MLX with GPTQ and a per-component bit recipe (attention 8, convolutions 6, experts 3 or 4 bits).\n\n| Variation | Size | PPL text / code vs bf16 |\n|---|---|---|\n| `other/mlx-gptq-jang-q4` | 5.03 GB | +2.2 % / +2.6 % |\n| `other/mlx-gptq-jang` | 4.06 GB | +9.0 % / +7.8 % |\n\nLiquid AI's official MLX 4-bit: 4.83 GB, +9.2 % / +6.7 %.\n\nEach variation's overview is its Hugging Face model card. License: LFM Open License v1.0 (the base model's).\n\n---\n**IPSupport LLC** · [ipsupport.us](https://www.ipsupport.us) · all our releases: [huggingface.co/roman220220](https://huggingface.co/roman220220) · how we quantize: [whitepaper](https://github.com/rromenskyi/quant-ternary/blob/main/IPSupport-quantization-whitepaper.pdf) · run MLX builds on a Mac with [LLMTray](https://www.ipsupport.us/llmtray/)."
+ },
+ "lfm2-5-2-6b-ipsupport": {
+  "title": "LFM2.5-2.6B — IPSupport GPTQ MLX",
+  "subtitle": "Liquid AI's 2.6B reasoning model, 1.78 GB, near-lossless",
+  "description": "Liquid AI's 2.6B on-device reasoning model, quantized for MLX with GPTQ (attention 8, convolutions 6, MLP 4 bits; embeddings 8): 1.78 GB from 5.39 GB, perplexity -0.5 % on text and +1.7 % on code vs bf16. Liquid AI publishes no MLX build of this model.\n\nEach variation's overview is its Hugging Face model card. License: LFM Open License v1.0 (the base model's).\n\n---\n**IPSupport LLC** · [ipsupport.us](https://www.ipsupport.us) · all our releases: [huggingface.co/roman220220](https://huggingface.co/roman220220) · how we quantize: [whitepaper](https://github.com/rromenskyi/quant-ternary/blob/main/IPSupport-quantization-whitepaper.pdf) · run MLX builds on a Mac with [LLMTray](https://www.ipsupport.us/llmtray/)."
+ },
+ "lfm2-5-1-2b-instruct-ipsupport": {
+  "title": "LFM2.5-1.2B-Instruct — IPSupport GPTQ MLX",
+  "subtitle": "0.80 GB, a quarter of the loss of the official 4-bit build",
+  "description": "Liquid AI's 1.2B on-device chat model, quantized for MLX with GPTQ (attention 8, convolutions 6, MLP 4 bits; embeddings 8): 0.80 GB, perplexity +4.5 % on text and +5.7 % on code vs bf16, where Liquid AI's official MLX 4-bit (0.66 GB) loses +18.9 % / +16.3 %.\n\nEach variation's overview is its Hugging Face model card. License: LFM Open License v1.0 (the base model's).\n\n---\n**IPSupport LLC** · [ipsupport.us](https://www.ipsupport.us) · all our releases: [huggingface.co/roman220220](https://huggingface.co/roman220220) · how we quantize: [whitepaper](https://github.com/rromenskyi/quant-ternary/blob/main/IPSupport-quantization-whitepaper.pdf) · run MLX builds on a Mac with [LLMTray](https://www.ipsupport.us/llmtray/)."
+ },
+ "lfm2-5-1-2b-thinking-ipsupport": {
+  "title": "LFM2.5-1.2B-Thinking — IPSupport GPTQ MLX",
+  "subtitle": "0.80 GB, a quarter of the loss of the official 4-bit build",
+  "description": "Liquid AI's 1.2B on-device reasoning model, quantized for MLX with GPTQ (attention 8, convolutions 6, MLP 4 bits; embeddings 8): 0.80 GB, perplexity +3.8 % on text and +2.5 % on code vs bf16, where Liquid AI's official MLX 4-bit (0.66 GB) loses +14.8 % / +11.6 %.\n\nEach variation's overview is its Hugging Face model card. License: LFM Open License v1.0 (the base model's).\n\n---\n**IPSupport LLC** · [ipsupport.us](https://www.ipsupport.us) · all our releases: [huggingface.co/roman220220](https://huggingface.co/roman220220) · how we quantize: [whitepaper](https://github.com/rromenskyi/quant-ternary/blob/main/IPSupport-quantization-whitepaper.pdf) · run MLX builds on a Mac with [LLMTray](https://www.ipsupport.us/llmtray/)."
  }
 }
