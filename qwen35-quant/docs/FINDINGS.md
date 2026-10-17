@@ -339,3 +339,97 @@ MLX's own re-quantization of the calibrated weights would have changed
   does: the MLX steps preload the NCCL next to torch.
 - The network volume (MooseFS) makes pip and Python imports slow (minutes);
   big sequential reads are fine.
+
+## GGUF: don't quantize ssm_alpha/ssm_beta (delta-rule gates)
+
+`poc/frognano_gguf_pipeline.sh` (imatrix + JANG tensor-type recipe,
+RTX 4090). First release force-quantized every `ssm_*` tensor to `Q6_K`,
+including `ssm_alpha.weight` / `ssm_beta.weight` (the gated-DeltaNet's
+input gates -- the GGUF-side equivalent of the MLX pipeline's
+`linear_attn.in_proj_[ab]`, which `DEFAULT_KEEP_FLOAT` already knew to
+leave unquantized, see above). Live user report on a Vulkan backend (old
+GCN GPU): 7.4 tok/s generation vs bartowski's reference quant's 25.7
+tok/s, with *normal* prompt-processing throughput -- the asymmetry
+(prefill fine, decode wrecked) is the signature of a GPU/CPU graph split:
+the SSM-scan op expects these gates in float, and when a backend's fused
+kernel doesn't accept a quantized input it falls back to splitting the
+graph and round-tripping through the CPU for that subgraph. Prefill
+batches many tokens so the round-trip amortizes; decode pays it on every
+single token.
+
+Confirmed via a GGUF header dump (no download needed -- `gguf`'s
+`GGUFReader` on a `Range:` HTTP fetch of the first ~20 MB covers the KV
+metadata + all 441 tensor-info entries; only the tensor *data* needs the
+full file):
+
+| Tensor | Shape | What happened |
+|---|---|---|
+| `ssm_alpha.weight`, `ssm_beta.weight` (24 layers) | (2560, 32) | force-quantized to `Q6_K` by this pipeline's override -- the bug |
+| `ssm_a`, `ssm_conv1d.weight`, `ssm_dt.bias`, `ssm_norm.weight` | small | `llama-quantize` already keeps these F32 regardless of `--tensor-type` -- the override was a harmless no-op |
+| `ssm_out.weight` (24 layers) | (4096, 2560) | the real linear-attention output projection; correctly quantized, left alone |
+
+Fix: drop `ssm_a/ssm_conv1d/ssm_dt/ssm_norm/ssm_alpha/ssm_beta` from the
+`--tensor-type` overrides entirely (only `ssm_out` needs one). Cost of
+leaving alpha/beta unquantized: 48 tensors x (327,680 - 67,200) bytes =
+~12.5 MB, 0.36 % of the 3.48 GB file. Perplexity on the republished build
+was *slightly better* (8.7031 -> 8.6972), not worse -- this tradeoff has
+no downside.
+
+## GGUF: Q8_0 is ~3x slower than Q6_K on Vulkan hardware without int8 dot
+
+Same pipeline, after the ssm_alpha/ssm_beta fix above. Live user report on
+dual AMD FirePro D700 (Tahiti, GCN1) via Vulkan: the first republish
+(`Q8_0` on attention/embeddings, `Q6_K` on `ssm_out`, matching this
+account's usual GGUF convention) ran at 7-9 tok/s generation, vs ~26 tok/s
+for a reference `Q4_K_M` build at the same nominal quant level, with
+*normal* prompt-processing throughput. Investigated live via SSH onto the
+box (`roman220@10.0.0.11`, both D700s, user granted explicit access):
+
+1. **Vulkan device capability** (`vulkaninfo`/`llama-bench`): `int dot: 0,
+   matrix cores: none, fp16: 0` -- Tahiti (2012-era GCN1) has no hardware
+   int8 dot-product instruction, no fp16, no tensor cores at all.
+2. **`GGML_SCHED_DEBUG=2`** (needs `-v`/`--verbose` too, or the debug-level
+   log lines are silently dropped) on `llama-cli --single-turn`: every
+   node across 35k lines of graph-split output scheduled cleanly to
+   `Vulkan0`/`Vulkan1` (one real multi-GPU split at the model's midpoint
+   layer) -- no surprise CPU fallback for `GATED_DELTA_NET`/`SSM_SCAN`/
+   `SSM_CONV` at all. Ruled out an op-support gap.
+3. **Single-GPU `llama-bench --device Vulkan0`**: our jang build 9.19
+   tok/s vs the reference `Q4_K_M` 25.97 tok/s, same box, same build --
+   ruled out multi-GPU cross-device sync overhead (identical gap on one
+   GPU alone).
+4. **Isolated the tensor type** with `llama-quantize --allow-requantize
+   --tensor-type attn_*=<type> ...` directly on the already-quantized
+   file (no imatrix needed for a pure speed A/B): replacing only the
+   `Q8_0` tensors (attn_q/k/v/output/gate, token_embd) --
+   - `-> Q5_K`: 24.74 tok/s (recovered)
+   - `-> Q6_K`: 24.97 tok/s (recovered, better quality, chosen)
+   `ssm_out` was untouched in every variant (stayed `Q6_K`) -- confirms
+   it was never part of the problem.
+
+Conclusion: `Q8_0`'s Vulkan compute-shader path apparently assumes/
+benefits enormously from a hardware int8 dot product; without it (common
+on anything older than ~2016-era GPUs, and on several current low-power/
+integrated Vulkan devices too) it falls back to a much slower generic
+path. K-quants (`Q4_K`/`Q5_K`/`Q6_K`) were never built around that
+instruction and don't pay the penalty. **Default recipe changed: `Q6_K`
+for attention/embeddings instead of `Q8_0`, every GGUF JANG release
+going forward should use a K-quant for "keep this precise", not `Q8_0`,
+unless there's a specific reason to need `Q8_0`'s slightly higher
+precision and the target hardware is confirmed modern enough.**
+
+Debugging tools worth keeping: `GGML_SCHED_DEBUG=2` + `-v` for an exact
+per-node backend assignment dump; `llama-quantize --allow-requantize
+--tensor-type X=Y` to A/B one tensor group's type on an already-built
+GGUF without re-running imatrix/conversion; `llama-bench --device
+VulkanN` to isolate one GPU in a multi-GPU box; `vulkaninfo --summary`
+for `int dot`/`fp16`/`matrix cores` device capability flags.
+
+## Code perplexity (added for this model specifically)
+
+FrogNano is a coding agent; wikitext PPL alone doesn't speak to its job.
+Added a `ppl_code` step (held-out Python stdlib, no test suites -- the
+same corpus `qwen35-quant/poc/make_data.py` uses for the MLX pipeline).
+Results tracked about the same as wikitext: F16 2.915, this quant 2.947
+(+1.10%, vs +1.15% on wikitext) -- no extra quality cost on the domain
+that actually matters here.
