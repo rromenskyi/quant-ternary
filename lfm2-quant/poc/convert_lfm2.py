@@ -38,7 +38,7 @@ MOE_DENSE = {"feed_forward.w1": "feed_forward.gate_proj", "feed_forward.w3": "fe
              "feed_forward.w2": "feed_forward.down_proj"}
 
 
-def gptq_tensors(work: Path, recipe: dict, moe: bool) -> dict[str, tuple]:
+def gptq_tensors(work: Path, recipe: dict, moe: bool, mlx_prefix: str) -> dict[str, tuple]:
     """MLX key prefix -> (W_hat, scale, bias, codes, bits) from the layer files."""
     out = {}
     for f in sorted(glob.glob(str(work / "layers" / "*.safetensors"))):
@@ -49,7 +49,7 @@ def gptq_tensors(work: Path, recipe: dict, moe: bool) -> dict[str, tuple]:
             layer, mod = key.split(".layers.", 1)[1].split(".", 1)
             mod = mod.removesuffix(".weight")
             bits = convert_mlx.bits_for(recipe["components"][mod], recipe["recipe"])
-            prefix = f"model.layers.{layer}"
+            prefix = f"{mlx_prefix}.{layer}"
             W, S, B, C = t[key], t[key + ".gptq_scales"], t[key + ".gptq_biases"], t[key + ".gptq_codes"]
             if mod == "feed_forward.experts.gate_up_proj":
                 mid = W.shape[-2] // 2
@@ -69,6 +69,10 @@ def main() -> None:
     ap.add_argument("--out", required=True)
     ap.add_argument("--gptq-work", required=True, help="gptq_lfm2.py's --work")
     ap.add_argument("--embed-bits", type=int, default=8)
+    ap.add_argument("--mlx-prefix", default="model.layers",
+                    help="MLX module path of the decoder layers (language_model.model.layers for lfm2_vl)")
+    ap.add_argument("--vision-bits", type=int, default=8,
+                    help="RTN bits of the vision tower and projector Linears (lfm2_vl)")
     args = ap.parse_args()
     mx.set_default_device(mx.cpu)
     hf, out = Path(args.hf), Path(args.out)
@@ -81,6 +85,11 @@ def main() -> None:
             return {"group_size": gs, "bits": args.embed_bits}
         if path.endswith("feed_forward.gate"):  # MoE router
             return False
+        if path.startswith(("vision_tower.", "multi_modal_projector.")):
+            # Linears whose input width is not a multiple of the group stay bf16.
+            if module.weight.shape[-1] % gs:
+                return False
+            return {"group_size": gs, "bits": args.vision_bits}
         for suffix, component in MLX_COMPONENTS.items():
             if path.endswith("." + suffix):
                 return {"group_size": gs, "bits": convert_mlx.bits_for(component, bits)}
@@ -89,7 +98,7 @@ def main() -> None:
     convert(str(hf), str(out), quantize=True, q_group_size=gs, q_bits=min(bits.values()), quant_predicate=predicate)
     # write_gptq_codes reads the layer files through convert_mlx.gptq_tensors
     # (Qwen3.5 names): give it this model's.
-    convert_mlx.gptq_tensors = lambda work, rec: gptq_tensors(work, rec, moe)
+    convert_mlx.gptq_tensors = lambda work, rec: gptq_tensors(work, rec, moe, args.mlx_prefix)
     convert_mlx.write_gptq_codes(out, Path(args.gptq_work), recipe, gs)
     shutil.copy(hf / "quant_recipe.json", out / "quant_recipe.json")
     print("CONVERT_DONE", flush=True)

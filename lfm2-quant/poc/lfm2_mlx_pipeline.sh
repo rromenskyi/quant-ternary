@@ -13,10 +13,11 @@
 #   data        wikitext-2 (calibration + test) and Python code (calibration + held-out test)
 #   download    HF snapshot of the bf16 checkpoint
 #   reference   bf16 perplexity in MLX (check_lfm2.py), once per model
+#   vl_*        VISION=1: HF fp32 image reference (vl_reference.py), bf16 MLX vs it
 #   baseline    the same for $BASELINE_REPO (e.g. the vendor's MLX 4-bit), once per model
 #   calibrate   GPTQ, layer by layer (gptq_lfm2.py)
 #   assemble    the checkpoint with the calibrated weights swapped in
-#   convert     MLX at the recipe's bits, then GPTQ's exact codes
+#   convert     MLX at the recipe's bits, then GPTQ's exact codes (vision tower RTN)
 #   check       perplexity vs bf16 (fails above MAX_PPL_RATIO)
 #   card        model card copied in LAST
 #   publish     hf upload (PUBLISH=1 only; HF_TOKEN in the environment)
@@ -69,8 +70,30 @@ case "$VARIANT" in
     HF_REPO="${HF_REPO:-roman220220/LFM2.5-1.2B-Thinking-gptq-mlx-jang}"
     BASELINE_REPO="${BASELINE_REPO:-LiquidAI/LFM2.5-1.2B-Thinking-MLX-4bit}"
     ;;
-  *) echo "VARIANT must be lfm2-8b, lfm2-8b-small, lfm2-8b-q4, lfm2-2.6b, lfm2-1.2b-instruct or lfm2-1.2b-thinking (or add a preset)" >&2; exit 2 ;;
+  lfm2-vl-3b)
+    # LFM2.5-2.6B-like decoder + SigLIP2 vision tower (8-bit RTN) + projector.
+    MODEL_ID="${MODEL_ID:-LiquidAI/LFM2.5-VL-3B}"
+    RECIPE="${RECIPE:-attn=8,conv=6,mlp=4}"
+    HF_REPO="${HF_REPO:-roman220220/LFM2.5-VL-3B-gptq-mlx-jang}"
+    BASELINE_REPO="${BASELINE_REPO:-}"   # no MLX build exists
+    VISION="${VISION:-1}"
+    ;;
+  *) echo "VARIANT must be lfm2-8b, lfm2-8b-small, lfm2-8b-q4, lfm2-2.6b, lfm2-1.2b-instruct, lfm2-1.2b-thinking or lfm2-vl-3b (or add a preset)" >&2; exit 2 ;;
 esac
+# Vision-language checkpoints (lfm2_vl): where the decoder is, and the
+# vision tower's bits. Text models keep the defaults.
+VISION="${VISION:-0}"
+if [ "$VISION" = 1 ]; then
+  AUTO_CLASS="${AUTO_CLASS:-AutoModelForImageTextToText}"
+  TEXT_MODULE="${TEXT_MODULE:-model.language_model}"
+  LAYER_PREFIX="${LAYER_PREFIX:-model.language_model.layers}"
+  MLX_PREFIX="${MLX_PREFIX:-language_model.model.layers}"
+fi
+AUTO_CLASS="${AUTO_CLASS:-AutoModelForCausalLM}"
+TEXT_MODULE="${TEXT_MODULE:-model}"
+LAYER_PREFIX="${LAYER_PREFIX:-model.layers}"
+MLX_PREFIX="${MLX_PREFIX:-model.layers}"
+VISION_BITS="${VISION_BITS:-8}"
 NAME="${HF_REPO#*/}"
 CARD="${CARD:-$HERE/../cards/$NAME.md}"
 DATA="$WORK/data"
@@ -81,6 +104,9 @@ ONGRID="$WORK/ongrid-$VARIANT"
 OUT_DIR="${OUT_DIR:-$WORK/$NAME}"
 export HF_HOME="${HF_HOME:-$WORK/hf}"
 CHECK=(python3 "$HERE/check_lfm2.py" --out "$RESULTS" --wikitext "$DATA/wiki.test.raw" --code "$DATA/code.test.txt")
+VL_REF="$WORK/vl-ref-${MODEL_ID##*/}"
+CHECK_VL=(python3 "$HERE/check_vl_lfm2.py" --out "$RESULTS" --ref "$VL_REF")
+has_vision () { [ -s "$RESULTS" ] && python3 -c "import json,sys; sys.exit(not json.load(open('$RESULTS')).get('$1', {}).get('vision'))"; }
 has_result () { [ -s "$RESULTS" ] && python3 -c "import json,sys; sys.exit(not json.load(open('$RESULTS')).get('$1', {}).get('passed'))"; }
 
 pipeline_init lfm2 "VARIANT=$VARIANT MODEL_ID=$MODEL_ID RECIPE=$RECIPE OUT_DIR=$OUT_DIR"
@@ -128,6 +154,18 @@ else
   run_step baseline "$BASELINE_REPO perplexity" \
     mlx_env "${CHECK[@]}" --model "$BASELINE_REPO" --name baseline --ref bf16 --max-ppl-ratio 100
 fi
+if [ "$VISION" = 1 ]; then
+  if [ -s "$VL_REF/meta.json" ]; then
+    skip_step vl_reference "in $VL_REF"
+  else
+    run_step vl_reference "HF fp32 image features + answers" python3 "$HERE/vl_reference.py" --model "$SNAPSHOT" --out "$VL_REF"
+  fi
+  if has_vision bf16; then
+    skip_step vl_bf16 "bf16 vision in $RESULTS"
+  else
+    run_step vl_bf16 "bf16 MLX image inputs vs HF" mlx_env "${CHECK_VL[@]}" --model "$SNAPSHOT" --name bf16
+  fi
+fi
 
 # --- calibrate -----------------------------------------------------------------
 if [ -s "$GPTQ/progress.json" ] && python3 -c "import json,sys; p=json.load(open('$GPTQ/progress.json')); m=p.get('made_with',{}); sys.exit(not (p['done']+1==p['layers'] and m.get('recipe')=='$RECIPE' and m.get('group_size')==$GROUP_SIZE and m.get('calib_chunks')==$CALIB_CHUNKS))"; then
@@ -135,6 +173,7 @@ if [ -s "$GPTQ/progress.json" ] && python3 -c "import json,sys; p=json.load(open
 else
   run_step calibrate "GPTQ $RECIPE (group $GROUP_SIZE)" \
     python3 "$HERE/gptq_lfm2.py" --model "$SNAPSHOT" --work "$GPTQ" --recipe "$RECIPE" \
+      --auto-class "$AUTO_CLASS" --text-module "$TEXT_MODULE" --prefix "$LAYER_PREFIX" \
       --group-size "$GROUP_SIZE" --calib-chunks "$CALIB_CHUNKS" \
       --calib "wikitext:$DATA/wiki.train.raw" --calib "code:$DATA/code.txt"
 fi
@@ -153,7 +192,8 @@ if grep -q CONVERT_DONE "$LOG_DIR/lfm2_convert.log" 2>/dev/null && [ "$OUT_DIR/q
 else
   rm -rf "$OUT_DIR"
   run_step convert "MLX at the recipe's bits + GPTQ codes" \
-    mlx_env python3 "$HERE/convert_lfm2.py" --hf "$ONGRID" --out "$OUT_DIR" --gptq-work "$GPTQ" --embed-bits "$EMBED_BITS"
+    mlx_env python3 "$HERE/convert_lfm2.py" --hf "$ONGRID" --out "$OUT_DIR" --gptq-work "$GPTQ" --embed-bits "$EMBED_BITS" \
+      --mlx-prefix "$MLX_PREFIX" --vision-bits "$VISION_BITS"
 fi
 
 # --- check ---------------------------------------------------------------------
@@ -162,6 +202,13 @@ if has_result "$VARIANT" && [ "$RESULTS" -nt "$OUT_DIR/quant_recipe.json" ]; the
 else
   run_step check "perplexity (text, code) vs bf16" \
     mlx_env "${CHECK[@]}" --model "$OUT_DIR" --name "$VARIANT" --ref bf16 --max-ppl-ratio "$MAX_PPL_RATIO"
+fi
+if [ "$VISION" = 1 ]; then
+  if has_vision "$VARIANT"; then
+    skip_step check_vl "$VARIANT vision in $RESULTS"
+  else
+    run_step check_vl "image inputs vs HF" mlx_env "${CHECK_VL[@]}" --model "$OUT_DIR" --name "$VARIANT"
+  fi
 fi
 
 # --- model card (LAST) -----------------------------------------------------------

@@ -12,7 +12,11 @@ code corpus for calibration, the Python standard library as held-out code),
 HF snapshot, bf16 and vendor-MLX reference perplexities, GPTQ layer by layer
 (`gptq_lfm2.py`), the calibrated checkpoint (`assemble_lfm2.py`), MLX with
 GPTQ's exact codes (`convert_lfm2.py`), check (`check_lfm2.py`: text and code
-perplexity, one chat answer), card, upload. The GPTQ helpers are
+perplexity, one chat answer), card, upload. Vision-language checkpoints
+(`VISION=1`, preset `lfm2-vl-3b`) add an HF fp32 image reference
+(`vl_reference.py`) and an image check (`check_vl_lfm2.py`: token ids, image
+feature cosine, answers); image input needs the ipsupport-llc/mlx-lm fork
+(PR #36). The GPTQ helpers are
 `qwen35-quant/poc/gptq_qwen35.py`'s.
 
 Releases (2026-10-11; perplexity in MLX, 40 x 512 tokens, vs bf16):
@@ -23,6 +27,7 @@ Releases (2026-10-11; perplexity in MLX, 40 x 512 tokens, vs bf16):
 | LFM2.5-8B-A1B | [roman220220/LFM2.5-8B-A1B-gptq-mlx-jang](https://huggingface.co/roman220220/LFM2.5-8B-A1B-gptq-mlx-jang) | 8/6/6/3 | 4.06 GB | +9.0 % / +7.8 % | 〃 |
 | LFM2.5-2.6B | [roman220220/LFM2.5-2.6B-gptq-mlx-jang](https://huggingface.co/roman220220/LFM2.5-2.6B-gptq-mlx-jang) | 8/6/4 | 1.78 GB | −0.5 % / +1.7 % | none |
 | LFM2.5-1.2B-Instruct | [roman220220/LFM2.5-1.2B-Instruct-gptq-mlx-jang](https://huggingface.co/roman220220/LFM2.5-1.2B-Instruct-gptq-mlx-jang) | 8/6/4 | 0.80 GB | +4.5 % / +5.7 % | 0.66 GB, +18.9 % / +16.3 % |
+| LFM2.5-VL-3B (vision kept, 8-bit) | [roman220220/LFM2.5-VL-3B-gptq-mlx-jang](https://huggingface.co/roman220220/LFM2.5-VL-3B-gptq-mlx-jang) | 8/6/4 | 2.36 GB | +2.3 % / +1.5 % | none |
 | LFM2.5-1.2B-Thinking | [roman220220/LFM2.5-1.2B-Thinking-gptq-mlx-jang](https://huggingface.co/roman220220/LFM2.5-1.2B-Thinking-gptq-mlx-jang) | 8/6/4 | 0.80 GB | +3.8 % / +2.5 % | 0.66 GB, +14.8 % / +11.6 % |
 
 Embeddings 8-bit everywhere; the MoE router stays bf16. Mirrored on Kaggle

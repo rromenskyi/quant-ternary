@@ -30,6 +30,12 @@ for v in lfm2-8b lfm2-8b-q4 lfm2-2.6b lfm2-1.2b-instruct lfm2-1.2b-thinking; do
 done
 ```
 
+Vision-language: `VARIANT=lfm2-vl-3b` (VISION=1). The environment needs
+the fork with LFM2-VL vision (ipsupport-llc/mlx-lm main after #36),
+`torchvision` matching the image's torch (0.24.1 for torch 2.9.1) and
+`pandas`; on an image whose system Python is PEP 668-locked, use a venv
+with `--system-site-packages` and put it first on PATH.
+
 Results: `$WORK/results-<model>.json` (bf16, `baseline` = the vendor's MLX
 build if there is one, every variant). Read them before publishing.
 

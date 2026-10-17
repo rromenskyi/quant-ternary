@@ -83,5 +83,10 @@
   "title": "LFM2.5-1.2B-Thinking — IPSupport GPTQ MLX",
   "subtitle": "0.80 GB, a quarter of the loss of the official 4-bit build",
   "description": "Liquid AI's 1.2B on-device reasoning model, quantized for MLX with GPTQ (attention 8, convolutions 6, MLP 4 bits; embeddings 8): 0.80 GB, perplexity +3.8 % on text and +2.5 % on code vs bf16, where Liquid AI's official MLX 4-bit (0.66 GB) loses +14.8 % / +11.6 %.\n\nEach variation's overview is its Hugging Face model card. License: LFM Open License v1.0 (the base model's).\n\n---\n**IPSupport LLC** · [ipsupport.us](https://www.ipsupport.us) · all our releases: [huggingface.co/roman220220](https://huggingface.co/roman220220) · how we quantize: [whitepaper](https://github.com/rromenskyi/quant-ternary/blob/main/IPSupport-quantization-whitepaper.pdf) · run MLX builds on a Mac with [LLMTray](https://www.ipsupport.us/llmtray/)."
+ },
+ "lfm2-5-vl-3b-ipsupport": {
+  "title": "LFM2.5-VL-3B — IPSupport GPTQ MLX",
+  "subtitle": "Liquid AI's 3B vision-language model, 2.36 GB, vision kept",
+  "description": "Liquid AI's 3B on-device vision-language model (SigLIP2 NaFlex encoder on the LFM2.5-2.6B decoder), quantized for MLX with GPTQ (attention 8, convolutions 6, MLP 4 bits; embeddings, vision tower and projector 8): 2.36 GB from 6.25 GB, perplexity +2.3 % on text and +1.5 % on code, image features at cosine 0.997 to the fp32 original. Image input needs the ipsupport-llc/mlx-lm fork.\n\nEach variation's overview is its Hugging Face model card. License: LFM Open License v1.0 (the base model's).\n\n---\n**IPSupport LLC** · [ipsupport.us](https://www.ipsupport.us) · all our releases: [huggingface.co/roman220220](https://huggingface.co/roman220220) · how we quantize: [whitepaper](https://github.com/rromenskyi/quant-ternary/blob/main/IPSupport-quantization-whitepaper.pdf) · run MLX builds on a Mac with [LLMTray](https://www.ipsupport.us/llmtray/)."
  }
 }

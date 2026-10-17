@@ -206,5 +206,12 @@
   "framework": "other",
   "variation": "mlx-gptq-jang",
   "license": "Other"
+ },
+ {
+  "hf": "roman220220/LFM2.5-VL-3B-gptq-mlx-jang",
+  "model": "lfm2-5-vl-3b-ipsupport",
+  "framework": "other",
+  "variation": "mlx-gptq-jang",
+  "license": "Other"
  }
 ]

@@ -1,0 +1,71 @@
+{
+  "bf16": {
+    "model": "/workspace/hf/hub/models--LiquidAI--LFM2.5-VL-3B/snapshots/35a118d938ce6d123ac2d371649f24a8efb69058",
+    "size_gb": 6.247,
+    "answer": "def is_prime(n):\n    if n <= 1:\n        return False\n    for i in range(2, int(n**0.5) + 1):\n        if n % i == 0:\n            return False\n    return True",
+    "tok_s": 50.7,
+    "ppl_text": 51.772047336859394,
+    "ppl_code": 13.451129543849293,
+    "peak_gb": 7.01,
+    "passed": true,
+    "vision": {
+      "cat": {
+        "ids_equal": true,
+        "cos_mean": 0.9983,
+        "cos_min": 0.7918,
+        "answer": "In this image we can see an animal on the snow. In the background we can see the trunk of trees.",
+        "hf_answer": "In this image we can see an animal on the snow. In the background we can see the trunk of trees."
+      },
+      "bee": {
+        "ids_equal": true,
+        "cos_mean": 0.9984,
+        "cos_min": 0.623,
+        "answer": "In this image we can see flowers, plants, and an insect on the flower.",
+        "hf_answer": "In this image we can see flowers, plants, and an insect on the flower."
+      },
+      "small": {
+        "ids_equal": true,
+        "cos_mean": 0.9995,
+        "cos_min": 0.9976,
+        "answer": "A bee is sitting in the middle of a purple flower. There are other flowers in the background.",
+        "hf_answer": "A bee is sitting on a pink flower with a yellow center. There are other flowers in the background, including red ones."
+      }
+    }
+  },
+  "lfm2-vl-3b": {
+    "model": "/workspace/LFM2.5-VL-3B-gptq-mlx-jang",
+    "size_gb": 2.362,
+    "answer": "```python\ndef is_prime(n):\n    if n <= 1:\n        return False\n    if n <= 3:\n        return True\n    if n % 2 == 0 or n % 3 == 0:\n        return False\n    i = 5\n    while i * i <= n:\n        if n % i == 0 or n % (i + 2) == 0:\n            return False\n        i += 6\n    return True\n```",
+    "tok_s": 1.7,
+    "ppl_text": 52.93965135225931,
+    "ppl_code": 13.646814847809189,
+    "peak_gb": 3.29,
+    "ppl_text_ratio": 1.0225527881445908,
+    "ppl_code_ratio": 1.0145478714870735,
+    "max_ppl_ratio": 1.1,
+    "passed": true,
+    "vision": {
+      "cat": {
+        "ids_equal": true,
+        "cos_mean": 0.9967,
+        "cos_min": 0.8271,
+        "answer": "In this image we can see an animal on the snow. In the background we can see the trunk of a tree and a fence.",
+        "hf_answer": "In this image we can see an animal on the snow. In the background we can see the trunk of trees."
+      },
+      "bee": {
+        "ids_equal": true,
+        "cos_mean": 0.9966,
+        "cos_min": 0.4548,
+        "answer": "In this image we can see flowers, plants, and a bee on a flower.",
+        "hf_answer": "In this image we can see flowers, plants, and an insect on the flower."
+      },
+      "small": {
+        "ids_equal": true,
+        "cos_mean": 0.9981,
+        "cos_min": 0.9827,
+        "answer": "A bee is sitting in the middle of a purple flower. There are other flowers in the background.",
+        "hf_answer": "A bee is sitting on a pink flower with a yellow center. There are other flowers in the background, including red ones."
+      }
+    }
+  }
+}
