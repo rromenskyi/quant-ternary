@@ -83,13 +83,19 @@ fi
 # Dense qwen3_5 tensor names: attn_q/k/v/output/gate (full-attention layers),
 # ssm_* (gated-delta-net layers), ffn_gate/up/down.
 if [ -f "$TEXT_GGUF" ]; then skip_step quantize "$TEXT_GGUF exists"; else
+  # ssm_a / ssm_conv1d / ssm_dt / ssm_norm are small gate/norm tensors that
+  # llama-quantize already force-keeps at F32 regardless of --tensor-type
+  # (confirmed empirically: overriding them is a no-op). ssm_alpha/ssm_beta
+  # are the delta rule's input gates (gptq_qwen35.py's DEFAULT_KEEP_FLOAT:
+  # "linear_attn.in_proj_[ab]$") -- small (2560x32) matrices where
+  # quantizing them saves ~12.5 MB total (0.36% of the file) but forced a
+  # Vulkan GPU/CPU graph split on every decode step (reported live: 7.4
+  # tok/s vs 25.7 tok/s on an old-GCN card), since the SSM-scan kernel
+  # expects these in float. Left at the base preset's float handling.
   TT=(--tensor-type "attn_q=$ATTN_TYPE" --tensor-type "attn_k=$ATTN_TYPE"
       --tensor-type "attn_v=$ATTN_TYPE" --tensor-type "attn_output=$ATTN_TYPE"
       --tensor-type "attn_gate=$ATTN_TYPE" --tensor-type "token_embd=$ATTN_TYPE"
       --tensor-type "output\\.weight=$ATTN_TYPE"
-      --tensor-type "ssm_a=$LINEAR_TYPE" --tensor-type "ssm_conv1d=$LINEAR_TYPE"
-      --tensor-type "ssm_dt=$LINEAR_TYPE" --tensor-type "ssm_norm=$LINEAR_TYPE"
-      --tensor-type "ssm_alpha=$LINEAR_TYPE" --tensor-type "ssm_beta=$LINEAR_TYPE"
       --tensor-type "ssm_out=$LINEAR_TYPE")
   run_step quantize "llama-quantize $BASE_QUANT (attn/embed $ATTN_TYPE, linear $LINEAR_TYPE)" \
     "$BIN/llama-quantize" --imatrix "$IMATRIX" "${TT[@]}" "$F16" "$TEXT_GGUF" "$BASE_QUANT" 32
