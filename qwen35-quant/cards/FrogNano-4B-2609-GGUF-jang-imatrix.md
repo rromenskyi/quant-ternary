@@ -35,12 +35,14 @@ deliberate improvements over a stock `Q4_K_M`:
 
 1. **imatrix computed on a broad real corpus** (bartowski's
    `calibration_datav3` — code + prose + facts + multilingual).
-2. **JANG-mixed precision**: full-attention layers and embeddings kept at
-   `Q8_0`, the gated-DeltaNet linear-attention layers (most of the
-   network) at `Q6_K`, feed-forward at the `Q4_K_M` base preset — the
-   same bit split as this account's MLX GPTQ release of the same model.
+2. **JANG-mixed precision**: full-attention layers, embeddings and the
+   gated-DeltaNet linear-attention layers (most of the network) kept at
+   `Q6_K`, feed-forward at the `Q4_K_M` base preset. (Not `Q8_0` on
+   attention — see "Honest notes": `Q8_0` is ~3x slower than `Q6_K` on
+   Vulkan hardware without a hardware int8 dot product, for no quality
+   gain worth the cost.)
 
-Result: **3.48 GB** instead of 8.67 GB F16.
+Result: **3.06 GB** instead of 8.67 GB F16.
 
 ## The recipe
 
@@ -51,24 +53,27 @@ the rest, feed-forward (`ffn_gate/up/down`) everywhere.
 
 | Component | Tensors | Type |
 |---|---|---|
-| Full attention + gate (8 of 32 layers) | `attn_q/k/v/output/gate` | `Q8_0` |
-| Token embeddings (tied with the output head) | `token_embd` | `Q8_0` |
-| Gated-DeltaNet linear attention (24 layers) | `ssm_*` | `Q6_K` |
+| Full attention + gate (8 of 32 layers) | `attn_q/k/v/output/gate` | `Q6_K` |
+| Token embeddings (tied with the output head) | `token_embd` | `Q6_K` |
+| Gated-DeltaNet linear attention (24 layers) | `ssm_out` | `Q6_K` |
+| `ssm_alpha`/`ssm_beta` (the delta rule's input gates) | — | F32 (not quantized — see Honest notes) |
 | Feed-forward (32 layers) | `ffn_gate/up/down` | `Q4_K_M` base preset |
-| Norms, NextN/MTP tensors (preserved, unused by plain inference) | — | F32 / base preset |
+| Other norms, NextN/MTP tensors (preserved, unused by plain inference) | — | F32 / base preset |
 
 Importance matrix: `llama-imatrix`, 200 chunks on bartowski's
 `calibration_datav3.txt`, on one RTX 4090.
 
 ## Measurements
 
-Perplexity on wikitext-2 test (40 x 512-token chunks, `llama-perplexity`),
-F16 vs this quant, same GGUF toolchain both sides:
+Perplexity on wikitext-2 test and held-out Python stdlib source (40 x
+512-token chunks each, `llama-perplexity`), F16 vs this quant, same GGUF
+toolchain both sides — the stdlib number matters most here: this is a
+coding-agent model.
 
-| | Size | PPL (wikitext) |
-|---|---|---|
-| F16 | 8.67 GB | 8.623 |
-| **this model, Q4_K_M jang** | **3.48 GB** | **8.703 (+0.93%)** |
+| | Size | PPL (wikitext) | PPL (Python) |
+|---|---|---|---|
+| F16 | 8.67 GB | 8.623 | 2.915 |
+| **this model, Q4_K_M jang** | **3.06 GB** | **8.723 (+1.15%)** | **2.947 (+1.10%)** |
 
 ## Usage
 
@@ -98,6 +103,28 @@ quantization.
 
 ## Honest notes
 
+- **`Q8_0` on attention tested ~3x slower than `Q6_K` on old GPUs,
+  live-measured.** The first release of this card used `Q8_0` for
+  attention + embeddings (matching this account's usual GGUF convention
+  for "keep this precise"). A user reported 7-9 tok/s on dual AMD FirePro
+  D700 (Tahiti, GCN1) via Vulkan vs ~26 tok/s for a reference `Q4_K_M`
+  build at the same nominal quant level. `GGML_SCHED_DEBUG=2` showed
+  every op correctly scheduled to the GPU (no CPU fallback, not a
+  multi-GPU sync issue) — the Vulkan device reports `int dot: 0` (no
+  hardware int8 dot product), and `llama-bench` confirmed re-quantizing
+  just the `Q8_0` tensors to `Q6_K` (nothing else changed) recovered the
+  speed (9.2 -> 25.0 tok/s on one GPU), matching the reference build.
+  `Q8_0`'s Vulkan kernel apparently leans on that instruction and falls
+  back to a slow generic path without it; K-quants (`Q4_K`/`Q5_K`/`Q6_K`)
+  aren't built around it and don't pay the penalty. `ssm_out` was `Q6_K`
+  in both the slow and fast builds — it was never the cause.
+- `ssm_alpha`/`ssm_beta` (the delta rule's input gates, `(hidden, 32)`
+  matrices) are left unquantized: forcing them into a quant type cost
+  ~12.5 MB (0.36% of the file) for no measurable benefit, and matches
+  bartowski's own `Q4_K_M` build (confirmed from its published
+  `layouts/*.tensor-types.txt`) and this account's MLX pipeline's
+  `DEFAULT_KEEP_FLOAT` (`linear_attn.in_proj_[ab]$`), which already knew
+  these need to stay float.
 - **Text only.** Qwen3.5-4B's (and this model's) vision tower and MTP
   speculative-decoding head aren't part of the `QWEN35` GGUF architecture
   llama.cpp converts to — both exist only in the MLX sibling (via the
@@ -147,7 +174,7 @@ repository's metadata says MIT, which Apache 2.0 also satisfies) — see
 
 Modified from [microsoft/FrogNano-4B-2609](https://huggingface.co/microsoft/FrogNano-4B-2609):
 converted to GGUF and quantized with an importance matrix and per-tensor
-types (full attention and embeddings `Q8_0`, gated-DeltaNet linear
-attention `Q6_K`, feed-forward `Q4_K_M`). The weights and configuration
-files in this repo are therefore modified versions of the original, not
-the original files.
+types (full attention, embeddings and gated-DeltaNet linear attention
+`Q6_K`, feed-forward `Q4_K_M`). The weights and configuration files in
+this repo are therefore modified versions of the original, not the
+original files.

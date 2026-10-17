@@ -16,6 +16,7 @@
 #   imatrix       llama-imatrix on a broad corpus
 #   quantize      llama-quantize, JANG tensor-type recipe
 #   ppl           wikitext PPL: F16 vs quant
+#   ppl_code      Python stdlib PPL: F16 vs quant (this model's actual job)
 #   ollama_files  Modelfile (FROM hf.co + sampling defaults)
 #   smoke         llama-server --jinja: chat reply, no control-token leak
 #   card          model card copied in LAST
@@ -35,10 +36,17 @@ NGL="${NGL:-99}"
 HF_REPO="${HF_REPO:-roman220220/FrogNano-4B-2609-GGUF-jang-imatrix}"
 CARD="$HERE/../cards/${HF_REPO#*/}.md"
 PPL_TEST="${PPL_TEST:-$WORK/wikitext-2-raw/wiki.test.raw}"
+CODE_TEST="${CODE_TEST:-$WORK/data/code.test.txt}"
 
 # --- recipe (env-driven for PPL sweeps; matches the MLX GPTQ split) ----------
 BASE_QUANT="${BASE_QUANT:-Q4_K_M}"   # llama-quantize base preset (feed-forward)
-ATTN_TYPE="${ATTN_TYPE:-Q8_0}"       # full-attention layers + embeddings: few, sensitive
+# Q6_K, not Q8_0: live-measured on an AMD Tahiti (GCN1, Vulkan "int dot: 0" --
+# no hardware int8 dot product), Q8_0's Vulkan kernel apparently needs that
+# instruction and falls back to a slow generic path without it (9.2 tok/s),
+# while K-quants aren't built around it at all (24.7-25.0 tok/s, matching a
+# reference Q4_K_M's 26.0). ssm_out was never the issue -- it stayed Q6_K in
+# both the slow and fast builds. Q6_K over Q5_K: same speed, better quality.
+ATTN_TYPE="${ATTN_TYPE:-Q6_K}"       # full-attention layers + embeddings: few, sensitive
 LINEAR_TYPE="${LINEAR_TYPE:-Q6_K}"   # gated-delta-net (ssm_*) layers: most layers
 RUN_TAG="${RUN_TAG:-jang}"
 TEXT_GGUF="$OUT_DIR/frognano-4b-${RUN_TAG}.gguf"
@@ -97,8 +105,18 @@ if [ -f "$TEXT_GGUF" ]; then skip_step quantize "$TEXT_GGUF exists"; else
       --tensor-type "attn_gate=$ATTN_TYPE" --tensor-type "token_embd=$ATTN_TYPE"
       --tensor-type "output\\.weight=$ATTN_TYPE"
       --tensor-type "ssm_out=$LINEAR_TYPE")
-  run_step quantize "llama-quantize $BASE_QUANT (attn/embed $ATTN_TYPE, linear $LINEAR_TYPE)" \
-    "$BIN/llama-quantize" --imatrix "$IMATRIX" "${TT[@]}" "$F16" "$TEXT_GGUF" "$BASE_QUANT" 32
+  # STOCK=1: diagnostic build with zero --tensor-type overrides, to check
+  # whether this architecture's own imatrix-driven per-layer type choices
+  # (bartowski's Q4_K_M varies attn_gate/ssm_out/ffn_* type by layer --
+  # clearly automatic, not hand-set) avoid whatever is slow in our
+  # hand-forced blanket recipe.
+  if [ "${STOCK:-0}" = 1 ]; then
+    run_step quantize "llama-quantize $BASE_QUANT (stock, no overrides)" \
+      "$BIN/llama-quantize" --imatrix "$IMATRIX" "$F16" "$TEXT_GGUF" "$BASE_QUANT" 32
+  else
+    run_step quantize "llama-quantize $BASE_QUANT (attn/embed $ATTN_TYPE, linear $LINEAR_TYPE)" \
+      "$BIN/llama-quantize" --imatrix "$IMATRIX" "${TT[@]}" "$F16" "$TEXT_GGUF" "$BASE_QUANT" 32
+  fi
 fi
 
 # --- perplexity (quality record: quant vs F16) -------------------------------
@@ -117,6 +135,25 @@ fi
 run_step ppl "wikitext PPL: F16 vs $BASE_QUANT ($RUN_TAG)" bash -c "
   echo -n 'F16          : '; '$BIN/llama-perplexity' -m '$F16' -f '$PPL_TEST' -ngl '$NGL' --chunks ${PPL_CHUNKS:-40} 2>&1 | grep -E 'Final estimate' | tail -1
   echo -n '$BASE_QUANT ($RUN_TAG): '; '$BIN/llama-perplexity' -m '$TEXT_GGUF' -f '$PPL_TEST' -ngl '$NGL' --chunks ${PPL_CHUNKS:-40} 2>&1 | grep -E 'Final estimate' | tail -1"
+
+# --- code perplexity (this model's actual job -- a coding agent) -------------
+# Held-out Python stdlib source (no test suites), the same corpus
+# qwen35-quant/poc/make_data.py uses for the MLX pipeline's code PPL.
+if [ -s "$CODE_TEST" ]; then skip_step code_data "$CODE_TEST exists"; else
+  run_step code_data "held-out Python stdlib source" bash -c "
+    mkdir -p '$(dirname "$CODE_TEST")'
+    python3 -c \"
+import pathlib, sysconfig
+std = pathlib.Path(sysconfig.get_paths()['stdlib'])
+skip = {'test', 'tests', 'idlelib', 'site-packages', 'dist-packages'}
+files = [p for p in sorted(std.rglob('*.py')) if not skip & set(p.parts)]
+pathlib.Path('$CODE_TEST').write_text(
+    '\n\n'.join(p.read_text(encoding='utf-8', errors='ignore') for p in files), encoding='utf-8')
+\""
+fi
+run_step ppl_code "code PPL (Python stdlib): F16 vs $BASE_QUANT ($RUN_TAG)" bash -c "
+  echo -n 'F16          : '; '$BIN/llama-perplexity' -m '$F16' -f '$CODE_TEST' -ngl '$NGL' --chunks ${PPL_CHUNKS:-40} 2>&1 | grep -E 'Final estimate' | tail -1
+  echo -n '$BASE_QUANT ($RUN_TAG): '; '$BIN/llama-perplexity' -m '$TEXT_GGUF' -f '$CODE_TEST' -ngl '$NGL' --chunks ${PPL_CHUNKS:-40} 2>&1 | grep -E 'Final estimate' | tail -1"
 
 # --- ollama Modelfile ----------------------------------------------------------
 write_ollama_files () {
