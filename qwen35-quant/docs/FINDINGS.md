@@ -339,3 +339,38 @@ MLX's own re-quantization of the calibrated weights would have changed
   does: the MLX steps preload the NCCL next to torch.
 - The network volume (MooseFS) makes pip and Python imports slow (minutes);
   big sequential reads are fine.
+
+## GGUF: don't quantize ssm_alpha/ssm_beta (delta-rule gates)
+
+`poc/frognano_gguf_pipeline.sh` (imatrix + JANG tensor-type recipe,
+RTX 4090). First release force-quantized every `ssm_*` tensor to `Q6_K`,
+including `ssm_alpha.weight` / `ssm_beta.weight` (the gated-DeltaNet's
+input gates -- the GGUF-side equivalent of the MLX pipeline's
+`linear_attn.in_proj_[ab]`, which `DEFAULT_KEEP_FLOAT` already knew to
+leave unquantized, see above). Live user report on a Vulkan backend (old
+GCN GPU): 7.4 tok/s generation vs bartowski's reference quant's 25.7
+tok/s, with *normal* prompt-processing throughput -- the asymmetry
+(prefill fine, decode wrecked) is the signature of a GPU/CPU graph split:
+the SSM-scan op expects these gates in float, and when a backend's fused
+kernel doesn't accept a quantized input it falls back to splitting the
+graph and round-tripping through the CPU for that subgraph. Prefill
+batches many tokens so the round-trip amortizes; decode pays it on every
+single token.
+
+Confirmed via a GGUF header dump (no download needed -- `gguf`'s
+`GGUFReader` on a `Range:` HTTP fetch of the first ~20 MB covers the KV
+metadata + all 441 tensor-info entries; only the tensor *data* needs the
+full file):
+
+| Tensor | Shape | What happened |
+|---|---|---|
+| `ssm_alpha.weight`, `ssm_beta.weight` (24 layers) | (2560, 32) | force-quantized to `Q6_K` by this pipeline's override -- the bug |
+| `ssm_a`, `ssm_conv1d.weight`, `ssm_dt.bias`, `ssm_norm.weight` | small | `llama-quantize` already keeps these F32 regardless of `--tensor-type` -- the override was a harmless no-op |
+| `ssm_out.weight` (24 layers) | (4096, 2560) | the real linear-attention output projection; correctly quantized, left alone |
+
+Fix: drop `ssm_a/ssm_conv1d/ssm_dt/ssm_norm/ssm_alpha/ssm_beta` from the
+`--tensor-type` overrides entirely (only `ssm_out` needs one). Cost of
+leaving alpha/beta unquantized: 48 tensors x (327,680 - 67,200) bytes =
+~12.5 MB, 0.36 % of the 3.48 GB file. Perplexity on the republished build
+was *slightly better* (8.7031 -> 8.6972), not worse -- this tradeoff has
+no downside.
