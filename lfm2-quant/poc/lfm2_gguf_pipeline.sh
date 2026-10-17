@@ -70,7 +70,7 @@ CONV_TYPE="${CONV_TYPE:-Q6_K}"       # gated short convolution in/out projection
 RUN_TAG="${RUN_TAG:-jang}"
 TEXT_GGUF="$OUT_DIR/${WORK_NAME,,}-${RUN_TAG}.gguf"
 
-pipeline_init gguf-lfm2 "VARIANT=$VARIANT MODEL_ID=$MODEL_ID OUT_DIR=$OUT_DIR RECIPE=mlp=$BASE_QUANT/attn=$ATTN_TYPE/shortconv=$CONV_TYPE"
+pipeline_init "gguf-lfm2-$VARIANT" "VARIANT=$VARIANT MODEL_ID=$MODEL_ID OUT_DIR=$OUT_DIR RECIPE=mlp=$BASE_QUANT/attn=$ATTN_TYPE/shortconv=$CONV_TYPE"
 mkdir -p "$OUT_DIR"
 
 # --- llama.cpp (CUDA, current source; LFM2 needs the conversion/lfm2.py port) -
@@ -79,7 +79,11 @@ if [ -x "$BIN/llama-quantize" ] && [ -x "$BIN/llama-imatrix" ] && [ -x "$BIN/lla
 else
   run_step llama_build "clone + build llama.cpp (CUDA)" bash -c "
     [ -d '$LLAMA' ] || git clone --depth 1 https://github.com/ggml-org/llama.cpp '$LLAMA'
-    cd '$LLAMA' && pip install --quiet -r requirements/requirements-convert_hf_to_gguf.txt
+    cd '$LLAMA' && pip install --quiet --break-system-packages -r requirements/requirements-convert_hf_to_gguf.txt \
+      huggingface_hub hf_transfer
+    # llama.cpp's pinned requirements bring an old transformers; LFM2.5's
+    # tokenizer_config.json needs transformers>=5.8 (TokenizersBackend).
+    pip install --quiet --break-system-packages --upgrade 'transformers>=5.8' tokenizers
     export PATH=/usr/local/cuda/bin:\$PATH CUDACXX=/usr/local/cuda/bin/nvcc
     cmake -B build -DGGML_CUDA=ON -DLLAMA_CURL=OFF && cmake --build build --config Release -j \$(nproc)"
 fi
@@ -115,10 +119,20 @@ if [ -f "$TEXT_GGUF" ]; then skip_step quantize "$TEXT_GGUF exists"; else
 fi
 
 # --- perplexity (quality record: quant vs F16) -------------------------------
-if [ ! -f "$PPL_TEST" ]; then
-  run_step ppl_data "fetch wikitext-2-raw test" bash -c "
-    cd '$WORK' && curl -sfL -o wikitext-2-raw-v1.zip https://s3.amazonaws.com/research.metamind.io/wikitext/wikitext-2-raw-v1.zip &&
-    unzip -o wikitext-2-raw-v1.zip >/dev/null"
+# The classic research.metamind.io S3 mirror (used by the gemma4 GGUF
+# pipelines) now 403s / redirects without a Location header; pull the same
+# text from the HF-hosted parquet instead (same source make_data.py uses).
+if [ -s "$PPL_TEST" ]; then skip_step ppl_data "$PPL_TEST exists"; else
+  run_step ppl_data "fetch wikitext-2-raw test (HF parquet)" bash -c "
+    mkdir -p '$(dirname "$PPL_TEST")'
+    pip install --quiet --break-system-packages pandas pyarrow
+    python3 -c \"
+import io, pathlib, urllib.request
+import pandas as pd
+url = 'https://huggingface.co/datasets/Salesforce/wikitext/resolve/main/wikitext-2-raw-v1/test-00000-of-00001.parquet'
+df = pd.read_parquet(io.BytesIO(urllib.request.urlopen(url).read()))
+pathlib.Path('$PPL_TEST').write_text(''.join(df['text']), encoding='utf-8')
+\""
 fi
 run_step ppl "wikitext PPL: F16 vs $BASE_QUANT ($RUN_TAG)" bash -c "
   echo -n 'F16          : '; '$BIN/llama-perplexity' -m '$F16' -f '$PPL_TEST' -ngl '$NGL' --chunks ${PPL_CHUNKS:-40} 2>&1 | grep -E 'Final estimate' | tail -1
@@ -151,9 +165,13 @@ gguf_smoke () {
   if python3 - "$port" "$VARIANT" <<'PY'
 import json, sys, urllib.request
 port, variant = sys.argv[1], sys.argv[2]
-body = {"messages": [{"role": "user", "content": "List three facts about the Roman Empire, one line each."}], "max_tokens": 600, "temperature": 0}
+body = {"messages": [{"role": "user", "content": "List three facts about the Roman Empire, one line each."}], "max_tokens": 2048, "temperature": 0}
 req = urllib.request.Request(f"http://localhost:{port}/v1/chat/completions", json.dumps(body).encode(), {"Content-Type": "application/json"})
-text = json.load(urllib.request.urlopen(req, timeout=600))["choices"][0]["message"].get("content") or ""
+msg = json.load(urllib.request.urlopen(req, timeout=600))["choices"][0]["message"]
+# the Thinking variant's <think> block is split into reasoning_content by
+# llama-server's --jinja reasoning parser; fall back to it if content is empty
+# (budget spent entirely on reasoning), it's still evidence of a coherent model.
+text = msg.get("content") or msg.get("reasoning_content") or ""
 print("text:", text[:300])
 fail = []
 if len(text.strip()) < 20: fail.append("reply too short")
