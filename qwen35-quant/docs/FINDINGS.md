@@ -433,3 +433,76 @@ same corpus `qwen35-quant/poc/make_data.py` uses for the MLX pipeline).
 Results tracked about the same as wikitext: F16 2.915, this quant 2.947
 (+1.10%, vs +1.15% on wikitext) -- no extra quality cost on the domain
 that actually matters here.
+
+## GGUF: Vulkan's KV-cache dequant-transpose fast path only existed for `Q8_0`
+
+A 9-combination `-ctk`/`-ctv` sweep at 32K context (same AMD FirePro
+D700 as the `Q8_0` finding above) showed K-cache quantization hurting
+both speed and run-to-run stability far more than V-cache quantization,
+and plain `Q4_0`/`Q4_0` losing to `Q8_0`/`Q8_0` despite being the
+"simpler" type. Read `ggml_vk_flash_attn` in `ggml-vulkan.cpp`: there's
+a "dequant K/V once into an f16 scratch buffer" fast path
+(`use_dequant_kv`), gated on a `pipeline_dequant_transpose[type]` shader
+existing for *both* K's and V's type, independently -- not on the two
+types matching. That shader was registered for exactly one type:
+`Q8_0`. Any KV cache touching `Q4_0` (pure or mixed with `Q8_0`) fell
+back to a slower, higher-variance generic path -- explained both the
+K-vs-V asymmetry (pp512 variance was large whenever only one side was
+quantized) and the plain-`Q4_0` gap.
+
+Fix: added the `Q4_0` variant of that shader (same block-layout algebra
+as the existing `Q8_0` one, adapted for `Q4_0`'s nibble packing) and
+registered it. No change needed in the dispatch logic -- it already
+checked per-type. Verified on the same hardware: `q4_0/q4_0` 32K
+context went from 82.5/13.2 tok/s (pp/tg) to 116.4/16.6, `q8_0/q4_0`
+(mismatched) from 73.8±14.2/12.4 to 116.2/16.8 -- variance gone too.
+Perplexity unchanged before/after (4.7455 vs 4.7392 on the same
+`q4_0/q4_0` sample, within noise). Upstreamed:
+[ggml-org/llama.cpp#30738](https://github.com/ggml-org/llama.cpp/pull/30738).
+
+KV-cache size at 32K context for this model is much smaller than a
+dense model's: only 8 of 32 layers are full attention (the rest are
+gated-DeltaNet linear attention with fixed-size state), each layer's
+K/V is GQA-reduced to 1024 elements. `f16/f16` = 1.0 GiB, `q8_0/q8_0` =
+544 MiB, `q4_0/q4_0` = 288 MiB (now at full speed with the patch above).
+
+## MTP speculative decoding: works, but not on this GPU
+
+The published GGUF carries `blk.32.nextn.*` tensors (Qwen3.5's MTP
+head) but llama.cpp logs them as "unused -- ignoring" at load. Turned
+out this GGUF predates upstream's `_QwenMtpMixin` (the HF config's
+`mtp_num_hidden_layers: 1` wasn't being read into the GGUF's
+`qwen35.nextn_predict_layers` key at conversion time). Re-converting
+with current `convert_hf_to_gguf.py` sets that key correctly, and
+`convert_hf_to_gguf.py --mtp` exports the head as a standalone draft
+GGUF for classic two-model speculative decoding
+(`llama-speculative-simple -m target.gguf -md mtp-draft.gguf --spec-type
+draft-mtp`) -- no llama.cpp code changes needed, this infra already
+exists upstream (`src/models/qwen35.cpp`'s `build_mtp`).
+
+The head itself is good: 85-93% accept rate on code continuations.
+But on the same D700/GCN1 box, speculative decoding still came out
+**~2x slower** than plain generation (best tuned case 12.3 tok/s vs
+24.4 tok/s plain, `Q4_K_M`-quantized draft). Each draft+verify round
+is an extra GPU dispatch round-trip, and dispatch latency -- not
+compute -- is already this GPU's bottleneck (see the `Q8_0` finding
+above). Tuned `--spec-draft-n-max` (8 beat the default 3 and beat 16)
+and `--poll 100`/`--poll-draft 100` each independently recovered about
++30% over naive defaults (9.45 -> ~12.2-12.3 tok/s), but combining them
+didn't stack, and neither closed the 2x gap -- that would need changing
+how llama.cpp batches/pipelines the draft and verify dispatches, not a
+parameter.
+
+Checked and ruled out as explanations for the plain-generation "sawtooth"
+GPU utilization pattern (`nvtop` showing clean 0%/100% square waves on
+single-stream decode): `--poll` level (0/50/100, no difference, plain
+generation isn't host-wait-bound the way draft+verify round-trips are)
+and the `amdgpu` `power_dpm_force_performance_level` governor (`auto`
+vs `high`, no difference -- the card already reaches boost clocks under
+the bursty load). The sawtooth is just what batch=1 autoregressive
+decode looks like when per-token GPU work is small relative to Vulkan
+dispatch overhead; nothing to fix at the config level.
+
+Conclusion: ship the MTP draft GGUF, document the tradeoff honestly
+(worth trying on modern NVIDIA/AMD RDNA where dispatch is cheap, net
+loss on old GCN-class Vulkan hardware), don't claim a universal win.

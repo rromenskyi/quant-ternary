@@ -101,6 +101,33 @@ language-modelling numbers — the coding-agent benchmarks above are
 Microsoft's, for the bf16 model in their harness, not re-run on this
 quantization.
 
+## MTP speculative-decoding draft (`mtp-frognano-4b-q4km.gguf`)
+
+Qwen3.5's own multi-token-prediction (MTP) head, exported standalone
+(`convert_hf_to_gguf.py --mtp`) and quantized `Q4_K_M` (607 MB). Use it
+as the draft model in classic draft+target speculative decoding:
+
+```bash
+llama-speculative-simple -m frognano-4b-jang-q6k.gguf \
+  -md mtp-frognano-4b-q4km.gguf --spec-type draft-mtp \
+  -ngl 99 -ngld 99 -p "..."
+```
+
+**Honest note: whether this helps depends entirely on your GPU, not on
+this model.** Live-measured on the same AMD FirePro D700 (Tahiti, GCN1,
+Vulkan, `int dot: 0`) from the note above: the draft head itself is
+good — 85-93% accept rate on code continuations — but speculative
+decoding still came out **~2x slower** than plain generation (best
+tuned case: 12.3 tok/s vs 24.4 tok/s plain). Each draft+verify round is
+an extra GPU dispatch round-trip, and on this GPU/driver, dispatch
+latency — not compute — is already the bottleneck (see the `Q8_0` note
+below); speculative decoding adds more of exactly what's expensive
+here. Tuning (`--spec-draft-n-max`, `--poll`) recovered about +30% over
+defaults but never closed the gap. On a GPU where per-dispatch overhead
+is cheap (most current NVIDIA/AMD RDNA cards), the same 85-93% accept
+rate should translate into a real speedup instead — not verified on
+such hardware by this account, only reasoned from the mechanism.
+
 ## Honest notes
 
 - **`Q8_0` on attention tested ~3x slower than `Q6_K` on old GPUs,
