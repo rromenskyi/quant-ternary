@@ -13,9 +13,10 @@ Most of the lost time is reading, and the reads are latency-bound: the
 prototype gets ~1.6 GB/s from an SSD that does 7–8 GB/s. Waiting for the
 router at every layer costs little (3% on LFM, 15% on Ornith).
 
-For MiniMax on this Mac the estimate is **~2.5 tok/s with the prototype as
-it is, ~4–5 tok/s with reads at full SSD speed overlapped with compute**,
-in ~17–18 GB (section 5). Unmeasured: MiniMax's own routing locality.
+For MiniMax on this Mac the estimate is **~2.5–3.5 tok/s with the prototype
+as it is, ~5.5–8.5 tok/s with reads at full SSD speed overlapped with
+compute**, in ~18 GB (section 5, every step of the arithmetic there).
+Unmeasured: MiniMax's own routing locality and compute speed.
 
 Machine: MacBook Air M5, 24 GB, macOS 27, internal SSD. Runtime: LLMTray's
 mlx_lm venv (MLX 0.32.4, the pinned ipsupport-llc/mlx-lm). Greedy decoding,
@@ -50,13 +51,15 @@ local files not read for weeks:
 | 4.99 MB | 8 | 7.74 |
 | 4.99 MB | 16 | 8.01 |
 
-About **7–8 GB/s with 8+ threads**, 3.2 GB/s with one. Two traps on the way:
-- A file read recently came back at up to 14.6 GB/s: page cache.
-- The `*CRACK*` models gave 0.06 GB/s: they are symlinks to the NAS.
+About **7–8 GB/s with 8+ threads**, 3.2 GB/s with one (`ssd_read.py`'s sweep
+as recorded: 200 reads per row, one file per row). Two traps on the way,
+not recorded: a recently read file comes back from the page cache, far
+faster; the `*CRACK*` models are symlinks to the NAS, far slower.
 
 ## 3. How often experts repeat (`scripts/route_trace.py`, `scripts/cache_sim.py`)
 
-Routing traced while generating ~400 tokens for a coding prompt
+Routing traced while generating for a coding prompt (LFM 401 tokens,
+Ornith 224 steps)
 (`data/trace_*.json`); a per-layer LRU cache simulated, a step's whole set of
 experts looked up before any is evicted (as the prototype does).
 
@@ -102,8 +105,9 @@ Dead ends, kept for the record:
 Memory is MLX's peak (`mx.get_peak_memory`), not the process's RSS: Python
 and the read buffers come on top.
 
-Each data file starts with the machine state. Both sets were taken with 70–80%
-memory free; pageouts rose by 24 across the Ornith set.
+Each data file starts with the machine state (70–80% memory free); Ornith's
+also records it after each run (80–83% free, pageouts 185539 → 185563 from
+the first run to the last).
 
 **LFM2.5-8B-A1B**, 120 tokens (4.06 GB model):
 
@@ -123,17 +127,17 @@ memory free; pageouts rose by 24 across the Ornith set.
 | all in memory, router waited for at each layer | 17.5 | 15.02 GB | – | – |
 | experts on disk, cache 50% | 9.7 | 8.74 GB | 88% | 40% |
 | experts on disk, cache 25% | 7.4 | 5.90 GB | 70% | 49% |
-| experts on disk, cache 12.5% | 6.6 | 4.48 GB | 53% | 52% |
+| experts on disk, cache 12.5% (logged as 12%) | 6.6 | 4.48 GB | 53% | 52% |
 
-(An earlier set of runs, with other apps holding memory, measured roughly
-half these speeds for the same code: it was dropped. Speed numbers on this
-Mac need memory pressure checked first.)
+(An earlier set of runs, taken while other apps held memory, was much
+slower and was dropped, not recorded. Speed numbers on this Mac need memory
+pressure checked first.)
 
 What the numbers say:
 1. **Waiting for the router is cheap:** 3% on LFM (22 layers), 15% on Ornith (41).
-2. **The per-expert path costs something even with everything cached:** LFM 36.3 against 43.9 with the same waits. That is 24 separate small matmuls per layer instead of one fused `gather_qmm`.
+2. **The per-expert path costs something even with everything cached:** LFM 36.3 against 43.9 with the same waits. That is 12 separate small matmuls per layer per token (4 experts × 3 projections) instead of three fused `gather_qmm`.
 3. **Reading is the main cost:** 31–52% of the time.
-   - It is latency-bound: Ornith at 25% reads 106 MB per token in ~66 ms, about 1.6 GB/s against the SSD's 7–8.
+   - Ornith at 25% reads 106.4 MB per token in 0.49 × 134.6 ms = 66 ms, about 1.6 GB/s for the whole read path (pread plus making the arrays), against the SSD's 7–8 GB/s. Small reads issued in a burst per layer and then waited for point to latency more than bandwidth, but this run doesn't separate the two.
    - A layer misses a few experts, read tensor by tensor in one burst, then waited for.
    - Reading all of a step's misses at once, or a layer ahead, is the next win.
 4. **Memory goes down by a lot:** LFM in 1.5 GB instead of 4.2; Ornith in 5.9 GB at 7.4 tok/s, or 4.5 GB at 6.6 tok/s, instead of 15.2 GB.
@@ -147,29 +151,33 @@ What the numbers say:
 - About 10B parameters active per token.
 
 **Memory:**
-- macOS lets Metal use ~19 GB of this 24 GB Mac by default (the `iogpu.wired_limit_mb` default).
-- 3 GB of other weights and ~2 GB of KV cache and activations leave ~13–14 GB for experts, about **30%**.
-- Total ~17–18 GB.
+- macOS lets Metal use ~19 GB of this 24 GB Mac by default (from the
+  `iogpu.wired_limit_mb` default seen on it; not in `data/`).
+- 3 GB of other weights + ~2 GB of KV cache and activations + **~13 GB of
+  experts (about 30%)** = ~18 GB, leaving ~1 GB of room.
 
 **Reads:**
-- At Ornith's hit rate for 25–37.5% (72–81%), a token misses ~25% of 1.4 GB, about **350 MB**.
-- At the prototype's 1.6 GB/s that is ~220 ms.
-- At the SSD's 7.5 GB/s it is ~47 ms.
+- At Ornith's hit rates for 25–37.5% (72–81%), a token misses 19–28% of
+  1.4 GB: **~270–390 MB**.
+- At the prototype's 1.6 GB/s: 170–245 ms. At the SSD's 7.5 GB/s: 36–52 ms.
 
-**Compute, scaled from Ornith:**
-- Ornith all in memory: 49 ms per token at ~3B active.
-- At ~10B active (more layers, bigger experts) and 2 bits instead of ~3–4: about **100–170 ms**.
-- Waiting for the router at 62 layers: ~15 ms.
+**Compute, scaled from Ornith** (all in memory: 1000/20.6 = 49 ms per token):
+- Ornith reads ~3B active parameters at ~3.4 bits (14.8 GB for ~35B). MiniMax
+  would read ~10B at ~2.2 bits: (10 × 2.2) / (3 × 3.4) ≈ 2.2× the bytes,
+  or 49 × 10/3 ≈ 3.3× if 2-bit buys nothing. **~105–165 ms.**
+- Waiting for the router: Ornith 1000/17.5 − 1000/20.6 = 8.6 ms over 41
+  layers, × 62/41 = **~13 ms**.
 
 **Together:**
 
 | reads | per token | tok/s |
 |---|---|---|
-| as the prototype reads, nothing overlapped | 220 + 100–170 + 15 ms | ~2.5–3 |
-| at full SSD speed, overlapped with compute | max(47, 100–170) + 15 ms | ~5–8 |
+| as the prototype reads, nothing overlapped | (170–245) + (105–165) + 13 = 290–425 ms | ~2.4–3.5 |
+| at full SSD speed, overlapped with compute | max(36–52, 105–165) + 13 = 118–178 ms | ~5.6–8.5 |
 
-Prefill reads every layer's experts once per chunk, 44 GB at 7.5 GB/s: about
-6 s of reading per chunk before compute.
+Prefill reads the experts a prompt touches once per chunk: 49–87% of them
+in these traces, so 44 GB × (0.49–0.87) / 7.5 GB/s ≈ 3–5 s of reading per
+chunk, before compute.
 
 **Unknown:**
 - MiniMax's routing locality. Ornith's curve is used, and it was measured on MTP steps. One trace on a pod would settle it.

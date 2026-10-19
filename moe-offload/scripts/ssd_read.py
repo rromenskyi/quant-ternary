@@ -26,7 +26,7 @@ def bench(path, chunk, threads, n=400):
 
 if __name__ == "__main__":
     path = sys.argv[1]
-    for chunk_mb in [1.16, 3.35, 4.99]:
-        for th in [1, 4, 8, 16]:
-            gbps = bench(path, int(chunk_mb * 1e6), th, n=240)
+    for chunk_mb in [1.16, 1.66, 3.35, 4.99]:
+        for th in [1, 8, 16]:
+            gbps = bench(path, int(chunk_mb * 1e6), th, n=200)
             print(json.dumps({"chunk_MB": chunk_mb, "threads": th, "GB_per_s": round(gbps, 2)}))
