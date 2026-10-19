@@ -1,0 +1,6 @@
+{"layers": 22, "experts": 32, "top_k": 4, "decode_steps": 401, "tokens_checked_per_step": 1.0, "prefill_experts_touched_share": 0.865, "next_token_reuse": 0.45}
+{"cache_share": 0.125, "cache_GB_of_experts": 0.42, "hit_rate": 0.371, "SSD_MB_per_step": 266.7, "SSD_ms_per_step": 35.6}
+{"cache_share": 0.25, "cache_GB_of_experts": 0.85, "hit_rate": 0.607, "SSD_MB_per_step": 166.6, "SSD_ms_per_step": 22.2}
+{"cache_share": 0.375, "cache_GB_of_experts": 1.27, "hit_rate": 0.753, "SSD_MB_per_step": 104.8, "SSD_ms_per_step": 14.0}
+{"cache_share": 0.5, "cache_GB_of_experts": 1.7, "hit_rate": 0.857, "SSD_MB_per_step": 60.7, "SSD_ms_per_step": 8.1}
+{"cache_share": 0.75, "cache_GB_of_experts": 2.54, "hit_rate": 0.957, "SSD_MB_per_step": 18.4, "SSD_ms_per_step": 2.5}
