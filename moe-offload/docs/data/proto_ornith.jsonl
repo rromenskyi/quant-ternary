@@ -1,0 +1,11 @@
+{"note": "2026-10-19T09:55:19Z swap 11173.94M used, memory free 70%"}
+{"model": "Ornith-1.5-35B-A3B-gptq-mlx-jang-small", "mode": "full", "load_s": 8.2, "prompt_tokens": 100, "prefill_s": 10.56, "decode_tokens": 100, "decode_tok_s": 20.55, "peak_mlx_GB": 15.17, "stores": 0, "decode_hit_rate": null, "decode_read_MB_per_step": null, "decode_read_s_share": null, "decode_steps": 100}
+{"after": "memory free 80%, pageouts 185539."}
+{"model": "Ornith-1.5-35B-A3B-gptq-mlx-jang-small", "mode": "full, router synced", "load_s": 6.0, "prompt_tokens": 100, "prefill_s": 3.34, "decode_tokens": 100, "decode_tok_s": 17.51, "peak_mlx_GB": 15.02, "stores": 0, "decode_hit_rate": 0.0, "decode_read_MB_per_step": 0.0, "decode_read_s_share": 0.0, "decode_steps": 100}
+{"after": "memory free 83%, pageouts 185553."}
+{"model": "Ornith-1.5-35B-A3B-gptq-mlx-jang-small", "mode": "offload 50%", "load_s": 1.8, "prompt_tokens": 100, "prefill_s": 3.27, "decode_tokens": 100, "decode_tok_s": 9.68, "peak_mlx_GB": 8.74, "stores": 41, "decode_hit_rate": 0.877, "decode_read_MB_per_step": 44.0, "decode_read_s_share": 0.4, "decode_steps": 100}
+{"after": "memory free 82%, pageouts 185563."}
+{"model": "Ornith-1.5-35B-A3B-gptq-mlx-jang-small", "mode": "offload 25%", "load_s": 1.7, "prompt_tokens": 100, "prefill_s": 2.7, "decode_tokens": 100, "decode_tok_s": 7.43, "peak_mlx_GB": 5.9, "stores": 41, "decode_hit_rate": 0.702, "decode_read_MB_per_step": 106.4, "decode_read_s_share": 0.49, "decode_steps": 100}
+{"after": "memory free 82%, pageouts 185563."}
+{"model": "Ornith-1.5-35B-A3B-gptq-mlx-jang-small", "mode": "offload 12%", "load_s": 1.7, "prompt_tokens": 100, "prefill_s": 2.7, "decode_tokens": 100, "decode_tok_s": 6.6, "peak_mlx_GB": 4.48, "stores": 41, "decode_hit_rate": 0.531, "decode_read_MB_per_step": 167.2, "decode_read_s_share": 0.52, "decode_steps": 100}
+{"after": "memory free 81%, pageouts 185563."}

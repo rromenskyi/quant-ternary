@@ -1,0 +1,5 @@
+{"model": "LFM2.5-8B-A1B-gptq-mlx-jang", "experts": 32, "top_k": 4, "moe_layers": 22, "total_GB": 4.06, "routed_experts_GB": 3.39, "dense_GB": 0.67, "one_expert_one_layer_MB": 4.817, "per_token_if_no_cache_MB": 423.9}
+{"model": "gemma-4-26B-A4B-it-gptq-mlx-jang", "experts": 128, "top_k": 8, "moe_layers": 30, "total_GB": 15.57, "routed_experts_GB": 12.85, "dense_GB": 2.72, "one_expert_one_layer_MB": 3.345, "per_token_if_no_cache_MB": 802.9}
+{"model": "Ornith-1.5-35B-A3B-gptq-mlx-jang-small", "experts": 256, "top_k": 8, "moe_layers": 41, "total_GB": 14.83, "routed_experts_GB": 11.86, "dense_GB": 2.97, "one_expert_one_layer_MB": 1.13, "per_token_if_no_cache_MB": 370.7}
+{"model": "nemotron-30b-a3b-gptq-jang-component", "experts": 128, "top_k": 6, "moe_layers": 23, "total_GB": 16.73, "routed_experts_GB": 14.69, "dense_GB": 2.04, "one_expert_one_layer_MB": 4.989, "per_token_if_no_cache_MB": 688.5}
+{"model": "Qwen3.8-Whittle-MoE-27B-MLX-4bit", "experts": 64, "top_k": 16, "moe_layers": 64, "total_GB": 15.16, "routed_experts_GB": 6.79, "dense_GB": 8.36, "one_expert_one_layer_MB": 1.659, "per_token_if_no_cache_MB": 1698.7}
