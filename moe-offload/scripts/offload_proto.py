@@ -3,7 +3,9 @@ left on disk. Each SwitchGLU keeps an LRU cache of experts in memory; the
 experts a step needs and doesn't have are read with pread straight from
 the safetensors files (one contiguous slice per expert and tensor, page
 cache bypassed), and the layer runs on a compact stack of just the
-experts it needs, through the usual gather_qmm path.
+experts it needs: a decoding step computes each needed expert with
+quantized_matmul on its own arrays; a prompt runs gather_qmm on a stack of
+just the experts it uses.
 
   python offload_proto.py MODEL_DIR CACHE_SHARE PROMPT_FILE MAX_TOKENS [--full]
 
@@ -101,10 +103,11 @@ class ExpertStore:
         if missing:
             t = time.perf_counter()
             raws = list(POOL.map(self._read_expert, missing))
-            STATS["read_s"] += time.perf_counter() - t
             for e, raw in raws:
                 got[e] = self._arrays(raw)
                 STATS["read_bytes"] += sum(v[2] for v in self.slices.values())
+            # Reading and making the arrays: all the blocking part.
+            STATS["read_s"] += time.perf_counter() - t
         out = {e: self.cache[e] if e in self.cache else got[e] for e in used}
         for e in used:
             if e in self.cache:
@@ -216,7 +219,7 @@ def main():
         "model": os.path.basename(path.rstrip("/")), "mode": "full" if full else "full, router synced" if sync_only else f"offload {share:.0%}",
         "load_s": round(load_s, 1), "prompt_tokens": last.prompt_tokens, "prefill_s": round(first - t, 2),
         "decode_tokens": decode_tokens, "decode_tok_s": round(decode_tokens / (end - first), 2),
-        "peak_GB": round(mx.get_peak_memory() / 1e9, 2), "stores": len(STORES),
+        "peak_mlx_GB": round(mx.get_peak_memory() / 1e9, 2), "stores": len(STORES),
         "decode_hit_rate": round(dec["hits"] / max(1, dec["hits"] + dec["misses"]), 3) if not full else None,
         "decode_read_MB_per_step": round(dec["read_bytes"] / max(1, dec["steps"]) / 1e6, 1) if not full else None,
         "decode_read_s_share": round(dec["read_s"] / max(1e-9, end - first), 2) if not full else None,

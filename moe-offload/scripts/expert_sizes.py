@@ -22,8 +22,8 @@ def main(path):
             b = t["data_offsets"][1] - t["data_offsets"][0]
             total += b
             if t["shape"] and t["shape"][0] == E and re.search(r"(switch|experts)", name):
-                m = re.search(r"layers\.(\d+)\.", name)
-                expert_bytes[int(m.group(1)) if m else -1] += b
+                # By the module (an MTP head's layer 0 isn't the model's).
+                expert_bytes[re.sub(r"\.(switch_mlp|experts)\..*$", "", name)] += b
     layers = len(expert_bytes)
     all_experts = sum(expert_bytes.values())
     per_expert_layer = all_experts / layers / E if layers else 0

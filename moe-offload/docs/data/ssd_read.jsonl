@@ -1,0 +1,7 @@
+{"note": "2026-10-19T03:57:15 cold local files (not NAS), F_NOCACHE, 200 random reads each"}
+{"file": "Qwen3.8-Whittle-MoE-27B-MLX-4bit/model-00002-of-00003.safetensors", "chunk_MB": 1.16, "threads": 1, "GB_per_s": 3.21}
+{"file": "Qwen3.8-Whittle-MoE-27B-MLX-4bit/model-00001-of-00003.safetensors", "chunk_MB": 1.16, "threads": 8, "GB_per_s": 6.74}
+{"file": "nemotron-30b-a3b-gptq3bit-g64/model-00002-of-00003.safetensors", "chunk_MB": 1.66, "threads": 8, "GB_per_s": 6.98}
+{"file": "nemotron-30b-a3b-gptq3bit-g64/model-00001-of-00003.safetensors", "chunk_MB": 3.35, "threads": 8, "GB_per_s": 7.28}
+{"file": "Qwen3.8-Whittle-MoE-27B-MLX-4bit/model-00003-of-00003.safetensors", "chunk_MB": 4.99, "threads": 8, "GB_per_s": 7.74}
+{"file": "nemotron-30b-a3b-gptq3bit-g64/model-00003-of-00003.safetensors", "chunk_MB": 4.99, "threads": 16, "GB_per_s": 8.01}

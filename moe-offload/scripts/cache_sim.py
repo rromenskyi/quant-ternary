@@ -4,7 +4,7 @@ size, so how much has to come off the SSD per token."""
 import json, sys
 from collections import OrderedDict
 
-def main(path, experts, expert_mb, gbps):
+def main(path, experts, expert_mb, gbps, top_k):
     d = json.load(open(path))
     L = d["layers"]
     # Decode steps: a few tokens per call (one, or a speculative draft
@@ -13,15 +13,19 @@ def main(path, experts, expert_mb, gbps):
     prefill_touched = [set() for _ in range(L)]
     tokens_in_steps = 0
     for lid, step, idx in d["trace"]:
-        if len(idx) <= 8:
+        # Prompt calls have many tokens; decode calls one, or a few with a
+        # speculative draft (MTP checks ~2).
+        if len(idx) <= 4:
             per_layer[lid].append(sorted({e for t in idx for e in t}))
             if lid == 0: tokens_in_steps += len(idx)
         else:
             for t in idx:
                 prefill_touched[lid].update(t)
-    k = len(d["trace"][0][2][0])
+    k = top_k
     steps = len(per_layer[0])
-    reuse = sum(len(set(a) & set(b)) for seq in per_layer for a, b in zip(seq, seq[1:])) / max(1, sum(len(seq) - 1 for seq in per_layer)) / k
+    # Share of a step's experts the step before also used.
+    pairs = [(a, b) for seq in per_layer for a, b in zip(seq, seq[1:])]
+    reuse = sum(len(set(a) & set(b)) / len(b) for a, b in pairs) / max(1, len(pairs))
     print(json.dumps({"layers": L, "experts": experts, "top_k": k, "decode_steps": steps, "tokens_checked_per_step": round(tokens_in_steps / max(1, steps), 2),
                       "prefill_experts_touched_share": round(sum(map(len, prefill_touched)) / (L * experts), 3),
                       "next_token_reuse": round(reuse, 3)}))
@@ -31,12 +35,17 @@ def main(path, experts, expert_mb, gbps):
         for seq in per_layer:
             lru = OrderedDict()
             for tok in seq:
+                # The whole step's experts first, then eviction (as the
+                # prototype does): none needed now is dropped mid-step.
                 for e in tok:
                     if e in lru:
-                        hits += 1; lru.move_to_end(e)
+                        hits += 1
                     else:
-                        misses += 1; lru[e] = True
-                        if len(lru) > cap: lru.popitem(last=False)
+                        misses += 1
+                    lru[e] = True
+                    lru.move_to_end(e)
+                while len(lru) > max(cap, len(tok)):
+                    lru.popitem(last=False)
         rate = hits / (hits + misses)
         mb_per_token = misses / steps * expert_mb
         print(json.dumps({"cache_share": frac, "cache_GB_of_experts": round(cap * L * expert_mb / 1000, 2),
@@ -44,4 +53,4 @@ def main(path, experts, expert_mb, gbps):
                           "SSD_ms_per_step": round(mb_per_token / 1000 / gbps * 1000, 1)}))
 
 if __name__ == "__main__":
-    main(sys.argv[1], int(sys.argv[2]), float(sys.argv[3]), float(sys.argv[4]))
+    main(sys.argv[1], int(sys.argv[2]), float(sys.argv[3]), float(sys.argv[4]), int(sys.argv[5]))

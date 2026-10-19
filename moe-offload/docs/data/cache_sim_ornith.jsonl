@@ -1,6 +1,6 @@
-{"layers": 41, "experts": 256, "top_k": 8, "decode_steps": 224, "tokens_checked_per_step": 1.93, "prefill_experts_touched_share": 0.491, "next_token_reuse": 0.577}
-{"cache_share": 0.125, "cache_GB_of_experts": 1.52, "hit_rate": 0.532, "SSD_MB_per_step": 285.5, "SSD_ms_per_step": 38.1}
-{"cache_share": 0.25, "cache_GB_of_experts": 3.04, "hit_rate": 0.713, "SSD_MB_per_step": 175.4, "SSD_ms_per_step": 23.4}
-{"cache_share": 0.375, "cache_GB_of_experts": 4.56, "hit_rate": 0.802, "SSD_MB_per_step": 121.2, "SSD_ms_per_step": 16.2}
-{"cache_share": 0.5, "cache_GB_of_experts": 6.08, "hit_rate": 0.857, "SSD_MB_per_step": 87.3, "SSD_ms_per_step": 11.6}
-{"cache_share": 0.75, "cache_GB_of_experts": 9.12, "hit_rate": 0.919, "SSD_MB_per_step": 49.6, "SSD_ms_per_step": 6.6}
+{"layers": 41, "experts": 256, "top_k": 8, "decode_steps": 224, "tokens_checked_per_step": 1.93, "prefill_experts_touched_share": 0.492, "next_token_reuse": 0.369}
+{"cache_share": 0.125, "cache_GB_of_experts": 1.48, "hit_rate": 0.556, "SSD_MB_per_step": 264.3, "SSD_ms_per_step": 35.2}
+{"cache_share": 0.25, "cache_GB_of_experts": 2.97, "hit_rate": 0.721, "SSD_MB_per_step": 166.2, "SSD_ms_per_step": 22.2}
+{"cache_share": 0.375, "cache_GB_of_experts": 4.45, "hit_rate": 0.805, "SSD_MB_per_step": 116.2, "SSD_ms_per_step": 15.5}
+{"cache_share": 0.5, "cache_GB_of_experts": 5.93, "hit_rate": 0.859, "SSD_MB_per_step": 83.9, "SSD_ms_per_step": 11.2}
+{"cache_share": 0.75, "cache_GB_of_experts": 8.9, "hit_rate": 0.919, "SSD_MB_per_step": 48.2, "SSD_ms_per_step": 6.4}
