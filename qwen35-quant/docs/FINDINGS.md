@@ -506,3 +506,32 @@ dispatch overhead; nothing to fix at the config level.
 Conclusion: ship the MTP draft GGUF, document the tradeoff honestly
 (worth trying on modern NVIDIA/AMD RDNA where dispatch is cheap, net
 loss on old GCN-class Vulkan hardware), don't claim a universal win.
+
+## GGUF vision: re-checked an old "can't do this" conclusion, found it stale
+
+The first release of this card said the `QWEN35` GGUF architecture
+can't carry a vision tower at all -- true when written. Re-checked
+upstream `llama.cpp`'s `conversion/__init__.py` architecture-to-module
+maps (while investigating something unrelated) and found
+`"Qwen3_5ForConditionalGeneration": "qwen3vl"` already registered in
+the mmproj-model map -- the same pattern as the MTP metadata gap found
+earlier this project: a feature landed upstream after this account's
+last conversion, and the old "not supported" conclusion was never
+revisited.
+
+`convert_hf_to_gguf.py --mmproj` against the original HF checkpoint
+exported a clean 672 MB F16 mmproj (298 tensors, standard
+`clip.cpp`/`mtmd` naming: `v.blk.*`, `v.patch_embd`,
+`v.position_embd`, `mm.0`/`mm.2` projector) with zero code changes
+needed -- the conversion-side architecture mapping and the C++ runtime
+(`tools/mtmd`) were both already in place. Verified working end to end
+with `llama-mtmd-cli` on real test hardware (the same AMD D700 used
+throughout this project): correctly described a real photo (breed,
+pose, fur/eye/nose detail, floor material) with no quantization applied
+to the vision tower.
+
+**Lesson for next time**: an old "X isn't supported" conclusion in a
+card is a snapshot of upstream at the time it was written, not a fact
+about the architecture -- re-check it against current `llama.cpp`
+before repeating it, the same way a stale metadata/feature gap should
+be re-checked rather than assumed permanent.
