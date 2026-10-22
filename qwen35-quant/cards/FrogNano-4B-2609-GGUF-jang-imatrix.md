@@ -103,34 +103,42 @@ language-modelling numbers — the coding-agent benchmarks above are
 Microsoft's, for the bf16 model in their harness, not re-run on this
 quantization.
 
-## Vision (`mmproj-frognano-4b-f16.gguf`)
+## Vision (`mmproj-frognano-4b-q8.gguf`)
 
 Qwen3.5's vision tower, exported standalone (`convert_hf_to_gguf.py
---mmproj`, F16, 672 MB) via upstream `llama.cpp`'s own `qwen3vl`
-conversion path -- earlier releases of this card said the GGUF
-architecture couldn't carry vision at all; that was true when this card
-was first written and stopped being true once upstream added
+--mmproj`) via upstream `llama.cpp`'s own `qwen3vl` conversion path --
+earlier releases of this card said the GGUF architecture couldn't
+carry vision at all; that was true when this card was first written
+and stopped being true once upstream added
 `Qwen3_5ForConditionalGeneration` support, found by re-checking rather
-than assuming the old conclusion still held. Not quantized further:
-vision towers are a small fraction of total size already, and this
-account's own `Q8_0`-on-Vulkan finding (see below) made a further
-quantization pass not worth the risk without re-testing it specifically
-for the vision encode path.
+than assuming the old conclusion still held.
+
+**`Q8_0`, 347 MB** (not F16, 672 MB). This account's own `Q8_0`-on-
+Vulkan finding (see below) is about the *decode* path (many small
+sequential matmuls, one token at a time) -- live-tested whether it
+applies here too rather than assuming it does, since image encoding is
+one large batched forward pass instead, much closer to prompt
+processing than token decode. It doesn't: `Q8_0` encoded the same test
+image in 2.94s vs F16's 4.43s on the same hardware -- *faster*, not
+slower -- with no observed description-quality difference. On a card
+with only ~5.75 GiB of real VRAM (this one), the extra ~325 MB F16
+would have cost matters, so `Q8_0` is the only version published.
 
 ```bash
 llama-mtmd-cli -m frognano-4b-jang-q6k.gguf \
-  --mmproj mmproj-frognano-4b-f16.gguf \
+  --mmproj mmproj-frognano-4b-q8.gguf \
   --image photo.jpg -p "Describe this image." -ngl 99
 ```
 
 Verified working end to end: correctly identified a real photo of a
 black Labrador puppy (breed, pose, fur/eye/nose detail, floor material)
-on the same AMD D700 test hardware used throughout this card. Two
-non-fatal warnings appear at load: `Qwen-VL models require at minimum
-1024 image tokens` (add `--image-min-tokens 1024` if grounding/spatial
-accuracy on small images matters) and a `find_slot: non-consecutive
-token position` warning during image-token batching — neither affected
-the output in this test, but neither was investigated further either.
+on the same AMD D700 test hardware used throughout this card, in both
+F16 and `Q8_0`. Two non-fatal warnings appear at load: `Qwen-VL models
+require at minimum 1024 image tokens` (add `--image-min-tokens 1024`
+if grounding/spatial accuracy on small images matters) and a
+`find_slot: non-consecutive token position` warning during image-token
+batching — neither affected the output in this test, but neither was
+investigated further either.
 
 ## MTP speculative-decoding draft (`mtp-frognano-4b-q4km.gguf`)
 

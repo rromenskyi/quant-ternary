@@ -535,3 +535,30 @@ card is a snapshot of upstream at the time it was written, not a fact
 about the architecture -- re-check it against current `llama.cpp`
 before repeating it, the same way a stale metadata/feature gap should
 be re-checked rather than assumed permanent.
+
+**Follow-up: the test D700 only has ~5.75 GiB of real VRAM per GPU**
+(`vulkaninfo`'s `memoryHeaps`: a `DEVICE_LOCAL`-flagged heap of 5.75
+GiB, plus a second, much bigger 30.25 GiB heap with no
+`DEVICE_LOCAL` flag -- a host-memory-backed fallback Vulkan can
+silently spill into over PCIe when a model doesn't fit, with no error,
+just a large and easy-to-misattribute slowdown). This retroactively
+explains the very first MTP speculative-decoding number in this
+project (2.01 tok/s, F16 target model, 8.65 GB -- doesn't fit in 5.75
+GiB): most of that model was almost certainly being fetched over PCIe
+on every forward pass, not demonstrating "F16 is just slow" the way it
+was first described. The later, valid comparison (`Q6_K` target,
+3.06 GB, genuinely fits) still stands -- speculative decoding is still
+a net loss on this card -- but that first F16 data point should be
+read as "didn't fit in VRAM," not as a clean measurement.
+
+Given that little real headroom, re-tested whether `Q8_0`'s known
+decode-path penalty on this hardware (see above) also applies to the
+vision tower, instead of assuming it does and leaving the mmproj at
+F16 "to be safe": it doesn't. `Q8_0` mmproj (347 MB) encoded the same
+test image *faster* than F16 (672 MB) -- 2.94s vs 4.43s -- with no
+observed quality difference. Image encoding is one large batched
+forward pass, much closer to prompt processing than to the
+many-small-sequential-matmuls decode pattern that `Q8_0` struggles
+with on this GPU. Published `Q8_0` only; the F16 upload was removed
+after this result rather than kept as a redundant "safer" option that
+turned out not to be safer, just bigger.
