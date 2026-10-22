@@ -15,13 +15,15 @@ tags:
   <img src="llmtray-banner.png" alt="LLMTray" width="100%">
 </p>
 
-# FrogNano-4B-2609 — GGUF, imatrix + JANG-mixed (text)
+# FrogNano-4B-2609 — GGUF, imatrix + JANG-mixed (text + vision)
 
 > ### ▶ GGUF build for ollama / llama.cpp
-> This is the **GGUF** build (ollama / llama.cpp, Arc, CPU). If you use
+> This is the **GGUF** build (ollama / llama.cpp, Arc, CPU). Includes a
+> vision mmproj (see "Vision" below) — load both files together for
+> image understanding. If you use
 > [LLMTray](https://www.ipsupport.us/llmtray/) — IPSupport's local AI app for
 > Apple Silicon, which runs MLX — use the MLX sibling
-> [roman220220/FrogNano-4B-2609-gptq-mlx-jang](https://huggingface.co/roman220220/FrogNano-4B-2609-gptq-mlx-jang) instead (it also keeps the vision tower and the MTP speculative-decoding head, neither of which is in this GGUF).
+> [roman220220/FrogNano-4B-2609-gptq-mlx-jang](https://huggingface.co/roman220220/FrogNano-4B-2609-gptq-mlx-jang) instead (it also keeps the MTP speculative-decoding head, which GGUF carries as inert tensors — see "Honest notes").
 >
 > [![Download LLMTray](https://img.shields.io/badge/Download-LLMTray%20for%20Mac-2f7d4f?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/ipsupport-llc/llmtray/releases/latest/download/LLMTray-Full.dmg)
 > [![GitHub stars](https://img.shields.io/github/stars/ipsupport-llc/llmtray?style=for-the-badge&logo=github)](https://github.com/ipsupport-llc/llmtray)
@@ -100,6 +102,35 @@ its scope and limitations, which apply here unchanged. These are
 language-modelling numbers — the coding-agent benchmarks above are
 Microsoft's, for the bf16 model in their harness, not re-run on this
 quantization.
+
+## Vision (`mmproj-frognano-4b-f16.gguf`)
+
+Qwen3.5's vision tower, exported standalone (`convert_hf_to_gguf.py
+--mmproj`, F16, 672 MB) via upstream `llama.cpp`'s own `qwen3vl`
+conversion path -- earlier releases of this card said the GGUF
+architecture couldn't carry vision at all; that was true when this card
+was first written and stopped being true once upstream added
+`Qwen3_5ForConditionalGeneration` support, found by re-checking rather
+than assuming the old conclusion still held. Not quantized further:
+vision towers are a small fraction of total size already, and this
+account's own `Q8_0`-on-Vulkan finding (see below) made a further
+quantization pass not worth the risk without re-testing it specifically
+for the vision encode path.
+
+```bash
+llama-mtmd-cli -m frognano-4b-jang-q6k.gguf \
+  --mmproj mmproj-frognano-4b-f16.gguf \
+  --image photo.jpg -p "Describe this image." -ngl 99
+```
+
+Verified working end to end: correctly identified a real photo of a
+black Labrador puppy (breed, pose, fur/eye/nose detail, floor material)
+on the same AMD D700 test hardware used throughout this card. Two
+non-fatal warnings appear at load: `Qwen-VL models require at minimum
+1024 image tokens` (add `--image-min-tokens 1024` if grounding/spatial
+accuracy on small images matters) and a `find_slot: non-consecutive
+token position` warning during image-token batching — neither affected
+the output in this test, but neither was investigated further either.
 
 ## MTP speculative-decoding draft (`mtp-frognano-4b-q4km.gguf`)
 
