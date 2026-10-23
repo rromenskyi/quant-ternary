@@ -854,3 +854,57 @@ MLX's words; scales to bf16): 2.57 GB, 122.5 tok/s and 2.43 GB peak on the M5
   - ours: 34.9 tok/s, 6.07 GB peak;
   - mlx-community qat-4bit: 26.0 tok/s, 6.91 GB;
   - old GPTQ: 33.6 tok/s, 6.77 GB.
+
+## 2026-10-23: `e4b` variant's MODEL_ID was hardcoded, unlike `e2b`
+
+Wanted to quantize `nvidia/NVIDIA-Nemotron-3.5-Bolt-E4B-BF16` (a
+post-train of `google/gemma-4-E4B-it`, same architecture/config
+shapes) via `VARIANT=e4b MODEL_ID=nvidia/... ./gemma4_mlx_pipeline.sh`
+-- the override silently had no effect, `e4b`'s `MODEL_ID` wasn't
+`${MODEL_ID:-...}`-style overridable the way `e2b`'s already was.
+Fixed (see the PR); caught only because the download log printed the
+wrong repo's snapshot path, not because anything errored loudly.
+
+## 2026-10-23: splice script assumed a single `model.safetensors`
+
+Hardcoded `hf_dir / "model.safetensors"` as the only source file,
+true for the vanilla `google/gemma-4-E4B-it` checkpoint but not for
+NVIDIA's Nemotron-3.5-Bolt-E4B release, which ships
+`model-00001-of-00001.safetensors` + an index.json, **plus** a
+separate `model-frozen-shared-kv.safetensors`. That second file isn't
+a duplicate or an artifact -- inspecting its header directly showed
+real `self_attn.k_proj`/`v_proj`/`k_norm` weights for the
+full-attention layers (24+) that later sliding-attention layers reuse
+via KV sharing; the vanilla checkpoint apparently keeps these inline
+in its single file instead of splitting them out. Fixed by scanning
+every `*.safetensors` file in the snapshot dir and merging their
+headers into one keyspace, opening all of them via an `ExitStack`
+rather than assuming one fixed filename.
+
+## 2026-10-23: Nemotron-3.5-Bolt-E4B keeps a working vision+audio tower NVIDIA doesn't advertise
+
+NVIDIA's own model card lists this release as text-only in its summary
+table, and the only other quantizations found (NVIDIA's official
+GGUF+imatrix release, several independent community MLX conversions)
+all cover text only. The checkpoint itself still carries the full
+`gemma4_vision` tower (16 layers, hidden 768) and `gemma4_audio` tower
+(12 layers, hidden 1024) inherited from the Gemma 4 base architecture,
+never stripped by NVIDIA's post-training. GPTQ-quantized and verified
+all three against the real quantized checkpoint -- text (coherent
+Roman-history facts), vision (correctly "two cats" on the standard
+test photo), and audio (a synthesized "The quick brown fox..." clip
+transcribed essentially word for word). No speech test asset existed
+in this pipeline before (`say`-only, macOS-specific, nothing on a
+Linux pod) -- generated one with `espeak-ng` + `ffmpeg` (16kHz mono
+WAV) instead, which works anywhere and doesn't depend on being on a
+Mac.
+
+Also ran `qat_eval.py` (wikitext-2, 64x512-token windows) against the
+bf16 reference for a real quality check beyond "doesn't crash": KL
+0.214, 82.06% top-1 token agreement. PPL itself came out slightly
+*lower* than the bf16 reference's own PPL (167.25 vs 173.95) -- read
+that as wikitext-raw/window-count noise at this scale, not as
+"quantization improved the model"; KL and top-1 agreement are the
+more trustworthy numbers here.
+
+Published: `roman220220/Nemotron-3.5-Bolt-E4B-gptq-mlx-jang` (6.3 GB).
