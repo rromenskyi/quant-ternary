@@ -139,10 +139,33 @@ def main() -> None:
 
     default_bits_hint = max(set(key_bits.values()), key=list(key_bits.values()).count) if key_bits else 8
 
-    orig_path = hf_dir / "model.safetensors"
-    header, _ = read_header(orig_path)
-    all_keys = [k for k in header if k != "__metadata__"]
-    print(f"Original checkpoint has {len(all_keys)} tensors total", flush=True)
+    # The original google/gemma-4-E4B-it checkpoint is one unsharded
+    # model.safetensors. Third-party post-trains of the same architecture
+    # aren't guaranteed to match that convention -- NVIDIA's
+    # Nemotron-3.5-Bolt-E4B-BF16 ships "model-00001-of-00001.safetensors"
+    # (a single-shard "sharded" layout, with an index.json) PLUS a separate
+    # "model-frozen-shared-kv.safetensors" holding the full-attention
+    # layers' k_proj/v_proj/k_norm weights that later sliding-attention
+    # layers reuse (real tensors, not duplicates -- dropping them breaks
+    # those layers' attention entirely). Scan every *.safetensors file in
+    # the snapshot dir rather than assume a single fixed filename, so any
+    # of these layouts (and any future one with the same shape) works.
+    source_files = sorted(hf_dir.glob("*.safetensors"))
+    if not source_files:
+        raise FileNotFoundError(f"no .safetensors files found in {hf_dir}")
+    header: dict = {}
+    key_source: dict[str, Path] = {}
+    for sf in source_files:
+        sf_header, _ = read_header(sf)
+        for k, v in sf_header.items():
+            if k == "__metadata__":
+                continue
+            if k in header:
+                raise ValueError(f"tensor {k!r} present in both {key_source[k].name} and {sf.name}")
+            header[k] = v
+            key_source[k] = sf
+    all_keys = list(header.keys())
+    print(f"Original checkpoint has {len(all_keys)} tensors total across {len(source_files)} file(s): {[p.name for p in source_files]}", flush=True)
 
     real_config = json.loads((hf_dir / "config.json").read_text())
     if args.drop_kv_shared_dead:
@@ -187,7 +210,14 @@ def main() -> None:
     weight_map: dict[str, str] = {}
     quantization_overrides: dict[str, dict] = {}
 
-    with safe_open(str(orig_path), framework="pt") as f:
+    import contextlib
+
+    with contextlib.ExitStack() as stack:
+        handles = {sf: stack.enter_context(safe_open(str(sf), framework="pt")) for sf in source_files}
+
+        def get_tensor(k: str) -> torch.Tensor:
+            return handles[key_source[k]].get_tensor(k)
+
         for shard_idx, shard_keys in enumerate(shards):
             shard_name = f"model-{shard_idx:05d}-of-{len(shards):05d}.safetensors"
             print(f"  Shard {shard_idx + 1}/{len(shards)}: {len(shard_keys)} tensors -> {shard_name}", flush=True)
@@ -211,7 +241,7 @@ def main() -> None:
                         module_path = internal_path[k]
                         quantization_overrides[module_path] = {"group_size": args.group_size, "bits": bits}
                 elif is_rtn_key:
-                    t = f.get_tensor(k)
+                    t = get_tensor(k)
                     w = mx.array(t.to(torch.float32).numpy()).astype(mx.bfloat16)
                     wq, scales, biases = mx.quantize(w, group_size=args.group_size, bits=rtn_bits, mode="affine")
                     out_tensors[k] = wq
@@ -224,7 +254,7 @@ def main() -> None:
                         # entry: see splice_common.module_path_of.
                         quantization_overrides[module_path_of(k)] = {"group_size": args.group_size, "bits": rtn_bits}
                 else:
-                    t = f.get_tensor(k)
+                    t = get_tensor(k)
                     if t.dtype == torch.bfloat16:
                         arr = mx.array(t.to(torch.float32).numpy()).astype(mx.bfloat16)
                     else:
@@ -240,8 +270,9 @@ def main() -> None:
     # Copy every non-weight file (config, tokenizer, processor, chat
     # template, generation config) verbatim, then patch config.json with
     # the quantization dict mlx-lm's loader expects.
+    source_file_names = {sf.name for sf in source_files}
     for item in hf_dir.iterdir():
-        if item.name in ("model.safetensors", "model.safetensors.index.json"):
+        if item.name in source_file_names or item.name == "model.safetensors.index.json":
             continue
         if item.is_file():
             shutil.copy2(item, output_dir / item.name)
