@@ -53,7 +53,11 @@ case "$VARIANT" in
     CAL_EXTRA_vision=(--layers-per-batch 4)
     ;;
   e4b)
-    MODEL_ID="google/gemma-4-E4B-it"
+    # MODEL_ID/HF_REPO are env-overridable (same reasoning as e2b below) so
+    # this variant can also quantize a third-party post-train of the same
+    # architecture (e.g. nvidia/NVIDIA-Nemotron-3.5-Bolt-E4B-BF16, which is
+    # google/gemma-4-E4B-it fine-tuned, same config shapes).
+    MODEL_ID="${MODEL_ID:-google/gemma-4-E4B-it}"
     COMPONENTS=(text vision audio)
     CALIBRATE="$HERE/gemma4_gptq_calibrate.py"
     SPLICE="$HERE/gemma4_gptq_splice.py"
