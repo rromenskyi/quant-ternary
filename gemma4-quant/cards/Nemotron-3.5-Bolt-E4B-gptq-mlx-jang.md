@@ -30,6 +30,10 @@ tags:
 >
 > [![Download LLMTray](https://img.shields.io/badge/Download-LLMTray%20for%20Mac-2f7d4f?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/ipsupport-llc/llmtray/releases/latest/download/LLMTray-Full.dmg)
 > [![GitHub stars](https://img.shields.io/github/stars/ipsupport-llc/llmtray?style=for-the-badge&logo=github)](https://github.com/ipsupport-llc/llmtray)
+>
+> Using `llama.cpp` / ollama instead? Pair NVIDIA's own official text GGUF with
+> [roman220220/Nemotron-3.5-Bolt-E4B-mmproj-GGUF](https://huggingface.co/roman220220/Nemotron-3.5-Bolt-E4B-mmproj-GGUF)
+> for the same vision + audio support.
 
 A JANG-style mixed-precision MLX quantization of NVIDIA's
 [Nemotron-3.5-Bolt-E4B](https://huggingface.co/nvidia/NVIDIA-Nemotron-3.5-Bolt-E4B-BF16)
