@@ -37,8 +37,11 @@ official text GGUF
 ([NVIDIA-Nemotron-3.5-Bolt-E4B-4GB](https://huggingface.co/nvidia/NVIDIA-Nemotron-3.5-Bolt-E4B-4GB))
 — no need to re-quantize the text model, NVIDIA already did that well.
 
-**Text, vision *and* audio — not just text.** NVIDIA's own release and
-every other public GGUF/quant of this model found cover text only. The
+**Text, vision *and* audio — not just text.** NVIDIA's own release
+actively disables multimodal input in its recommended vLLM serving
+command (`--limit-mm-per-prompt '{"image":0,"video":0,"audio":0}'`) and
+states its post-training data modality as "Text" only — and every
+other public GGUF/quant of this model found covers text only too. The
 checkpoint still carries a full vision tower and Conformer-style audio
 encoder, inherited from the Gemma 4 base architecture and never
 stripped by NVIDIA's post-training. As far as checked, this is the

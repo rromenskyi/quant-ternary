@@ -45,10 +45,13 @@ official GGUF is named accordingly); this is the MLX sibling for
 LLMTray on Apple Silicon.
 
 **Text, vision *and* audio — not just text.** NVIDIA's own card lists
-this model as text-only in its summary table, and every other
+this model as text-only in its summary table, and actively disables
+multimodal input in its own recommended vLLM serving command
+(`--limit-mm-per-prompt '{"image":0,"video":0,"audio":0}'`) — their
+post-training data modality is "Text" only, per their card. Every other
 quantization of it found publicly (NVIDIA's own GGUF+imatrix release,
-several independent MLX conversions) only covers the text decoder. The
-underlying checkpoint still carries a full vision tower and audio
+several independent MLX conversions) only covers the text decoder too.
+The underlying checkpoint still carries a full vision tower and audio
 encoder, inherited from its base architecture and never stripped out
 by NVIDIA's post-training. This release GPTQ-quantizes and verifies
 **all three** — as far as checked, the first public build of this
