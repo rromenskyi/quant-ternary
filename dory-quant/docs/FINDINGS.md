@@ -71,7 +71,35 @@ planned unless requested.
 
 ## 3. Status
 
-Not yet run. Reference PyTorch implementation and the calibration driver
-are being written against the fork's already-tested `mlx_lm/models/dory.py`
-as the architecture source of truth (original code, not copied from vLLM's
-or llama.cpp's Dory implementations).
+Run on a rented A100 80GB (2026-11-07), recipe `attn=8,mlp=6`, group size
+64, calibrated on wikitext-2 train + the installed transformers/torch
+Python sources (same corpora and split as the other pipelines here):
+
+| | bf16 | this build |
+|---|---|---|
+| wikitext-2 perplexity | 14.033 | 14.090 (+0.41 %) |
+| held-out Python code perplexity | 3.739 | 3.748 (+0.24 %) |
+| size | 7.95 GB | 3.5 GB |
+
+Both well under the pipeline's 1.10x gate. The ratio staying this close to
+1.0 after 2 recurrent loops is itself a check on §2's design: if
+chain-quantizing the recurrent block off only the first loop's activations
+were a bad approximation of what the block actually needs to represent
+across both loops, it would show up here as a much larger perplexity hit,
+not a 0.2-0.4 % one.
+
+Two real bugs found and fixed on the first live run against the actual
+checkpoint (neither showed up against the tiny synthetic checkpoint the
+smoke tests use):
+- `AutoTokenizer.from_pretrained` loads `AutoConfig` first, and
+  transformers' generic `layer_types` field validator rejects this
+  checkpoint's config.json (it uses `"mlp"` as a layer-type value, which
+  isn't in that validator's fixed attention-pattern list) --
+  `StrictDataclassClassValidationError` before the tokenizer itself ever
+  loads. Fixed with the same stub-`PretrainedConfig` fallback
+  `mlx_lm.tokenizer_utils.load()` already uses for this exact class of
+  problem (`gptq_dory.load_tokenizer`).
+- Forgot to copy `nemotron-extreme-quant/poc/{gptq,quantize}.py` and
+  `qwen35-quant/poc/convert_mlx.py` to the pod (the same cross-project
+  relative-path convention `qwen35_mlx_pipeline.sh`'s RUNBOOK documents) --
+  `ModuleNotFoundError` at the `reference`/`convert` steps.

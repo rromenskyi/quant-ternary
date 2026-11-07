@@ -33,7 +33,7 @@ layers total, alternating pure-attention and pure-MLP, never both in one
 layer). This is a GPTQ quantization to MLX, 8-bit attention / 6-bit MLP
 ("JANG": per-component bits, uniform across layers), with GPTQ's own
 integer codes written back exactly rather than left to MLX's own
-re-derivation from the rounded weights (<!-- % differ, from check output -->).
+re-derivation from the rounded weights.
 
 Dory has no `transformers` modeling file (only vLLM and llama.cpp implement
 it); this quantization runs on an original PyTorch reference implementation
@@ -48,12 +48,15 @@ for how this build handles it.
 
 ## Measurements
 
-<!-- fill in from check-dory1.0-4b.json -->
 | | bf16 | this build |
 |---|---|---|
-| wikitext-2 perplexity | <!-- ppl_bf16 --> | <!-- ppl --> |
-| held-out Python code perplexity | <!-- ppl_bf16_code --> | <!-- ppl_code --> |
-| size | 7.95 GB | <!-- size --> |
+| wikitext-2 perplexity | 14.03 | 14.09 (+0.41 %) |
+| held-out Python code perplexity | 3.739 | 3.748 (+0.24 %) |
+| size | 7.95 GB | 3.5 GB |
+
+Generation sample (greedy, "The capital of France is"): *"Paris. The
+capital of Germany is Berlin. The capital of Italy is Rome. The capital of
+Spain is Madrid. The capital of the United Kingdom is"*.
 
 Recipe: `attn=8,mlp=6`, group size 64. Embedding and LM head at 8 bits
 (RTN). The nGPT scale vectors (`sqk`, `s_gate`, `suv_gate`, `suv_up`,
