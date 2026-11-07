@@ -77,3 +77,55 @@ By ear: fp32 vs T3 8-bit samples were left for the user's comparison.
   never installed.
 - Checked: замо́к (lock) and плачу́ (pay) by context, Интегра́ция, атла́сную.
   ё gets no mark (it is always stressed): "идё́т" was a bug, fixed.
+
+## The decoder: Turbo's meanflow S3Gen (2026-11-07)
+
+S3Gen turned out to be the slow half, so three decoders were tried on the
+same speech tokens:
+
+Times are the second call on the same tokens (after the warm-up described
+below), one Russian phrase:
+
+| decoder | S3Gen time, 3.7 s phrase |
+|---|---|
+| multilingual S3Gen, 10 steps + CFG (as shipped) | 2.1 s |
+| same, 4 steps | 0.9 s |
+| **Chatterbox Turbo's meanflow S3Gen, 2 steps, no CFG** | **0.5 s** |
+
+- **Tokens fit as they are.** Turbo was trained English-only, but its
+  S3Gen takes the same S3 v2 tokens (25 Hz, 0..6560) and conditions on the
+  same reference dict. Its output follows the 10-step one on one Russian
+  and one English phrase (same tokens): correlation of the energy
+  envelopes 0.975 and 0.987, of the log spectrograms 0.937 and 0.935.
+- **By ear: no difference.** Blind A/B/C test on 2 Russian and 2 English
+  phrases, shuffled order, judged by the user: "разницы не слышу" (I don't
+  hear a difference). The fastest decoder wins.
+- **How it ships.** `scripts/extract_meanflow.py` takes Turbo's S3Gen
+  without its speech tokenizer: 570 MB fp32. It is checked to be equal,
+  parameter by parameter, to the full Turbo model's S3Gen. It sits at
+  `meanflow/s3gen_meanflow.safetensors`: in a subfolder, because mlx-audio
+  loads every top-level `*.safetensors` of a model folder, and a second
+  top-level file breaks `load_model` with "Unrecognized weight keys". With
+  the subfolder, `load_model` on the folder works as before (every runner
+  test here loaded it that way). The script reads the file back and
+  checks every tensor against the source; it also matched the full Turbo
+  model's S3Gen, loaded by mlx-audio, parameter for parameter.
+- **The first-call timing is a warm-up.** S3Gen's first call after load
+  took 9 s, the second 2 s on the same length; a new length costs +0.5–1 s
+  once. LLMTray's runner speaks a short phrase before it reports ready.
+- **The earlier T3 numbers were low.** The 38–51 tok/s above was measured
+  under swap. On an unloaded Mac, 8-bit T3 runs at 120 tok/s. A sync-free
+  loop (sampling, the repetition penalty and the next embedding on the
+  GPU; the stop token looked for every 16 tokens) gives 134 tok/s with the
+  same tokens.
+
+**End to end through LLMTray's runner** (five sentences, ru and en, base M5):
+
+| setup | RTF | peak footprint |
+|---|---|---|
+| fp32 | 2–3 | 6.1 GB |
+| T3 8-bit | 1.4–1.6 | 4.5 GB |
+| **T3 8-bit + sync-free T3 + meanflow decoder + warm-up** | **0.24–0.31** | 4.6 GB |
+
+The runner is ready 2.5 s after launch, and the first sentence plays about
+3 s in.
