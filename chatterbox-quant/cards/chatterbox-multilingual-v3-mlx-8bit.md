@@ -53,7 +53,9 @@ tags:
 [Chatterbox Multilingual V3](https://huggingface.co/ResembleAI/chatterbox) (Resemble AI, MIT) speaks 23 languages and
 clones a voice from a short clip. This repo is its MLX conversion with **T3** (the 0.5B Llama that turns text into
 speech tokens) quantized to **8 bits**. The rest is unchanged: S3Gen (speech tokens to audio) and the voice encoder
-stay fp32. It also adds the **built-in voice** (`conds.safetensors`), which the multilingual MLX conversion lacks.
+stay fp32. It also adds the **built-in voice** (`conds.safetensors`), which the multilingual MLX conversion lacks, and an optional
+**fast decoder**: Chatterbox Turbo's distilled S3Gen (`meanflow/`), 4x faster than the 10-step one with no audible
+difference in our blind test.
 
 ## Why 8-bit T3
 
@@ -73,7 +75,29 @@ the two held in every run.
 - **Download**: 1.32 GB for this repo instead of 2.71 GB (the speech tokenizer, 0.49 GB, comes separately in both
   cases).
 
-S3Gen is now the slower half, at about 1 s of compute per 1 s of speech.
+## The fast decoder (`meanflow/`)
+
+S3Gen, which turns speech tokens into audio, was the slow half: 10 flow-matching steps with CFG, about 0.6 s of compute
+per 1 s of speech. `meanflow/s3gen_meanflow.safetensors` is Chatterbox Turbo's distilled S3Gen (2 steps, no CFG). It
+takes the same speech tokens:
+
+| decoder | 3.7 s phrase | blind test (2 ru + 2 en phrases) |
+|---|---|---|
+| 10 steps (standard) | 2.1 s | no difference heard |
+| **Turbo meanflow, 2 steps** | **0.5 s** | no difference heard |
+
+With it, and a T3 loop that skips a CPU-GPU sync per token, a whole sentence takes 0.24–0.31 s per second of speech
+on a base M5 (fp32: 2–3). mlx-audio's standard loader ignores the subfolder, so the model loads as usual without it.
+LLMTray uses it like this:
+
+```python
+from mlx_audio.tts.models.chatterbox_turbo.models.s3gen import S3Gen
+fast = S3Gen(meanflow=True)
+fast.load_weights(list(mx.load("meanflow/s3gen_meanflow.safetensors").items()), strict=False)
+wav = fast.inference(speech_tokens, ref_dict, n_cfm_timesteps=2)[0]   # tokens and ref_dict from the multilingual model
+```
+
+The code is in LLMTray's `runtime/llmtray_tts_runner.py`.
 
 ## Use with mlx-audio
 
@@ -101,6 +125,9 @@ mlx_audio.tts.generate --model roman220220/chatterbox-multilingual-v3-mlx-8bit \
   `config.json`, so mlx-audio's own loader reads it.
 - **Built-in voice**: `conds.safetensors` from `mlx-community/chatterbox-fp16`, which is Resemble's `conds.pt`; their
   multilingual model loads the same file.
+- **Fast decoder**: `scripts/extract_meanflow.py` takes `mlx-community/chatterbox-turbo-fp16`'s S3Gen without its
+  speech tokenizer and renames it to the module's names. It matches the full Turbo model's S3Gen parameter for
+  parameter.
 - **Script and measurements**: in [quant-ternary/chatterbox-quant](https://github.com/ipsupport-llc/quant-ternary).
 
 ## The IPSupport local-AI stack
@@ -136,3 +163,7 @@ through [mlx-community/chatterbox-multilingual-v3](https://huggingface.co/mlx-co
 quantized to 8 bits (group size 64) for MLX, and the built-in voice conditionals added from
 [mlx-community/chatterbox-fp16](https://huggingface.co/mlx-community/chatterbox-fp16). The weights and configuration files
 in this repo are therefore modified versions of the original, not the original files.
+
+`meanflow/s3gen_meanflow.safetensors` is from [ResembleAI/chatterbox-turbo](https://huggingface.co/ResembleAI/chatterbox-turbo)
+(MIT), through [mlx-community/chatterbox-turbo-fp16](https://huggingface.co/mlx-community/chatterbox-turbo-fp16), whose card
+lists Apache-2.0: the speech tokenizer was removed and the weights were renamed. Use it under the terms of both.
