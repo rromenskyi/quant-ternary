@@ -18,7 +18,7 @@ from safetensors.torch import save_file
 sys.path.insert(0, ".")
 from dory_reference import DoryConfig, DoryModel
 
-VOCAB, HID, INTER = 97, 32, 48
+VOCAB, HID, INTER = 97, 32, 64  # intermediate_size must divide an MLX-supported group size (32/64/128)
 CFG = dict(
     vocab_size=VOCAB, hidden_size=HID, intermediate_size=INTER, num_hidden_layers=16,
     num_attention_heads=4, num_key_value_heads=2, head_dim=8, sliding_window=6,
@@ -40,7 +40,12 @@ def build_snapshot(root: Path):
     for k, v in model.state_dict().items():
         if "inv_freq" in k:
             continue
-        key = "lm_head.logit_scale" if k == "logit_scale" else f"backbone.{k}"
+        if k == "logit_scale":
+            key = "lm_head.logit_scale"
+        elif k.startswith("lm_head."):
+            key = k
+        else:
+            key = f"backbone.{k}"
         state[key] = v.to(torch.bfloat16).contiguous()
     root.mkdir(parents=True, exist_ok=True)
     save_file(state, root / "model.safetensors")
@@ -59,7 +64,7 @@ def main():
 
     argv = ["gptq_dory.py", "--model", str(snap), "--work", str(work), "--recipe", "attn=8,mlp=6",
             "--calib", f"text:{calib}", "--device", "cpu", "--calib-chunks", "2",
-            "--calib-chunk-tokens", "16", "--group-size", "8"]
+            "--calib-chunk-tokens", "16", "--group-size", "32"]
 
     # Full run.
     sys.argv = argv
