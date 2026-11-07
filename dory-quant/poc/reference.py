@@ -20,10 +20,10 @@ import sys
 from pathlib import Path
 
 import torch
-from transformers import AutoTokenizer
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from dory_reference import load_dory
+from gptq_dory import load_tokenizer  # the AutoConfig layer_types-validator fallback
 
 
 def perplexity(model, ids: torch.Tensor, device: str, chunks: int, n: int) -> tuple[float, int]:
@@ -63,7 +63,7 @@ def main() -> None:
         print("ref.json already has every requested perplexity, skipping", flush=True)
         return
 
-    tok = AutoTokenizer.from_pretrained(args.model)
+    tok = load_tokenizer(args.model)
     model, _ = load_dory(args.model, device=args.device, dtype=torch.bfloat16)
     model.eval()
     for suffix, path, key in sets:

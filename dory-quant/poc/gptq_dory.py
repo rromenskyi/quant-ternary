@@ -38,14 +38,32 @@ from pathlib import Path
 
 import torch
 import torch.nn as nn
+from huggingface_hub.errors import StrictDataclassError
 from safetensors.torch import save_file
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, PretrainedConfig
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "nemotron-extreme-quant" / "poc"))
 from gptq import gptq_nbit  # noqa: E402  (MLX-exact affine grid)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from dory_reference import DoryModel, load_dory, loop_inject, justnorm  # noqa: E402
+
+
+def load_tokenizer(model_path: str):
+    """AutoTokenizer.from_pretrained, with the same fallback
+    mlx_lm.tokenizer_utils.load uses: transformers' generic `layer_types`
+    validator rejects Dory's config.json (it uses "mlp" as a layer type,
+    not one of the fixed attention-pattern names transformers expects
+    there), so AutoConfig construction raises before the tokenizer even
+    loads. Retried with a stub config carrying only the handful of fields
+    a tokenizer actually needs."""
+    try:
+        return AutoTokenizer.from_pretrained(model_path)
+    except (AttributeError, ValueError, KeyError, StrictDataclassError):
+        raw = json.loads((Path(model_path) / "config.json").read_text())
+        stub = {k: raw[k] for k in ("model_type", "max_position_embeddings", "vocab_size",
+                                    "bos_token_id", "eos_token_id", "pad_token_id") if k in raw}
+        return AutoTokenizer.from_pretrained(model_path, config=PretrainedConfig(**stub))
 
 COMPONENTS = {
     "mixer.q_proj": "attn", "mixer.k_proj": "attn", "mixer.v_proj": "attn",
@@ -139,7 +157,7 @@ def main() -> None:
     work = Path(args.work)
     (work / "layers").mkdir(parents=True, exist_ok=True)
 
-    tok = AutoTokenizer.from_pretrained(args.model)
+    tok = load_tokenizer(args.model)
     model, cfg = load_dory(args.model, device=DEVICE, dtype=torch.bfloat16)
     model.eval()
     layers: list[nn.Module] = list(model.layers)
