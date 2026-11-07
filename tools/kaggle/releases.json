@@ -171,5 +171,12 @@
   "framework": "other",
   "variation": "mlx-gptq-jang-small",
   "license": "MIT"
+ },
+ {
+  "hf": "roman220220/chatterbox-multilingual-v3-mlx-8bit",
+  "model": "chatterbox-multilingual-v3-ipsupport",
+  "framework": "other",
+  "variation": "mlx-8bit",
+  "license": "MIT"
  }
 ]
