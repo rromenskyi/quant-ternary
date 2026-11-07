@@ -63,5 +63,10 @@
   "title": "Ornith 1.5 35B-A3B — IPSupport GPTQ JANG MLX",
   "subtitle": "MoE in 17 GB, or 14 GB for smaller Macs",
   "description": "Ornith 1.5 35B-A3B for MLX: GPTQ with a JANG bit map by component role. `mlx-gptq-jang`: 17 GB; `mlx-gptq-jang-small`: 14 GB for smaller memory budgets.\n\nEach variation's overview is its Hugging Face model card; the license is the base model's (see each card).\n\n---\n**IPSupport LLC** · [ipsupport.us](https://www.ipsupport.us) · all our releases: [huggingface.co/roman220220](https://huggingface.co/roman220220) · how we quantize: [whitepaper](https://github.com/rromenskyi/quant-ternary/blob/main/IPSupport-quantization-whitepaper.pdf) · run MLX builds on a Mac with [LLMTray](https://www.ipsupport.us/llmtray/)."
+ },
+ "chatterbox-multilingual-v3-ipsupport": {
+  "title": "Chatterbox Multilingual V3 — IPSupport 8-bit MLX",
+  "subtitle": "Text to speech in 23 languages, T3 at 8 bits",
+  "description": "Chatterbox Multilingual V3 (Resemble AI, MIT) for MLX with its T3 quantized to 8 bits: 2-3x faster than the fp32 conversion with the same audio, 1.32 GB. The built-in voice is included; a short clip clones a voice. `mlx-8bit`: the build LLMTray uses to read answers aloud.\n\nEach variation's overview is its Hugging Face model card; the license is the base model's (see each card).\n\n---\n**IPSupport LLC** · [ipsupport.us](https://www.ipsupport.us) · all our releases: [huggingface.co/roman220220](https://huggingface.co/roman220220) · how we quantize: [whitepaper](https://github.com/rromenskyi/quant-ternary/blob/main/IPSupport-quantization-whitepaper.pdf) · run MLX builds on a Mac with [LLMTray](https://www.ipsupport.us/llmtray/)."
  }
 }
