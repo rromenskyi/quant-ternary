@@ -44,6 +44,26 @@ ONGRID="$WORK/ongrid-dory1.0-4b"
 OUT_DIR="${OUT_DIR:-$WORK/$NAME}"
 export HF_HOME="${HF_HOME:-$WORK/hf}"
 
+# Check this FIRST, before any other step (nemotron-extreme-quant/poc/setup_pod.sh's
+# convention) -- a missing/stale token doesn't break any read-only step
+# (public model download, wikitext download), so it stays invisible until
+# the first hf upload, deep into the pipeline after everything else already
+# ran. HF_HOME is overridden above, so the token lives at $HF_HOME/token,
+# not the default ~/.cache/huggingface/token -- caught live on this
+# project's first publish attempt: the token was pushed to the default
+# location, and every check against that location passed, while the
+# pipeline itself (HF_HOME=$WORK/hf) kept 401ing against a token file that
+# didn't exist there.
+HF_TOKEN_LOCAL_FILE="${HF_TOKEN_LOCAL_FILE:-$HOME/.runpod/hf_token}"
+if [ -s "$HF_HOME/token" ]; then
+  echo "HF token file present at \$HF_HOME/token"
+else
+  echo "no HF token at \$HF_HOME/token ($HF_HOME/token) -- push one from the operator's machine:" >&2
+  echo "  ssh -i <key> -p <port> root@<host> \"mkdir -p $HF_HOME && cat > $HF_HOME/token\" < $HF_TOKEN_LOCAL_FILE" >&2
+  echo "(never as a CLI arg or echoed anywhere -- stdin only)" >&2
+  exit 1
+fi
+
 pipeline_init dory "MODEL_ID=$MODEL_ID RECIPE=$RECIPE OUT_DIR=$OUT_DIR"
 
 # mlx[cuda] brings its own NCCL into the venv, and the image's torch then

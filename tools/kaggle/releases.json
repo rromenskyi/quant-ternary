@@ -178,5 +178,12 @@
   "framework": "other",
   "variation": "mlx-8bit",
   "license": "MIT"
+ },
+ {
+  "hf": "roman220220/Dory1.0-4B-gptq-mlx-jang",
+  "model": "dory-1-0-4b-ipsupport",
+  "framework": "other",
+  "variation": "mlx-gptq-jang",
+  "license": "Other"
  }
 ]
