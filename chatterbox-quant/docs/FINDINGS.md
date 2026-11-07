@@ -29,12 +29,17 @@ The ratios between variants held across repeats.
 | T3 and S3Gen bf16 | 9 | slower | — | — | 4.0 GB |
 
 - **T3 at 8 bits is the win**: 2–3x faster tokens. With speech tokens at
-  25/s, T3 is then about 2x faster than real time.
+  25/s, T3 is then 1.5–2x faster than real time.
 - **4 bits gives nothing more** than 8, so 8 bits it is.
 - **bf16 is slower here.** T3 in bf16 ran at 9 tok/s. S3Gen in bf16, on
-  identical tokens, was slower than fp32 (3.05 s vs 1.15 s) and audibly
-  different (SNR 11 dB against fp32, spectral correlation 0.995).
-  S3Gen stays fp32.
+  identical tokens, was slower than fp32 and audibly different (SNR 11 dB
+  against fp32, spectral correlation 0.995). S3Gen stays fp32.
+  - That comparison ran S3Gen alone, on one sentence's captured tokens (4 s
+    of speech): fp32 1.15 s, bf16 3.05 s.
+  - Inside `generate()`, right after T3, the same fp32 S3Gen took 3.2–4.0 s
+    in the table above. That gap isn't explained yet. Suspects: memory
+    pressure (swap), and `mx.clear_cache()` between T3 and S3Gen, which
+    makes it allocate again.
 - **S3Gen is now the bottleneck**: about 1 s of compute per 1 s of speech
   (flow matching, 10 steps with CFG, then HiFT). A sentence takes a little
   longer to make than to play, so read-as-it-streams has gaps. Next to try:
@@ -47,9 +52,17 @@ The ratios between variants held across repeats.
 ## Output check
 
 The 8-bit folder (built by `scripts/quantize_t3.py`) loads with mlx-audio's
-own loader (`load_model`, `config.json` "quantization"), and its audio is
-**identical** to quantizing T3 on the fly: same samples (atol 1e-4), same
-length, for an English and a Russian sentence with the same seeds.
+own loader (`load_model`, `config.json` "quantization"), and its audio
+matches quantizing T3 on the fly: same length, every sample within 1e-4,
+for an English and a Russian sentence with the same seeds.
+
+- **Size**: `model.safetensors` is 1.31 GB; the repo is 1.32 GB with the
+  config, tokenizers, built-in voice and LICENSE.
+- **Built-in voice**: every run here used it (no clip). Cloning from a clip
+  wasn't tested.
+- **Through LLMTray's runner** (`llmtray_tts_runner.py`, five sentences ru
+  and en): RTF 1.36–1.56 against 2–3 for fp32, peak footprint 4.5 GB
+  against 6.1 GB.
 
 By ear: fp32 vs T3 8-bit samples were left for the user's comparison.
 

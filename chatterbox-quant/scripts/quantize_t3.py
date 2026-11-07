@@ -18,7 +18,14 @@ import sys
 
 sys.modules["russian_text_stresser"] = None   # AGPL; never needed here
 
+if len(sys.argv) != 5:
+    sys.exit(__doc__)
 src, conds, s3tok, out = sys.argv[1:5]
+NEEDED = ["model.safetensors", "config.json", "tokenizer.json", "Cangjie5_TC.json"]
+missing = [os.path.join(src, n) for n in NEEDED if not os.path.exists(os.path.join(src, n))]
+missing += [p for p in (conds, os.path.join(s3tok, "model.safetensors")) if not os.path.exists(p)]
+if missing:
+    sys.exit("missing: " + ", ".join(missing))
 
 import huggingface_hub   # noqa: E402
 
@@ -49,6 +56,8 @@ for prefix, module in (("ve.", model.ve), ("t3.", model.t3), ("s3gen.", model.s3
 mx.save_safetensors(os.path.join(out, "model.safetensors"), weights, metadata={"format": "mlx"})
 with open(os.path.join(src, "config.json")) as f:
     config = json.load(f)
+# One global entry, as mlx-audio's chatterbox loader expects: it quantizes a
+# module only where the weights carry scales (only T3's transformer here).
 config["quantization"] = {"group_size": GROUP, "bits": BITS}
 with open(os.path.join(out, "config.json"), "w") as f:
     json.dump(config, f, indent=2)

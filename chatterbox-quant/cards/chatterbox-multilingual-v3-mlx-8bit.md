@@ -57,21 +57,29 @@ stay fp32. It also adds the **built-in voice** (`conds.safetensors`), which the 
 
 ## Why 8-bit T3
 
-Measured on a base M5 Mac (26 GB) against the fp32 conversion, one 3.5–4 s sentence:
+Measured on a base M5 Mac (26 GB) against the fp32 conversion, one 3.5–4 s sentence. The Mac was under memory
+pressure (swap in use), so single timings varied up to 2x; the ranges are three runs each, and the gap between
+the two held in every run.
 
 | | T3 tokens/s | T3 | S3Gen | total | peak memory |
 |---|---|---|---|---|---|
 | fp32 (mlx-community/chatterbox-multilingual-v3) | 14–26 | 3.9–7.1 s | 3.3–4.0 s | 8.0–10.9 s | 4.1 GB |
 | **this repo** | **38–51** | **1.8–2.4 s** | 3.2–3.6 s | **5.0–6.0 s** | **3.5 GB** |
 
-- **T3 at 8 bits**: 2–3x faster, with the same audio as quantizing on the fly (sample-identical in our check).
+- **T3 at 8 bits**: 2–3x faster. The published weights give the same audio as quantizing on the fly (equal within
+  1e-4 per sample in our check); by ear the 8-bit and fp32 T3 were left to compare.
 - **4 bits** was no faster than 8.
 - **S3Gen stays fp32**: in bf16 it was both slower and audibly different.
-- **Download**: 1.31 GB instead of 2.71 GB.
+- **Download**: 1.32 GB for this repo instead of 2.71 GB (the speech tokenizer, 0.49 GB, comes separately in both
+  cases).
 
 S3Gen is now the slower half, at about 1 s of compute per 1 s of speech.
 
 ## Use with mlx-audio
+
+Needs an mlx-audio with Chatterbox multilingual V3 (`--lang_code`): mlx-community converted the base with mlx-audio
+0.4.7; this repo was built and tested with the [ipsupport-llc/mlx-audio](https://github.com/ipsupport-llc/mlx-audio)
+fork (commit 67f89de).
 
 ```bash
 pip install -U mlx-audio
@@ -79,8 +87,8 @@ mlx_audio.tts.generate --model roman220220/chatterbox-multilingual-v3-mlx-8bit \
     --text "Привет! Чем могу помочь?" --lang_code ru
 ```
 
-- **Voice**: with no `--ref_audio`, the built-in voice is used. Pass a clip of 10 s or more to clone a voice; use
-  only your own voice or one you have permission to use.
+- **Voice**: with no `--ref_audio`, the built-in voice is used (that is what our tests ran). Pass a clip to clone
+  a voice; Resemble suggests about 10 s. Use only your own voice or one you have permission to use.
 - **Speech tokenizer**: mlx-audio fetches it separately at load: `mlx-community/S3TokenizerV2`, Apache-2.0, converted
   from CosyVoice2-0.5B.
 - **Russian**: Chatterbox reads Russian best from stressed text (U+0301 after the stressed vowel). LLMTray adds the
