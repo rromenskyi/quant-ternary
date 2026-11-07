@@ -9,9 +9,12 @@ qkvg_proj's RTN-quantized shape correctly, and the GPTQ codes round-trip
 through packing without producing NaNs or shape mismatches.
 
     python smoke_test_convert.py
+    # MLX_LM_FORK: a local ipsupport-llc/mlx-lm checkout, if mlx_lm isn't
+    # already pip-installed from it in the current environment.
 """
 
 import json
+import os
 import shutil
 import sys
 import tempfile
@@ -22,7 +25,8 @@ import numpy as np
 import torch
 from mlx.utils import tree_flatten
 
-sys.path.insert(0, "/tmp/mlxlm_check/fork")
+if fork := os.environ.get("MLX_LM_FORK"):
+    sys.path.insert(0, fork)
 from mlx_lm.models import dory as mdory
 from mlx_lm.utils import quantize_model
 
