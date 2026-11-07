@@ -1,6 +1,8 @@
 ---
 license: mit
-base_model: ResembleAI/chatterbox
+base_model:
+  - ResembleAI/chatterbox
+  - ResembleAI/chatterbox-turbo
 pipeline_tag: text-to-speech
 language:
   - ar
@@ -72,8 +74,8 @@ the two held in every run.
   1e-4 per sample in our check); by ear the 8-bit and fp32 T3 were left to compare.
 - **4 bits** was no faster than 8.
 - **S3Gen stays fp32**: in bf16 it was both slower and audibly different.
-- **Download**: 1.32 GB for this repo instead of 2.71 GB (the speech tokenizer, 0.49 GB, comes separately in both
-  cases).
+- **Download**: 1.32 GB for the model instead of 2.71 GB, plus 0.57 GB for the optional fast decoder (1.89 GB for
+  the whole repo). The speech tokenizer, 0.49 GB, comes separately in every case.
 
 ## The fast decoder (`meanflow/`)
 
@@ -87,10 +89,12 @@ takes the same speech tokens:
 | **Turbo meanflow, 2 steps** | **0.5 s** | no difference heard |
 
 With it, and a T3 loop that skips a CPU-GPU sync per token, a whole sentence takes 0.24–0.31 s per second of speech
-on a base M5 (fp32: 2–3). mlx-audio's standard loader ignores the subfolder, so the model loads as usual without it.
+on a base M5 (fp32: 2–3). mlx-audio's `load_model` reads only top-level `*.safetensors`, so the model loads as usual
+and the subfolder is used only by code that asks for it.
 LLMTray uses it like this:
 
 ```python
+import mlx.core as mx
 from mlx_audio.tts.models.chatterbox_turbo.models.s3gen import S3Gen
 fast = S3Gen(meanflow=True)
 fast.load_weights(list(mx.load("meanflow/s3gen_meanflow.safetensors").items()), strict=False)
@@ -164,6 +168,8 @@ quantized to 8 bits (group size 64) for MLX, and the built-in voice conditionals
 [mlx-community/chatterbox-fp16](https://huggingface.co/mlx-community/chatterbox-fp16). The weights and configuration files
 in this repo are therefore modified versions of the original, not the original files.
 
-`meanflow/s3gen_meanflow.safetensors` is from [ResembleAI/chatterbox-turbo](https://huggingface.co/ResembleAI/chatterbox-turbo)
-(MIT), through [mlx-community/chatterbox-turbo-fp16](https://huggingface.co/mlx-community/chatterbox-turbo-fp16), whose card
-lists Apache-2.0: the speech tokenizer was removed and the weights were renamed. Use it under the terms of both.
+`meanflow/s3gen_meanflow.safetensors` is modified from [ResembleAI/chatterbox-turbo](https://huggingface.co/ResembleAI/chatterbox-turbo)
+(MIT), through its MLX conversion [mlx-community/chatterbox-turbo-fp16](https://huggingface.co/mlx-community/chatterbox-turbo-fp16),
+whose card lists Apache-2.0: only its S3Gen part was taken, without the speech tokenizer, and its weights were
+renamed and laid out as the MLX module expects (mlx-audio's `sanitize`). That file is also provided under the
+Apache License 2.0 ([`meanflow/LICENSE-Apache-2.0`](meanflow/LICENSE-Apache-2.0)), whose terms apply alongside MIT.

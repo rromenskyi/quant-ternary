@@ -83,6 +83,9 @@ By ear: fp32 vs T3 8-bit samples were left for the user's comparison.
 S3Gen turned out to be the slow half, so three decoders were tried on the
 same speech tokens:
 
+Times are the second call on the same tokens (after the warm-up described
+below), one Russian phrase:
+
 | decoder | S3Gen time, 3.7 s phrase |
 |---|---|
 | multilingual S3Gen, 10 steps + CFG (as shipped) | 2.1 s |
@@ -91,8 +94,9 @@ same speech tokens:
 
 - **Tokens fit as they are.** Turbo was trained English-only, but its
   S3Gen takes the same S3 v2 tokens (25 Hz, 0..6560) and conditions on the
-  same reference dict. Its output follows the 10-step one: energy envelope
-  correlation 0.975–0.987, spectral correlation 0.94.
+  same reference dict. Its output follows the 10-step one on one Russian
+  and one English phrase (same tokens): correlation of the energy
+  envelopes 0.975 and 0.987, of the log spectrograms 0.937 and 0.935.
 - **By ear: no difference.** Blind A/B/C test on 2 Russian and 2 English
   phrases, shuffled order, judged by the user: "разницы не слышу" (I don't
   hear a difference). The fastest decoder wins.
@@ -101,7 +105,11 @@ same speech tokens:
   parameter by parameter, to the full Turbo model's S3Gen. It sits at
   `meanflow/s3gen_meanflow.safetensors`: in a subfolder, because mlx-audio
   loads every top-level `*.safetensors` of a model folder, and a second
-  top-level file breaks `load_model` with "Unrecognized weight keys".
+  top-level file breaks `load_model` with "Unrecognized weight keys". With
+  the subfolder, `load_model` on the folder works as before (every runner
+  test here loaded it that way). The script reads the file back and
+  checks every tensor against the source; it also matched the full Turbo
+  model's S3Gen, loaded by mlx-audio, parameter for parameter.
 - **The first-call timing is a warm-up.** S3Gen's first call after load
   took 9 s, the second 2 s on the same length; a new length costs +0.5–1 s
   once. LLMTray's runner speaks a short phrase before it reports ready.

@@ -12,6 +12,7 @@ load_weights(..., strict=False): only computed buffers are left out.
 Ship it in a subfolder of the model: mlx-audio loads every top-level
 *.safetensors of a model folder.
 """
+import os
 import sys
 
 import mlx.core as mx
@@ -30,6 +31,15 @@ decoder = S3Gen(meanflow=True)
 named = decoder.sanitize(raw)
 params = set(dict(tree_flatten(decoder.parameters())))
 missing = params - set(named)
-assert missing == BUFFERS, sorted(missing - BUFFERS)
-mx.save_safetensors(out, {k: v for k, v in named.items() if k in params}, metadata={"format": "mlx"})
-print("wrote", out)
+extra = set(named) - params
+assert missing == BUFFERS and not extra, (sorted(missing ^ BUFFERS), sorted(extra))
+os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
+mx.save_safetensors(out, named, metadata={"format": "mlx"})
+
+# Read back: every parameter equals the source, value for value.
+check = S3Gen(meanflow=True)
+check.load_weights(list(mx.load(out).items()), strict=False)
+loaded = dict(tree_flatten(check.parameters()))
+differ = [k for k in named if not mx.array_equal(loaded[k], named[k]).item()]
+assert not differ, differ[:5]
+print("wrote %s: %d tensors, all equal to the source" % (out, len(named)))
