@@ -185,5 +185,19 @@
   "framework": "other",
   "variation": "mlx-gptq-jang",
   "license": "Other"
+ },
+ {
+  "hf": "roman220220/Nemotron-3.5-Bolt-E4B-gptq-mlx-jang",
+  "model": "nemotron-3-5-bolt-e4b-ipsupport",
+  "framework": "other",
+  "variation": "mlx-gptq-jang",
+  "license": "Other"
+ },
+ {
+  "hf": "roman220220/Nemotron-3.5-Bolt-E4B-mmproj-GGUF",
+  "model": "nemotron-3-5-bolt-e4b-ipsupport",
+  "framework": "gguf",
+  "variation": "mmproj-f16",
+  "license": "Other"
  }
 ]
