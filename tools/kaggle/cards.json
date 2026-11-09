@@ -73,5 +73,10 @@
   "title": "Dory 1.0 4B — IPSupport GPTQ JANG MLX",
   "subtitle": "Looped nGPT-style dense model, GPTQ 8/6-bit, 3.5 GB from 7.95 GB",
   "description": "NVIDIA's Dory 1.0 4B (looped/recurrent nGPT-style: 16 input layers feed a shared 40-layer recurrent block run twice per forward, into 16 output layers) for MLX: GPTQ with a JANG 8-bit attention / 6-bit MLP bit map, exact codes written back.\n\n3.5 GB (bf16: 7.95 GB). wikitext-2 perplexity 14.09 vs 14.03 bf16 (+0.41%), held-out Python code perplexity 3.748 vs 3.739 bf16 (+0.24%).\n\nEach variation's overview is its Hugging Face model card; the license is the base model's (OpenMDW-1.1, see each card).\n\n---\n**IPSupport LLC** · [ipsupport.us](https://www.ipsupport.us) · all our releases: [huggingface.co/roman220220](https://huggingface.co/roman220220) · how we quantize: [whitepaper](https://github.com/rromenskyi/quant-ternary/blob/main/IPSupport-quantization-whitepaper.pdf) · run MLX builds on a Mac with [LLMTray](https://www.ipsupport.us/llmtray/)."
+ },
+ "nemotron-3-5-bolt-e4b-ipsupport": {
+  "title": "Nemotron 3.5 Bolt E4B — IPSupport",
+  "subtitle": "Text + vision + audio, GPTQ JANG-mixed MLX + GGUF mmproj",
+  "description": "NVIDIA Nemotron 3.5 Bolt E4B (text+vision+audio): GPTQ JANG-mixed MLX build, plus a standalone F16 GGUF mmproj for the vision/audio projector to pair with llama.cpp text builds.\n\nEach variation's overview is its Hugging Face model card; the license is the base model's (see each card).\n\n---\n**IPSupport LLC** · [ipsupport.us](https://www.ipsupport.us) · all our releases: [huggingface.co/roman220220](https://huggingface.co/roman220220) · how we quantize: [whitepaper](https://github.com/rromenskyi/quant-ternary/blob/main/IPSupport-quantization-whitepaper.pdf) · run MLX builds on a Mac with [LLMTray](https://www.ipsupport.us/llmtray/)."
  }
 }
