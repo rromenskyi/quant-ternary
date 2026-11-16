@@ -8,6 +8,10 @@ as its overview (YAML header dropped, relative links and images made
 absolute to the HF repo, so the banners show), a usage section for its
 format, and the Google base model from the HF card's `base_model` as its
 external base model.
+
+A release with a "credit" (components.json: third-party models LLMTray
+downloads) gets that credit, the files and revision it mirrors, and the
+upstream README instead; its usage says what it is for.
 """
 from __future__ import annotations
 
@@ -39,8 +43,29 @@ Then `mlx_lm.generate --model <path> --prompt "Hello"`, or open it in [LLMTray](
 }
 
 
-def hf_readme(repo: str) -> str:
-    text = open(hf_hub_download(repo, "README.md")).read()
+COMPONENT_USAGE = """```python
+import kagglehub
+path = kagglehub.model_download("{handle}")
+```
+[LLMTray](https://www.ipsupport.us/llmtray/) downloads these files from here when Hugging Face can't be reached. They are unchanged: the original is [{hf}](https://huggingface.co/{hf}/tree/{rev})."""
+
+
+def component_overview(rel: dict, sha: str) -> str:
+    files = rel.get("patterns")
+    what = ("These files of " if files else "An unchanged copy of ") + f"[{rel['hf']}](https://huggingface.co/{rel['hf']}/tree/{sha}) at `{sha[:7]}`"
+    lines = [f"**Mirror.** {rel['credit']}", "", what + (":" if files else ".")]
+    if files:
+        lines += [f"- `{f}`" for f in files]
+    lines += ["", f"License: {rel.get('license_text', rel['license'])}, as upstream. The upstream model card follows.", "", "---", "",
+              hf_readme(rel["hf"], sha)]
+    return "\n".join(lines)
+
+
+def hf_readme(repo: str, revision: str | None = None) -> str:
+    try:
+        text = open(hf_hub_download(repo, "README.md", revision=revision)).read()
+    except Exception:
+        return ""
     text = re.sub(r"\A---\n.*?\n---\n", "", text, flags=re.S)  # YAML front matter
     base = f"https://huggingface.co/{repo}"
     # relative images / links -> absolute (resolve/ for files, blob/ for docs)
@@ -91,7 +116,7 @@ def main() -> None:
                 print(f"model {slug}: card set", flush=True)
             time.sleep(2)
         for rel in releases:
-            info = hf.model_info(rel["hf"])
+            info = hf.model_info(rel["hf"], revision=rel.get("revision"))
             base = (info.card_data or {}).get("base_model") if info.card_data else None
             base = base[0] if isinstance(base, list) else base
             handle = f"{user}/{rel['model']}/{rel['framework']}/{rel['variation']}"
@@ -99,8 +124,12 @@ def main() -> None:
             r.owner_slug, r.model_slug = user, rel["model"]
             r.framework = kagglehub.handle.parse_model_handle(handle).framework_enum()
             r.instance_slug = rel["variation"]
-            r.overview = hf_readme(rel["hf"])
-            r.usage = USAGE[rel["framework"]].format(handle=handle, hf=rel["hf"])
+            if "credit" in rel:
+                r.overview = component_overview(rel, info.sha)
+                r.usage = COMPONENT_USAGE.format(handle=handle, hf=rel["hf"], rev=info.sha)
+            else:
+                r.overview = hf_readme(rel["hf"])
+                r.usage = USAGE[rel["framework"]].format(handle=handle, hf=rel["hf"])
             paths = ["overview", "usage"]
             if base:
                 r.model_instance_type = ModelInstanceType.MODEL_INSTANCE_TYPE_EXTERNAL_VARIANT

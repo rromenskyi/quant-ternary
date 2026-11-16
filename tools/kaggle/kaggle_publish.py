@@ -6,7 +6,10 @@ releases.json lists {hf, model, framework, variation}: the HF repo
 (roman220220/<name>) is downloaded file by file into a scratch dir, uploaded
 as <user>/<model>/<framework>/<variation> (kagglehub creates the model and
 the variation if they don't exist; a rerun adds a new version), then the
-scratch copy is deleted. Finished uploads are recorded in done.json next to
+scratch copy is deleted. Optional fields: "revision" (an HF commit to mirror
+instead of main), "patterns" (only these files, as allow_patterns, folders
+kept) and "license" (Kaggle's license name). components.json uses them for
+the third-party models LLMTray downloads. Finished uploads are recorded in done.json next to
 the spec, so a rerun skips them. The Kaggle credentials come from the
 environment only; nothing is written to disk.
 """
@@ -41,13 +44,14 @@ def main() -> None:
         if args.only and r["hf"] not in args.only:
             continue
         handle = f"{user}/{r['model']}/{r['framework']}/{r['variation']}"
-        sha = hf.model_info(r["hf"]).sha
+        sha = hf.model_info(r["hf"], revision=r.get("revision")).sha
         if done.get(handle) == sha:
             print(f"skip {handle} (HF {sha[:7]} already uploaded)", flush=True)
             continue
         local = Path(args.scratch) / r["hf"].replace("/", "__")
         t0 = time.time()
-        snapshot_download(r["hf"], local_dir=local, ignore_patterns=IGNORE)
+        snapshot_download(r["hf"], revision=sha, local_dir=local, ignore_patterns=IGNORE,
+                          allow_patterns=r.get("patterns"))
         size = sum(f.stat().st_size for f in local.rglob("*") if f.is_file()) / 1e9
         print(f"{r['hf']}: {size:.1f} GB downloaded in {time.time() - t0:.0f}s", flush=True)
         t1 = time.time()
