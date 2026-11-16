@@ -1,0 +1,154 @@
+[
+ {
+  "hf": "mlx-community/silero-vad-v6",
+  "model": "llmtray-components",
+  "framework": "other",
+  "variation": "silero-vad-v6-mlx",
+  "patterns": [
+   "config.json",
+   "model.safetensors"
+  ],
+  "license": "MIT",
+  "credit": "Silero VAD v6 by Silero Team (MIT), MLX conversion by mlx-community. LLMTray uses it to find where speech starts and stops in voice conversation."
+ },
+ {
+  "hf": "mlx-community/smart-turn-v3",
+  "model": "llmtray-components",
+  "framework": "other",
+  "variation": "smart-turn-v3-mlx",
+  "patterns": [
+   "config.json",
+   "model.safetensors"
+  ],
+  "license": "BSD-3-Clause",
+  "credit": "Smart Turn v3 by pipecat-ai (BSD-2-Clause), MLX conversion by mlx-community. LLMTray uses it to decide whether a pause ends the speaker's turn.",
+  "license_text": "BSD-2-Clause (Kaggle's license list has no BSD-2-Clause, so the variation is tagged with the nearest one, BSD-3-Clause; the upstream BSD-2-Clause terms apply)"
+ },
+ {
+  "hf": "mlx-community/parakeet-tdt-0.6b-v3",
+  "model": "llmtray-components",
+  "framework": "other",
+  "variation": "parakeet-tdt-0-6b-v3-mlx",
+  "patterns": [
+   "config.json",
+   "model.safetensors",
+   "tokenizer.model",
+   "tokenizer.vocab",
+   "vocab.txt"
+  ],
+  "license": "Attribution 4.0 International (CC BY 4.0)",
+  "credit": "Parakeet TDT 0.6B v3 by NVIDIA (CC BY 4.0), MLX conversion by mlx-community. LLMTray's default speech recognizer for voice conversation (25 European languages).",
+  "license_text": "CC BY 4.0"
+ },
+ {
+  "hf": "mlx-community/whisper-large-v3-turbo",
+  "model": "llmtray-components",
+  "framework": "other",
+  "variation": "whisper-large-v3-turbo-mlx",
+  "patterns": [
+   "config.json",
+   "weights.safetensors"
+  ],
+  "license": "MIT",
+  "credit": "Whisper large-v3-turbo by OpenAI (MIT), MLX conversion by mlx-community. LLMTray's multilingual speech recognizer (99 languages); its tokenizer is the `whisper-large-v3-turbo-tokenizer` variation."
+ },
+ {
+  "hf": "openai/whisper-large-v3-turbo",
+  "model": "llmtray-components",
+  "framework": "other",
+  "variation": "whisper-large-v3-turbo-tokenizer",
+  "patterns": [
+   "added_tokens.json",
+   "merges.txt",
+   "normalizer.json",
+   "preprocessor_config.json",
+   "special_tokens_map.json",
+   "tokenizer.json",
+   "tokenizer_config.json",
+   "vocab.json",
+   "generation_config.json"
+  ],
+  "license": "MIT",
+  "credit": "The tokenizer and preprocessing files of Whisper large-v3-turbo by OpenAI (MIT). No weights: those are the `whisper-large-v3-turbo-mlx` variation."
+ },
+ {
+  "hf": "mlx-community/S3TokenizerV2",
+  "model": "llmtray-components",
+  "framework": "other",
+  "variation": "s3tokenizer-v2-mlx",
+  "patterns": [
+   "model.safetensors",
+   "config.json"
+  ],
+  "license": "Apache 2.0",
+  "credit": "S3 speech tokenizer V2, converted from FunAudioLLM's CosyVoice2-0.5B (Apache-2.0) by mlx-community. LLMTray's spoken answers (Chatterbox) use it."
+ },
+ {
+  "hf": "ruaccent/accentuator",
+  "model": "llmtray-components",
+  "framework": "other",
+  "variation": "ruaccent-accentuator",
+  "revision": "b78ae5ea1e62beaf138bed1865cd8c3b0b5ca855",
+  "patterns": [
+   "dictionary/accents.json.gz",
+   "dictionary/omographs.json.gz",
+   "dictionary/yo_words.json.gz",
+   "dictionary/yo_homographs.json.gz",
+   "nn/nn_accent/model.onnx",
+   "nn/nn_accent/config.json",
+   "nn/nn_accent/special_tokens_map.json",
+   "nn/nn_accent/tokenizer_config.json",
+   "nn/nn_accent/vocab.txt",
+   "nn/nn_omograph/tiny2.1/model.onnx",
+   "nn/nn_omograph/tiny2.1/config.json",
+   "nn/nn_omograph/tiny2.1/added_tokens.json",
+   "nn/nn_omograph/tiny2.1/special_tokens_map.json",
+   "nn/nn_omograph/tiny2.1/tokenizer.json",
+   "nn/nn_omograph/tiny2.1/tokenizer_config.json",
+   "nn/nn_omograph/tiny2.1/vocab.txt",
+   "nn/nn_yo_homograph_resolver/model.onnx",
+   "nn/nn_yo_homograph_resolver/config.json",
+   "nn/nn_yo_homograph_resolver/special_tokens_map.json",
+   "nn/nn_yo_homograph_resolver/tokenizer.json",
+   "nn/nn_yo_homograph_resolver/tokenizer_config.json",
+   "nn/nn_yo_homograph_resolver/vocab.txt"
+  ],
+  "license": "MIT",
+  "credit": "Part of ruaccent's accentuator by Den4ikAI (MIT): the stress and yo dictionaries and the three small ONNX models LLMTray uses to place Russian stress in spoken answers."
+ },
+ {
+  "hf": "mlx-community/ACE-Step1.5-MLX-4bit",
+  "model": "llmtray-components",
+  "framework": "other",
+  "variation": "ace-step-1-5-turbo-mlx-4bit",
+  "license": "MIT",
+  "credit": "ACE-Step 1.5 turbo by ACE Studio and StepFun (MIT), 4-bit MLX conversion by mlx-community. It includes Qwen3-Embedding-0.6B by the Qwen team (Apache-2.0) as its text encoder. LLMTray's fast music model.",
+  "license_text": "MIT; the bundled Qwen3-Embedding-0.6B text encoder (folder `Qwen3-Embedding-0.6B`) is Apache-2.0"
+ },
+ {
+  "hf": "ACE-Step/Ace-Step1.5",
+  "model": "llmtray-components",
+  "framework": "other",
+  "variation": "ace-step-1-5-lm-1-7b",
+  "patterns": [
+   "acestep-5Hz-lm-1.7B/*"
+  ],
+  "license": "MIT",
+  "credit": "The 1.7B 5 Hz language-model planner from ACE-Step 1.5 by ACE Studio and StepFun (MIT), pretrained from Qwen3-1.7B by the Qwen team (Apache-2.0): only the `acestep-5Hz-lm-1.7B` folder of the official repo. LLMTray's turbo music model plans songs with it.",
+  "license_text": "MIT, as the ACE-Step 1.5 repo states (the base, Qwen3-1.7B, is Apache-2.0)"
+ },
+ {
+  "hf": "mlx-community/bge-m3-mlx-fp16",
+  "model": "llmtray-components",
+  "framework": "other",
+  "variation": "bge-m3-mlx-fp16",
+  "revision": "a37eddded9a6a1273a87fb8b0da0d1cdbd98aeec",
+  "patterns": [
+   "config.json",
+   "tokenizer.json",
+   "model.safetensors"
+  ],
+  "license": "MIT",
+  "credit": "BGE-M3 by BAAI (MIT), fp16 MLX conversion by mlx-community. LLMTray's default embedder for searching project files."
+ }
+]
