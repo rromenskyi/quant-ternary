@@ -122,7 +122,8 @@
   "framework": "other",
   "variation": "ace-step-1-5-turbo-mlx-4bit",
   "license": "MIT",
-  "credit": "ACE-Step 1.5 turbo by ACE Studio and StepFun (MIT), 4-bit MLX conversion by mlx-community. It includes Qwen3-Embedding-0.6B by the Qwen team (Apache-2.0) as its text encoder. LLMTray's fast music model."
+  "credit": "ACE-Step 1.5 turbo by ACE Studio and StepFun (MIT), 4-bit MLX conversion by mlx-community. It includes Qwen3-Embedding-0.6B by the Qwen team (Apache-2.0) as its text encoder. LLMTray's fast music model.",
+  "license_text": "MIT; the bundled Qwen3-Embedding-0.6B text encoder (folder `Qwen3-Embedding-0.6B`) is Apache-2.0"
  },
  {
   "hf": "ACE-Step/Ace-Step1.5",
@@ -133,7 +134,8 @@
    "acestep-5Hz-lm-1.7B/*"
   ],
   "license": "MIT",
-  "credit": "The 1.7B 5 Hz language-model planner from ACE-Step 1.5 by ACE Studio and StepFun (MIT): only the `acestep-5Hz-lm-1.7B` folder of the official repo. LLMTray's turbo music model plans songs with it."
+  "credit": "The 1.7B 5 Hz language-model planner from ACE-Step 1.5 by ACE Studio and StepFun (MIT), pretrained from Qwen3-1.7B by the Qwen team (Apache-2.0): only the `acestep-5Hz-lm-1.7B` folder of the official repo. LLMTray's turbo music model plans songs with it.",
+  "license_text": "MIT, as the ACE-Step 1.5 repo states (the base, Qwen3-1.7B, is Apache-2.0)"
  },
  {
   "hf": "mlx-community/bge-m3-mlx-fp16",

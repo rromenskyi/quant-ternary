@@ -16,6 +16,7 @@ environment only; nothing is written to disk.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -26,6 +27,14 @@ import kagglehub
 from huggingface_hub import HfApi, snapshot_download
 
 IGNORE = [".gitattributes", "*.png", "*.jpg"]  # banners stay on HF
+
+
+def done_key(sha: str, patterns: list[str] | None) -> str:
+    """What done.json records per handle: the HF commit, plus the file
+    patterns when there are any (a changed list is a new upload)."""
+    if not patterns:
+        return sha
+    return sha + ":" + hashlib.sha256(json.dumps(patterns).encode()).hexdigest()[:12]
 
 
 def main() -> None:
@@ -45,7 +54,7 @@ def main() -> None:
             continue
         handle = f"{user}/{r['model']}/{r['framework']}/{r['variation']}"
         sha = hf.model_info(r["hf"], revision=r.get("revision")).sha
-        if done.get(handle) == sha:
+        if done_key(sha, r.get("patterns")) == done.get(handle):
             print(f"skip {handle} (HF {sha[:7]} already uploaded)", flush=True)
             continue
         local = Path(args.scratch) / r["hf"].replace("/", "__")
@@ -60,7 +69,7 @@ def main() -> None:
                                ignore_patterns=[".cache/"])
         print(f"{handle}: uploaded in {time.time() - t1:.0f}s", flush=True)
         shutil.rmtree(local, ignore_errors=True)
-        done[handle] = sha
+        done[handle] = done_key(sha, r.get("patterns"))
         done_f.write_text(json.dumps(done, indent=1))
 
 

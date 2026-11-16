@@ -24,6 +24,7 @@ import time
 import kagglehub
 from google.protobuf.field_mask_pb2 import FieldMask
 from huggingface_hub import HfApi, hf_hub_download
+from huggingface_hub.utils import EntryNotFoundError
 from kagglehub.clients import build_kaggle_client
 from kagglesdk.models.types.model_api_service import ApiUpdateModelInstanceRequest, ApiUpdateModelRequest
 from kagglesdk.models.types.model_enums import ModelInstanceType
@@ -64,7 +65,7 @@ def component_overview(rel: dict, sha: str) -> str:
 def hf_readme(repo: str, revision: str | None = None) -> str:
     try:
         text = open(hf_hub_download(repo, "README.md", revision=revision)).read()
-    except Exception:
+    except EntryNotFoundError:  # no card upstream; any other failure stops the run
         return ""
     text = re.sub(r"\A---\n.*?\n---\n", "", text, flags=re.S)  # YAML front matter
     base = f"https://huggingface.co/{repo}"
@@ -103,6 +104,10 @@ def main() -> None:
     args = ap.parse_args()
     user = os.environ.get("KAGGLE_USERNAME") or kagglehub.whoami()["username"]
     releases = json.load(open(args.releases))
+    # The commits kaggle_publish.py uploaded (done.json next to the spec):
+    # a component's card names that one, not whatever HF has now.
+    done_f = os.path.join(os.path.dirname(os.path.abspath(args.releases)), "done.json")
+    uploaded = {h: v.split(":")[0] for h, v in json.load(open(done_f)).items()} if os.path.exists(done_f) else {}
     cards = json.load(open(args.cards))
     hf = HfApi()
     with build_kaggle_client() as client:
@@ -125,8 +130,9 @@ def main() -> None:
             r.framework = kagglehub.handle.parse_model_handle(handle).framework_enum()
             r.instance_slug = rel["variation"]
             if "credit" in rel:
-                r.overview = component_overview(rel, info.sha)
-                r.usage = COMPONENT_USAGE.format(handle=handle, hf=rel["hf"], rev=info.sha)
+                sha = uploaded.get(handle, info.sha)
+                r.overview = component_overview(rel, sha)
+                r.usage = COMPONENT_USAGE.format(handle=handle, hf=rel["hf"], rev=sha)
             else:
                 r.overview = hf_readme(rel["hf"])
                 r.usage = USAGE[rel["framework"]].format(handle=handle, hf=rel["hf"])
