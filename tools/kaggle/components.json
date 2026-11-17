@@ -150,5 +150,17 @@
   ],
   "license": "MIT",
   "credit": "BGE-M3 by BAAI (MIT), fp16 MLX conversion by mlx-community. LLMTray's default embedder for searching project files."
+ },
+ {
+  "hf": "ggml-org/bge-m3-Q8_0-GGUF",
+  "model": "llmtray-components",
+  "framework": "gguf",
+  "variation": "bge-m3-q8-0-gguf",
+  "revision": "9eba04c5d75ba5a1595e45de734d36bef4e5cb98",
+  "patterns": [
+   "bge-m3-q8_0.gguf"
+  ],
+  "license": "MIT",
+  "credit": "BGE-M3 by BAAI (MIT), Q8_0 GGUF conversion by ggml-org. LLMTray for Windows' embedder for memory and project search (llama.cpp)."
  }
 ]
