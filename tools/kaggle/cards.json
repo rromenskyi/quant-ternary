@@ -55,9 +55,9 @@
   "description": "ACE-Step 1.5 (sft) music model for MLX in three builds (`mlx-bf16`, `mlx-8bit`, `mlx-gptq-4bit`). GPTQ 4-bit cuts velocity error 25% vs. round-to-nearest; 8-bit sounds like bf16 by ear.\n\nEach variation's overview is its Hugging Face model card; the license is the base model's (see each card).\n\n---\n**IPSupport LLC** · [ipsupport.us](https://www.ipsupport.us) · all our releases: [huggingface.co/roman220220](https://huggingface.co/roman220220) · how we quantize: [whitepaper](https://github.com/rromenskyi/quant-ternary/blob/main/IPSupport-quantization-whitepaper.pdf) · run MLX builds on a Mac with [LLMTray](https://www.ipsupport.us/llmtray/)."
  },
  "frognano-4b-2609-ipsupport": {
-  "title": "FrogNano 4B 2609 — IPSupport GPTQ JANG MLX",
-  "subtitle": "GPTQ with a JANG bit map, vision included",
-  "description": "Microsoft FrogNano 4B (2609) for MLX: GPTQ with a JANG 8/6/4 bit map by component role, vision tower included.\n\nEach variation's overview is its Hugging Face model card; the license is the base model's (see each card).\n\n---\n**IPSupport LLC** · [ipsupport.us](https://www.ipsupport.us) · all our releases: [huggingface.co/roman220220](https://huggingface.co/roman220220) · how we quantize: [whitepaper](https://github.com/rromenskyi/quant-ternary/blob/main/IPSupport-quantization-whitepaper.pdf) · run MLX builds on a Mac with [LLMTray](https://www.ipsupport.us/llmtray/)."
+  "title": "FrogNano 4B 2609 — IPSupport",
+  "subtitle": "GGUF + GPTQ JANG MLX, vision included",
+  "description": "Quantized builds of Microsoft's FrogNano 4B (2609), vision tower included.\n\n| Variation | Format | Notes |\n|---|---|---|\n| `gguf/jang-imatrix` | GGUF (llama.cpp, Ollama) | bit map by component role, imatrix; vision mmproj and MTP drafter included |\n| `other/mlx-gptq-jang` | MLX (Apple Silicon) | per-component GPTQ, JANG 8/6/4 bit map |\n\nEach variation's overview is its Hugging Face model card; the license is the base model's (see each card).\n\n---\n**IPSupport LLC** · [ipsupport.us](https://www.ipsupport.us) · all our releases: [huggingface.co/roman220220](https://huggingface.co/roman220220) · how we quantize: [whitepaper](https://github.com/rromenskyi/quant-ternary/blob/main/IPSupport-quantization-whitepaper.pdf) · run MLX builds on a Mac with [LLMTray](https://www.ipsupport.us/llmtray/)."
  },
  "ornith-1-5-35b-a3b-ipsupport": {
   "title": "Ornith 1.5 35B-A3B — IPSupport GPTQ JANG MLX",

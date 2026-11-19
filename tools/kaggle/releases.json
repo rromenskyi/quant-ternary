@@ -159,6 +159,13 @@
   "license": "Apache 2.0"
  },
  {
+  "hf": "roman220220/FrogNano-4B-2609-GGUF-jang-imatrix",
+  "model": "frognano-4b-2609-ipsupport",
+  "framework": "gguf",
+  "variation": "jang-imatrix",
+  "license": "Apache 2.0"
+ },
+ {
   "hf": "roman220220/Ornith-1.5-35B-A3B-gptq-mlx-jang",
   "model": "ornith-1-5-35b-a3b-ipsupport",
   "framework": "other",
