@@ -35,7 +35,7 @@ def check_weights(quantized: str, ref_path: str) -> None:
     spec = json.load(open(f"{quantized}/config.json"))["quantization"]
     recipe = json.load(open(f"{quantized}/quant_recipe.json"))["recipe"]
     worst, n = 0.0, 0
-    for key in sorted(k for k in qp if k.endswith(".scales") and ".layers." in k):
+    for key in sorted(k for k in qp if k.endswith(".scales") and k.startswith("model.language_model.layers.")):
         path = key[: -len(".scales")]
         s = spec[path]
         want = recipe["attn"] if ".self_attn." in path else recipe["experts_gate_up" if "gate_up" in path else "experts_down"]

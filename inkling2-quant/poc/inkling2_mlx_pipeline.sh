@@ -18,7 +18,7 @@
 #   calibrate   GPTQ, layer by layer, the loop on its first pass (gptq_inkling2.py)
 #   assemble    the source checkpoint with the calibrated decoder swapped in, bf16 experts
 #   convert     MLX at the recipe's bits, then GPTQ's exact codes (convert_mlx.py)
-#   check       vision vs HF, image + text answers, perplexity (check_mlx.py)
+#   check       vision vs HF, image + text answers, perplexity, DSpark (check_mlx.py)
 #   card        model card copied in LAST
 #   publish     hf upload (PUBLISH=1 only)
 #
@@ -31,6 +31,7 @@ GROUP_SIZE="${GROUP_SIZE:-64}"
 EMBED_BITS="${EMBED_BITS:-8}"
 HEAD_BITS="${HEAD_BITS:-8}"
 VISION_BITS="${VISION_BITS:-0}"   # bf16, as mlx-lm's inkling2 quant_predicate
+MTP_BITS="${MTP_BITS:-8}"         # the DSpark draft (mtp.safetensors), RTN; its recurrence stays float
 CALIB_CHUNKS="${CALIB_CHUNKS:-128}"
 MLX_LM_REF="${MLX_LM_REF:-main}"   # ipsupport-llc/mlx-lm ref (mlx_lm.models.inkling2)
 
@@ -167,7 +168,7 @@ else
   rm -rf "$OUT_DIR"
   run_step convert "MLX at the recipe's bits" \
     mlx_env python3 "$HERE/convert_mlx.py" --hf "$ONGRID" --out "$OUT_DIR" --gptq-work "$GPTQ" \
-      --embed-bits "$EMBED_BITS" --head-bits "$HEAD_BITS" --vision-bits "$VISION_BITS"
+      --embed-bits "$EMBED_BITS" --head-bits "$HEAD_BITS" --vision-bits "$VISION_BITS" --mtp-bits "$MTP_BITS"
 fi
 
 # --- check ---------------------------------------------------------------------
@@ -177,7 +178,7 @@ if [ -s "$CHECK_JSON" ] && [ "$CHECK_JSON" -nt "$OUT_DIR/quant_recipe.json" ] \
 else
   run_step check "vision vs HF, image + text answers, perplexity (text, code)" \
     mlx_env python3 "$HERE/check_mlx.py" --model "$OUT_DIR" --ref "$REF" --wikitext "$DATA/wiki.test.raw" \
-      --code "$DATA/code.test.txt" --out "$CHECK_JSON" --max-ppl-ratio "$MAX_PPL_RATIO"
+      --code "$DATA/code.test.txt" --out "$CHECK_JSON" --max-ppl-ratio "$MAX_PPL_RATIO" --expect-dspark
 fi
 
 # --- model card (LAST) -----------------------------------------------------------

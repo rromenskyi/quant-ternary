@@ -57,6 +57,31 @@ def gptq_tensors(work: Path, recipe: dict) -> dict[str, tuple]:
     return out
 
 
+def split_draft(out: Path) -> int:
+    """Moves the DSpark draft (dspark.*) into model-mtp.safetensors: an
+    installed model gets it by downloading that one file."""
+    index_path = out / "model.safetensors.index.json"
+    index = json.load(open(index_path)) if index_path.exists() else {"metadata": {}, "weight_map": {}}
+    if not index["weight_map"]:
+        for f in sorted(out.glob("model*.safetensors")):
+            index["weight_map"].update({k: f.name for k in mx.load(str(f))})
+    draft = {}
+    for f in sorted(out.glob("model*.safetensors")):
+        if f.name == "model-mtp.safetensors":
+            continue
+        t = mx.load(str(f))
+        moved = {k: v for k, v in t.items() if k.startswith("dspark.")}
+        if moved:
+            mx.eval(t)  # loaded lazily from the file rewritten below
+            draft.update(moved)
+            mx.save_safetensors(str(f), {k: v for k, v in t.items() if k not in moved}, metadata={"format": "mlx"})
+    if draft:
+        mx.save_safetensors(str(out / "model-mtp.safetensors"), draft, metadata={"format": "mlx"})
+        index["weight_map"].update({k: "model-mtp.safetensors" for k in draft})
+        json.dump(index, open(index_path, "w"), indent=2)
+    return len(draft)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--hf", required=True)
@@ -64,6 +89,7 @@ def main() -> None:
     ap.add_argument("--embed-bits", type=int, default=8)
     ap.add_argument("--head-bits", type=int, default=8)
     ap.add_argument("--vision-bits", type=int, default=0, help="0 keeps the vision tower bf16")
+    ap.add_argument("--mtp-bits", type=int, default=8, help="the DSpark draft, RTN; 0 keeps it bf16")
     ap.add_argument("--gptq-work", help="gptq_inkling2.py's --work: write its exact codes")
     ap.add_argument("--device", default="cpu", help="cpu: a bf16 checkpoint bigger than the GPU converts in RAM")
     args = ap.parse_args()
@@ -74,6 +100,11 @@ def main() -> None:
     floats = [re.compile(p) for p in KEEP_FLOAT]
 
     def predicate(path: str, module) -> bool | dict:
+        if path.startswith("dspark."):
+            # The recurrence stays float, as the reference's fp32 path.
+            if not args.mtp_bits or path.endswith(("rnn_proj", "hidden_out")):
+                return False
+            return {"group_size": gs, "bits": args.mtp_bits}
         if path.startswith("model.vision_tower"):
             return {"group_size": gs, "bits": args.vision_bits} if args.vision_bits else False
         if path.endswith("embed_tokens"):
@@ -91,6 +122,7 @@ def main() -> None:
     if args.gptq_work:
         q35_convert.gptq_tensors = gptq_tensors  # its writer, with this model's names
         q35_convert.write_gptq_codes(out, Path(args.gptq_work), recipe, gs)
+    print(f"DSpark draft: {split_draft(out)} tensors in model-mtp.safetensors", flush=True)
     shutil.copy(hf / "quant_recipe.json", out / "quant_recipe.json")
     for d in ("tiktoken",):
         if (hf / d).is_dir():

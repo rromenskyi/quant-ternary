@@ -21,8 +21,7 @@
   per-expert `amax / outer_scale_denominator`); everything else bf16.
   There is no bf16 release. 26.4 B parameters, 24.5 B of them experts.
 - Vision: 23-layer ViT, hidden 1024, 40 x 40 pixel blocks per image token.
-- An MTP head (`mtp.safetensors`, RNN Markov head). Neither mlx-lm nor
-  this pipeline uses it: it is not shipped.
+- A DSpark draft (`mtp.safetensors`, 0.64 GB bf16), see section 8.
 
 ## 2. The MLX port
 
@@ -119,6 +118,46 @@ llama.cpp master has Inkling 2 (#32217, 2026-11-14) and the Mini loop
 and writes the vision tower as an mmproj. Open there as of 2026-11-22:
 perplexity NaN for inkling2_loop on CUDA (#32710), prompts over ~96
 tokens decoding to '?' (#32778). The smoke test sends a longer prompt.
+
+## 8. The DSpark draft (speculative decoding)
+
+`mtp_config` calls it an MTP head; it is a block drafter. transformers has
+no implementation; vLLM has the reference
+(`vllm/models/inkling2/nvidia/dspark.py`, `speculator.py`), llama.cpp a
+port in an open PR (#32218). What it does, read from vLLM:
+
+- Target features: the hidden state at the input of layer visits 5, 23,
+  41 (the loop's passes counted: 48 visits) and the final output (48).
+- Context: for every committed position, per draft layer, a softmax-mixed
+  (`fuse_weight`), RMS-normed (`dflare_norm`) sum of the four features,
+  projected to keys (`k_proj_ctx`, per-head norm, RoPE) and values. Local
+  draft layers keep the last 1024 positions.
+- Block: [anchor = embed_norm(embed(last token)), 7 x `mask_embed`] at
+  positions P .. P + 7, three dense layers (GQA 24/8, q/k norm, RoPE
+  theta 1e6, SiLU MLP 9216), attending with no mask to the context and the
+  whole block; mask slot i drafts the token at P + i.
+- Markov head, slot by slot: a GRU-like step over [state, w1(previous
+  token), slot hidden, f_rnn] (`rnn_proj`, 5120 -> 3 x 256; f_rnn = the
+  last committed position's features, mixed with the last `fuse_weight`
+  row), `tanh` latent -> `hidden_out` -> the LM head adds a bias to the
+  slot's logits, softcap 30.
+
+The mlx-lm port (fork commit a57464a): `inkling2/dspark.py`, features from
+`TextModel(capture=...)`, `generate.dspark_generate_step` (stream_generate
+picks it when the model has the draft). The rejected drafts roll back
+exactly: key/value caches as for Gemma 4's drafter, the convolution
+states from the windows the verify forward recorded. Tested with a random
+model: greedy output equal to plain decoding in fp32, oracle drafts for
+partial acceptance, the cache after an early stop. In bf16 a multi-token
+verify rounds unlike single steps, so a near tie can flip (the tiny random
+model diverged at token 6, fp32 identical): check_mlx.py records whether
+the greedy answer is the same, and fails on the acceptance only (tokens
+per verify step, all 7 drafts, below 1.5).
+
+Shipped as `model-mtp.safetensors` (keys `dspark.*`), 8-bit RTN; the
+recurrence (`rnn_proj`, `hidden_out`) stays bf16, as vLLM keeps it in
+fp32. Not GPTQ: it only decides which tokens are tried, never the output.
+Not in the GGUF: llama.cpp's DSpark support is still a PR.
 
 ## 7. Status
 

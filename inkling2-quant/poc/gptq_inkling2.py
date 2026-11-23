@@ -84,13 +84,17 @@ def layer_kwargs(lm, chunk: torch.Tensor) -> dict[int, dict]:
     store: dict[int, dict] = {}
     real = lm.layers
     lm.layers = torch.nn.ModuleList([_Catch(store, i, layer) for i, layer in enumerate(real)])
-    lm.embed_tokens.to(DEVICE)
+    # Everything the text model runs besides the layers.
+    outside = [m for m in (lm.embed_tokens, getattr(lm, "message_input", None), lm.final_input, lm.norm) if m is not None]
+    for m in outside:
+        m.to(DEVICE)
     try:
         with torch.no_grad():
             lm(input_ids=chunk.to(DEVICE), use_cache=False)
     finally:
         lm.layers = real
-        lm.embed_tokens.cpu()
+        for m in outside:
+            m.cpu()
     return store
 
 

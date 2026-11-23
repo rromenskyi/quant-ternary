@@ -3,8 +3,8 @@ swapped in, under the checkpoint's own names (names.py), plus
 quant_recipe.json. The NVFP4 experts become bf16 tensors on the GPTQ grid
 (w13 / w2, gate / up rows interleaved as published) and lose their
 scale / amax / outer_scale_denominator; config.json loses its
-quantization_config. Everything else is copied byte for byte. The MTP head
-(mtp.safetensors) is not: mlx-lm's inkling2 has none.
+quantization_config. Everything else is copied byte for byte; the DSpark
+draft (mtp.safetensors) goes to model-mtp.safetensors under mtp.*.
 
     python assemble_checkpoint.py --model SNAPSHOT --work /workspace/gptq-mini --out /workspace/ongrid-mini
 """
@@ -67,6 +67,12 @@ def main() -> None:
         print(f"{shard} written", flush=True)
     if left:
         raise SystemExit(f"not in any source shard: {sorted(left)[:5]}")
+    if (src / "mtp.safetensors").exists():
+        # The DSpark draft, as is: mlx-lm loads model*.safetensors, mtp.* keys.
+        draft = {f"mtp.{k}": v for k, v in load_file(src / "mtp.safetensors").items()}
+        save_file(draft, out / "model-mtp.safetensors", metadata={"format": "pt"})
+        weight_map.update({k: "model-mtp.safetensors" for k in draft})
+        print(f"model-mtp.safetensors written ({len(draft)} draft tensors)", flush=True)
     json.dump({"metadata": {}, "weight_map": weight_map}, open(out / "model.safetensors.index.json", "w"), indent=2)
     for f in src.iterdir():
         if f.is_file() and not f.name.endswith((".safetensors", ".bak")) and not f.name.startswith(".") \

@@ -35,5 +35,5 @@ pathlib.Path('$T/data/b.txt').write_text('\n\n'.join(p.read_text() for p in fs[3
   --chunks 2 --chunk-tokens 128
 # A random model: its answers are noise and only the machinery is checked.
 "$PY" check_mlx.py --model "$T/mlx" --ref "$T/ref" --wikitext "$T/data/a.txt" --code "$T/data/b.txt" \
-  --out "$T/check.json" --max-tokens 8 --max-ppl-ratio 1.05
+  --out "$T/check.json" --max-tokens 8 --max-ppl-ratio 1.05 --expect-dspark --min-tokens-per-step 0
 echo "SMOKE_TEST_DONE $T"

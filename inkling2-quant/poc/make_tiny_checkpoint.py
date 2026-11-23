@@ -38,6 +38,34 @@ def nvfp4(w: torch.Tensor) -> dict[str, torch.Tensor]:
             "_amax": amax, "_outer_scale_denominator": denominator}
 
 
+def mtp_tensors(m: dict, vocab: int) -> dict[str, torch.Tensor]:
+    """A random DSpark draft under mtp.safetensors' names."""
+    H, D, R, I = m["hidden_size"], m["head_dim"], m["markov_rank"], m["intermediate_size"]
+    q, kv = m["num_attention_heads"] * D, m["num_key_value_heads"] * D
+    shapes = {"fuse_weight": (m["num_hidden_layers"] + 1, len(m["target_layer_ids"])), "mask_embed": (H,),
+              "norm.weight": (H,), "markov_head.dflare_norm.weight": (H,),
+              "markov_head.hidden_out.weight": (H, R), "markov_head.hidden_out.bias": (H,),
+              "markov_head.markov_w1.weight": (vocab, R),
+              "markov_head.rnn_proj.weight": (3 * R, 2 * R + 2 * H), "markov_head.rnn_proj.bias": (3 * R,)}
+    for i in range(m["num_hidden_layers"]):
+        p = f"layers.{i}."
+        shapes.update({p + "input_layernorm.weight": (H,), p + "post_attention_layernorm.weight": (H,),
+                       p + "dflare_norm.weight": (H,), p + "self_attn.q_proj.weight": (q, H),
+                       p + "self_attn.k_proj.weight": (kv, H), p + "self_attn.v_proj.weight": (kv, H),
+                       p + "self_attn.k_proj_ctx.weight": (kv, H), p + "self_attn.v_proj_ctx.weight": (kv, H),
+                       p + "self_attn.o_proj.weight": (H, q), p + "self_attn.q_norm.weight": (D,),
+                       p + "self_attn.k_norm.weight": (D,), p + "self_attn.k_norm_ctx.weight": (D,),
+                       p + "mlp.gate_proj.weight": (I, H), p + "mlp.up_proj.weight": (I, H),
+                       p + "mlp.down_proj.weight": (H, I)})
+    out = {}
+    for k, s in shapes.items():
+        if "norm" in k:
+            out[k] = 1 + 0.1 * torch.randn(s)
+        else:
+            out[k] = torch.randn(s) * (s[-1] ** -0.5 if len(s) > 1 else 0.5)
+    return {k: v.to(torch.bfloat16).contiguous() for k, v in out.items()}
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--like", required=True, help="a real snapshot: config and tokenizer files")
@@ -58,6 +86,11 @@ def main() -> None:
     if raw.get("vision_config"):
         raw["vision_config"].update(hidden_size=32, num_hidden_layers=2, num_attention_heads=2,
                                     projection_hidden_dim=64, text_hidden_size=64)
+    if raw.get("mtp_config"):
+        # 6 layers, 2-3 looped 3 times: 10 layer visits, 10 is the output.
+        raw["mtp_config"].update(hidden_size=64, num_attention_heads=2, num_key_value_heads=1, head_dim=32,
+                                 intermediate_size=128, markov_rank=64, sliding_window_size=16,
+                                 target_layer_ids=[1, 4, 7, 10])
     quant = raw.pop("quantization_config", None)
     torch.manual_seed(args.seed)
     config = AutoConfig.for_model(**raw)
@@ -81,6 +114,8 @@ def main() -> None:
                 tensors[k + suffix] = v.contiguous()
         raw["quantization_config"] = quant
     out.mkdir(parents=True, exist_ok=True)
+    if raw.get("mtp_config"):
+        save_file(mtp_tensors(raw["mtp_config"], t["vocab_size"]), out / "mtp.safetensors", metadata={"format": "pt"})
     save_file(tensors, out / "model-00001-of-00001.safetensors", metadata={"format": "pt"})
     json.dump({"metadata": {}, "weight_map": {k: "model-00001-of-00001.safetensors" for k in tensors}},
               open(out / "model.safetensors.index.json", "w"), indent=2)
