@@ -70,6 +70,7 @@ against the release (NVFP4 experts, everything else bf16) in HF transformers:
 |---|---|---|---|---|---|
 | release (HF transformers) | 19.5 GB | 8.985 | — | 2.466 | — |
 | **this model (MLX)** | **13.1 GB** | **9.292** | **+3.4 %** | **2.526** | **+2.4 %** |
+| [2-bit gate / up build](https://huggingface.co/roman220220/Inkling-2-Mini-gptq-mlx-jang-small) | 11.1 GB | 10.068 | +12.1 % | 2.696 | +9.3 % |
 
 The routed experts hold 24.5 B of the 26.4 B parameters, so they set the
 size: at 3 bits (3.5 with the group scales) they are 10.7 GB of the 13.1.
