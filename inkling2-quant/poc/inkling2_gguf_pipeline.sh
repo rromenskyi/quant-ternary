@@ -146,8 +146,10 @@ run_step smoke "llama-server --jinja: chat replies, no control-token leak" gguf_
 if [ -f "$CARD" ]; then
   run_step card "copy $(basename "$CARD") -> README.md" bash -c '
     cp "$1" "$2/README.md"
-    for img in $(grep -o "[a-z-]*banner\.png" "$1" | sort -u); do cp "$3/$img" "$2/$img"; done' \
-    _ "$CARD" "$OUT_DIR" "$HERE/../../cards_assets"
+    for img in $(grep -o "[a-z-]*banner\.png" "$1" | sort -u); do cp "$3/$img" "$2/$img"; done
+    lic="$(dirname "$1")/licenses/$4-LICENSE"
+    if [ -f "$lic" ]; then cp "$lic" "$2/LICENSE"; fi' \
+    _ "$CARD" "$OUT_DIR" "$HERE/../../cards_assets" "${MODEL_ID##*/}"
 else
   skip_step card "no $CARD yet"
 fi

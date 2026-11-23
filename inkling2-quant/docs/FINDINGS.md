@@ -119,6 +119,15 @@ and writes the vision tower as an mmproj. Open there as of 2026-11-22:
 perplexity NaN for inkling2_loop on CUDA (#32710), prompts over ~96
 tokens decoding to '?' (#32778). The smoke test sends a longer prompt.
 
+Result (2026-11-23, master `7778de0c3`, A100): `Q4_K_M` experts, `Q6_K`
+attention / embeddings / head, imatrix 200 chunks: 16,922 MiB (5.45 bpw).
+`llama-perplexity` 40 chunks, F16 -> quant: wikitext 6.768 -> 6.785
+(+0.24 %), Python stdlib 2.061 -> 2.062 (+0.06 %). No NaN on the A100; the
+smoke answers (a prompt over 96 tokens, a code question) and an image
+through `llama-mtmd-cli` with the F16 mmproj (640 MB) were correct. GGUF's
+perplexity setup differs from check_mlx.py's: not comparable with the MLX
+numbers.
+
 ## 7. The DSpark draft (speculative decoding)
 
 `mtp_config` calls it an MTP head; it is a block drafter. transformers has
@@ -189,10 +198,11 @@ now `find_packages` (fork commit 2c487e1).
 
 ## 9. Status
 
-- Done, on a CPU: the port check, the whole pipeline on the tiny
-  checkpoint (`poc/smoke_test.sh`), the resume test.
-- Not run yet: the real calibration (needs a CUDA pod: the bf16 model is
-  53 GB), perplexities, the GGUF build.
+- Published 2026-11-23: roman220220/Inkling-2-Mini-gptq-mlx-jang (13.1 GB),
+  -small (11.1 GB), Inkling-2-Mini-GGUF-jang-imatrix (17.8 GB + mmproj).
+  The fork's inkling2 + DSpark is in its main (ipsupport-llc/mlx-lm#65).
+  Pod terminated (about 3.5 h of A100).
+- Not measured: speed and memory on a Mac.
 - Inkling 2 Small (594 B, `inkling2`): needs per-layer loading from the
   safetensors (1.2 TB in bf16 does not fit in a pod's RAM) and the
   MXFP8 experts dequantized; not started.
