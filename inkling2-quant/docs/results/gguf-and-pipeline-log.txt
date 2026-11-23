@@ -1,0 +1,158 @@
+F16          : 0.36.029.379 I Final estimate: PPL = 6.7681 +/- 0.16583
+Q4_K_M (jang): 0.47.836.054 I Final estimate: PPL = 6.7846 +/- 0.16592
+F16          : 0.37.741.317 I Final estimate: PPL = 6.7681 +/- 0.16583
+Q4_K_M (jang): 0.22.566.554 I Final estimate: PPL = 6.7846 +/- 0.16592
+F16          : 0.42.364.097 I Final estimate: PPL = 2.0612 +/- 0.03431
+Q4_K_M (jang): 0.29.448.935 I Final estimate: PPL = 2.0624 +/- 0.03425
+F16          : 0.43.555.580 I Final estimate: PPL = 2.0612 +/- 0.03431
+Q4_K_M (jang): 0.30.357.450 I Final estimate: PPL = 2.0624 +/- 0.03425
+text: 1. The Roman Empire began in 27 BCE with Augustus and controlled much of the Mediterranean world.
+text: Here's a clean iterative solution that runs in O(n) time and O(1) space:
+SMOKE_TEST_PASSED
+text: 1. The Roman Empire began in 27 BCE with Augustus and controlled much of the Mediterranean world.
+text: Here's a clean iterative solution that runs in O(n) time and O(1) space:
+SMOKE_TEST_PASSED
+llama_model_quantize_impl: model size  = 49795.66 MiB (16.02 BPW)
+llama_model_quantize_impl: quant size  = 16922.41 MiB (5.45 BPW)
+PIPE 1795396153 inkling2 START _pipeline inkling2 VARIANT=mini MODEL_ID=thinkingmachines/Inkling-2-Mini RECIPE=attn=8,experts=3 OUT_DIR=/workspace/Inkling-2-Mini-gptq-mlx-jang
+PIPE 1795396153 inkling2 START setup pip deps
+PIPE 1795396347 inkling2 DONE setup 
+PIPE 1795396347 inkling2 START data wikitext-2 + Python code corpus
+PIPE 1795396359 inkling2 DONE data 
+PIPE 1795396359 inkling2 START download thinkingmachines/Inkling-2-Mini
+PIPE 1795396396 inkling2 DONE download /workspace/hf/hub/models--thinkingmachines--Inkling-2-Mini/snapshots/b85c3cfa615fc413cc9af3379f491b963f3b586a
+PIPE 1795396396 inkling2 START reference transformers perplexity (text, code) + vision features
+PIPE 1795396459 inkling2 DONE reference 
+PIPE 1795396459 inkling2 START calibrate GPTQ attn=8,experts=3 (group 64)
+PIPE 1795396590 inkling2 FAIL calibrate exit=1
+PIPE 1795396590 inkling2 FAIL _pipeline exit=1
+PIPE 1795397028 inkling2 START _pipeline inkling2 VARIANT=mini MODEL_ID=thinkingmachines/Inkling-2-Mini RECIPE=attn=8,experts=3 OUT_DIR=/workspace/Inkling-2-Mini-gptq-mlx-jang
+PIPE 1795397028 inkling2 SKIP setup SETUP!=1
+PIPE 1795397028 inkling2 SKIP data already in /workspace/data
+PIPE 1795397028 inkling2 START download thinkingmachines/Inkling-2-Mini
+PIPE 1795397028 inkling2 DONE download /workspace/hf/hub/models--thinkingmachines--Inkling-2-Mini/snapshots/b85c3cfa615fc413cc9af3379f491b963f3b586a
+PIPE 1795397028 inkling2 SKIP reference /workspace/ref-Inkling-2-Mini has both perplexities and the vision features
+PIPE 1795397028 inkling2 START calibrate GPTQ attn=8,experts=3 (group 64)
+PIPE 1795397029 inkling2 DONE calibrate 
+PIPE 1795397029 inkling2 START assemble calibrated decoder into /workspace/ongrid-mini
+PIPE 1795397031 inkling2 FAIL assemble exit=1
+PIPE 1795397031 inkling2 FAIL _pipeline exit=1
+PIPE 1795397360 inkling2 START _pipeline inkling2 VARIANT=mini MODEL_ID=thinkingmachines/Inkling-2-Mini RECIPE=attn=8,experts=3 OUT_DIR=/workspace/Inkling-2-Mini-gptq-mlx-jang
+PIPE 1795397360 inkling2 SKIP setup SETUP!=1
+PIPE 1795397360 inkling2 SKIP data already in /workspace/data
+PIPE 1795397360 inkling2 START download thinkingmachines/Inkling-2-Mini
+PIPE 1795397361 inkling2 DONE download /workspace/hf/hub/models--thinkingmachines--Inkling-2-Mini/snapshots/b85c3cfa615fc413cc9af3379f491b963f3b586a
+PIPE 1795397361 inkling2 SKIP reference /workspace/ref-Inkling-2-Mini has both perplexities and the vision features
+PIPE 1795397361 inkling2 START calibrate GPTQ attn=8,experts=3 (group 64)
+PIPE 1795398189 inkling2 DONE calibrate 
+PIPE 1795398189 inkling2 START assemble calibrated decoder into /workspace/ongrid-mini
+PIPE 1795398289 inkling2 DONE assemble 
+PIPE 1795398289 inkling2 START convert MLX at the recipe's bits
+PIPE 1795398299 inkling2 FAIL convert exit=1
+PIPE 1795398299 inkling2 FAIL _pipeline exit=1
+PIPE 1795398369 inkling2 START _pipeline inkling2 VARIANT=mini MODEL_ID=thinkingmachines/Inkling-2-Mini RECIPE=attn=8,experts=3 OUT_DIR=/workspace/Inkling-2-Mini-gptq-mlx-jang
+PIPE 1795398369 inkling2 SKIP setup SETUP!=1
+PIPE 1795398369 inkling2 SKIP data already in /workspace/data
+PIPE 1795398369 inkling2 START download thinkingmachines/Inkling-2-Mini
+PIPE 1795398370 inkling2 DONE download /workspace/hf/hub/models--thinkingmachines--Inkling-2-Mini/snapshots/b85c3cfa615fc413cc9af3379f491b963f3b586a
+PIPE 1795398370 inkling2 SKIP reference /workspace/ref-Inkling-2-Mini has both perplexities and the vision features
+PIPE 1795398370 inkling2 SKIP calibrate all layers in /workspace/gptq-mini
+PIPE 1795398370 inkling2 SKIP assemble /workspace/ongrid-mini newer than the calibration
+PIPE 1795398370 inkling2 START convert MLX at the recipe's bits
+PIPE 1795398846 inkling2 DONE convert 
+PIPE 1795398846 inkling2 START check vision vs HF, image + text answers, perplexity (text, code)
+PIPE 1795399393 inkling2 DONE check 
+PIPE 1795399393 inkling2 SKIP card no /workspace/qt/inkling2-quant/poc/../cards/Inkling-2-Mini-gptq-mlx-jang.md yet
+PIPE 1795399393 inkling2 SKIP publish PUBLISH!=1
+PIPE 1795399393 inkling2 DONE _pipeline 
+PIPE 1795399518 inkling2 START _pipeline inkling2 VARIANT=mini MODEL_ID=thinkingmachines/Inkling-2-Mini RECIPE=attn=8,experts=3 OUT_DIR=/workspace/Inkling-2-Mini-gptq-mlx-jang
+PIPE 1795399518 inkling2 SKIP setup SETUP!=1
+PIPE 1795399518 inkling2 SKIP data already in /workspace/data
+PIPE 1795399518 inkling2 START download thinkingmachines/Inkling-2-Mini
+PIPE 1795399519 inkling2 DONE download /workspace/hf/hub/models--thinkingmachines--Inkling-2-Mini/snapshots/b85c3cfa615fc413cc9af3379f491b963f3b586a
+PIPE 1795399519 inkling2 SKIP reference /workspace/ref-Inkling-2-Mini has both perplexities and the vision features
+PIPE 1795399519 inkling2 SKIP calibrate all layers in /workspace/gptq-mini
+PIPE 1795399519 inkling2 SKIP assemble /workspace/ongrid-mini newer than the calibration
+PIPE 1795399519 inkling2 SKIP convert /workspace/Inkling-2-Mini-gptq-mlx-jang newer than /workspace/ongrid-mini
+PIPE 1795399520 inkling2 SKIP check /workspace/check-mini.json passed, newer than the model
+PIPE 1795399520 inkling2 START card copy Inkling-2-Mini-gptq-mlx-jang.md -> README.md
+PIPE 1795399520 inkling2 DONE card 
+PIPE 1795399520 inkling2 START publish hf upload roman220220/Inkling-2-Mini-gptq-mlx-jang
+PIPE 1795399558 inkling2 DONE publish 
+PIPE 1795399558 inkling2 DONE _pipeline 
+PIPE 1795399600 inkling2 START _pipeline inkling2 VARIANT=mini-small MODEL_ID=thinkingmachines/Inkling-2-Mini RECIPE=attn=8,experts_gate_up=2,experts_down=3 OUT_DIR=/workspace/Inkling-2-Mini-gptq-mlx-jang-small
+PIPE 1795399600 inkling2 SKIP setup SETUP!=1
+PIPE 1795399600 inkling2 SKIP data already in /workspace/data
+PIPE 1795399600 inkling2 START download thinkingmachines/Inkling-2-Mini
+PIPE 1795399601 inkling2 DONE download /workspace/hf/hub/models--thinkingmachines--Inkling-2-Mini/snapshots/b85c3cfa615fc413cc9af3379f491b963f3b586a
+PIPE 1795399601 inkling2 SKIP reference /workspace/ref-Inkling-2-Mini has both perplexities and the vision features
+PIPE 1795399601 inkling2 START calibrate GPTQ attn=8,experts_gate_up=2,experts_down=3 (group 64)
+PIPE 1795400426 inkling2 DONE calibrate 
+PIPE 1795400426 inkling2 START assemble calibrated decoder into /workspace/ongrid-mini-small
+PIPE 1795400524 inkling2 DONE assemble 
+PIPE 1795400524 inkling2 START convert MLX at the recipe's bits
+PIPE 1795401146 inkling2 DONE convert 
+PIPE 1795401146 inkling2 START check vision vs HF, image + text answers, perplexity (text, code)
+PIPE 1795401455 inkling2 DONE check 
+PIPE 1795401455 inkling2 SKIP card no /workspace/qt/inkling2-quant/poc/../cards/Inkling-2-Mini-gptq-mlx-jang-small.md yet
+PIPE 1795401455 inkling2 SKIP publish PUBLISH!=1
+PIPE 1795401455 inkling2 DONE _pipeline 
+PIPE 1795401517 inkling2 START _pipeline inkling2 VARIANT=mini-small MODEL_ID=thinkingmachines/Inkling-2-Mini RECIPE=attn=8,experts_gate_up=2,experts_down=3 OUT_DIR=/workspace/Inkling-2-Mini-gptq-mlx-jang-small
+PIPE 1795401517 inkling2 SKIP setup SETUP!=1
+PIPE 1795401517 inkling2 SKIP data already in /workspace/data
+PIPE 1795401517 inkling2 START download thinkingmachines/Inkling-2-Mini
+PIPE 1795401518 inkling2 DONE download /workspace/hf/hub/models--thinkingmachines--Inkling-2-Mini/snapshots/b85c3cfa615fc413cc9af3379f491b963f3b586a
+PIPE 1795401518 inkling2 SKIP reference /workspace/ref-Inkling-2-Mini has both perplexities and the vision features
+PIPE 1795401518 inkling2 SKIP calibrate all layers in /workspace/gptq-mini-small
+PIPE 1795401518 inkling2 SKIP assemble /workspace/ongrid-mini-small newer than the calibration
+PIPE 1795401518 inkling2 SKIP convert /workspace/Inkling-2-Mini-gptq-mlx-jang-small newer than /workspace/ongrid-mini-small
+PIPE 1795401518 inkling2 SKIP check /workspace/check-mini-small.json passed, newer than the model
+PIPE 1795401518 inkling2 START card copy Inkling-2-Mini-gptq-mlx-jang-small.md -> README.md
+PIPE 1795401518 inkling2 DONE card 
+PIPE 1795401518 inkling2 START publish hf upload roman220220/Inkling-2-Mini-gptq-mlx-jang-small
+PIPE 1795401551 inkling2 DONE publish 
+PIPE 1795401551 inkling2 DONE _pipeline 
+PIPE 1795401809 inkling2gguf START _pipeline inkling2gguf MODEL_ID=thinkingmachines/Inkling-2-Mini OUT_DIR=/workspace/gguf-inkling2-mini-out RECIPE=experts=Q4_K_M/attn=Q6_K
+PIPE 1795401809 inkling2gguf START llama_build clone + build llama.cpp master (CUDA)
+PIPE 1795402510 inkling2gguf DONE llama_build 
+PIPE 1795402510 inkling2gguf START download thinkingmachines/Inkling-2-Mini
+PIPE 1795402544 inkling2gguf DONE download /root/.cache/huggingface/hub/models--thinkingmachines--Inkling-2-Mini/snapshots/b85c3cfa615fc413cc9af3379f491b963f3b586a
+PIPE 1795402544 inkling2gguf START calib_data fetch bartowski calibration_datav3
+PIPE 1795402544 inkling2gguf DONE calib_data 
+PIPE 1795402544 inkling2gguf START convert_f16 NVFP4 experts dequantized -> F16 GGUF
+PIPE 1795403323 inkling2gguf DONE convert_f16 
+PIPE 1795403323 inkling2gguf START convert_mmproj vision tower -> mmproj F16
+PIPE 1795403342 inkling2gguf DONE convert_mmproj 
+PIPE 1795403342 inkling2gguf START imatrix llama-imatrix, 200 chunks
+PIPE 1795403682 inkling2gguf DONE imatrix 
+PIPE 1795403682 inkling2gguf START quantize llama-quantize Q4_K_M (attn/embed/head Q6_K)
+PIPE 1795403838 inkling2gguf DONE quantize 
+PIPE 1795403838 inkling2gguf START ppl ppl: F16 vs Q4_K_M (jang)
+PIPE 1795403923 inkling2gguf DONE ppl 
+PIPE 1795403923 inkling2gguf START ppl_code ppl_code: F16 vs Q4_K_M (jang)
+PIPE 1795403996 inkling2gguf DONE ppl_code 
+PIPE 1795403996 inkling2gguf START smoke llama-server --jinja: chat replies, no control-token leak
+PIPE 1795404038 inkling2gguf DONE smoke 
+PIPE 1795404038 inkling2gguf SKIP card no /workspace/qt/inkling2-quant/poc/../cards/Inkling-2-Mini-GGUF-jang-imatrix.md yet
+PIPE 1795404038 inkling2gguf SKIP publish PUBLISH!=1
+PIPE 1795404038 inkling2gguf DONE _pipeline 
+PIPE 1795404497 inkling2gguf START _pipeline inkling2gguf MODEL_ID=thinkingmachines/Inkling-2-Mini OUT_DIR=/workspace/gguf-inkling2-mini-out RECIPE=experts=Q4_K_M/attn=Q6_K
+PIPE 1795404497 inkling2gguf SKIP llama_build binaries present in /workspace/llama.cpp/build/bin
+PIPE 1795404497 inkling2gguf START download thinkingmachines/Inkling-2-Mini
+PIPE 1795404498 inkling2gguf DONE download /workspace/hf/hub/models--thinkingmachines--Inkling-2-Mini/snapshots/b85c3cfa615fc413cc9af3379f491b963f3b586a
+PIPE 1795404498 inkling2gguf SKIP calib_data /workspace/calibration_datav3.txt exists
+PIPE 1795404498 inkling2gguf SKIP convert_f16 /workspace/inkling2-mini-f16.gguf exists
+PIPE 1795404498 inkling2gguf SKIP convert_mmproj /workspace/gguf-inkling2-mini-out/mmproj-inkling-2-mini-f16.gguf exists
+PIPE 1795404498 inkling2gguf SKIP imatrix /workspace/inkling2-mini.imatrix exists
+PIPE 1795404498 inkling2gguf SKIP quantize /workspace/gguf-inkling2-mini-out/inkling-2-mini-jang.gguf exists
+PIPE 1795404498 inkling2gguf START ppl ppl: F16 vs Q4_K_M (jang)
+PIPE 1795404559 inkling2gguf DONE ppl 
+PIPE 1795404559 inkling2gguf START ppl_code ppl_code: F16 vs Q4_K_M (jang)
+PIPE 1795404635 inkling2gguf DONE ppl_code 
+PIPE 1795404635 inkling2gguf START smoke llama-server --jinja: chat replies, no control-token leak
+PIPE 1795404673 inkling2gguf DONE smoke 
+PIPE 1795404673 inkling2gguf START card copy Inkling-2-Mini-GGUF-jang-imatrix.md -> README.md
+PIPE 1795404673 inkling2gguf DONE card 
+PIPE 1795404673 inkling2gguf START publish hf upload roman220220/Inkling-2-Mini-GGUF-jang-imatrix
+PIPE 1795404739 inkling2gguf DONE publish 
+PIPE 1795404739 inkling2gguf DONE _pipeline 

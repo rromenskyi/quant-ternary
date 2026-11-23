@@ -195,7 +195,9 @@ def calibrate_experts(experts, rows: dict[int, torch.Tensor], recipe: dict[str, 
         for j, e in enumerate(ids):
             if e in rows:
                 h = rows[e].float() @ W[j].to(DEVICE).t()
-                down_rows[e] = experts.act_fn(h[:, :inter]) * h[:, inter:]
+                # Inkling 2: a softcapped SwiGLU, act_fn(gate, up).
+                down_rows[e] = (experts._apply_gate(h) if hasattr(experts, "_apply_gate")
+                                else experts.act_fn(h[:, :inter]) * h[:, inter:])
         res = batched_gptq(down[ids].float(), expert_xp(down_rows, ids, inter), bits_for(prefix + "experts_down", recipe),
                            args.group_size, args.percdamp)
         dn_hat[ids] = res["W_hat"].to(torch.bfloat16).cpu()

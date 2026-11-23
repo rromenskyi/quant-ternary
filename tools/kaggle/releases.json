@@ -206,5 +206,26 @@
   "framework": "gguf",
   "variation": "mmproj-f16",
   "license": "Other"
+ },
+ {
+  "hf": "roman220220/Inkling-2-Mini-gptq-mlx-jang",
+  "model": "inkling-2-mini-ipsupport",
+  "framework": "other",
+  "variation": "mlx-gptq-jang",
+  "license": "Apache 2.0"
+ },
+ {
+  "hf": "roman220220/Inkling-2-Mini-gptq-mlx-jang-small",
+  "model": "inkling-2-mini-ipsupport",
+  "framework": "other",
+  "variation": "mlx-gptq-jang-small",
+  "license": "Apache 2.0"
+ },
+ {
+  "hf": "roman220220/Inkling-2-Mini-GGUF-jang-imatrix",
+  "model": "inkling-2-mini-ipsupport",
+  "framework": "gguf",
+  "variation": "jang-imatrix",
+  "license": "Apache 2.0"
  }
 ]

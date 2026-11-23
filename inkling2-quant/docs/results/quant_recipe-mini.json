@@ -1,0 +1,38 @@
+{
+  "recipe": {
+    "attn": 8,
+    "experts_down": 3,
+    "experts_gate_up": 3
+  },
+  "group_size": 64,
+  "components": {
+    "self_attn.q_proj.linear": "attn",
+    "self_attn.k_proj.linear": "attn",
+    "self_attn.v_proj.linear": "attn",
+    "self_attn.relative_position_bias.linear": "attn",
+    "self_attn.o_proj.linear": "attn",
+    "self_attn.o_proj.gate_proj": "attn",
+    "mlp.experts.gate_up_proj": "experts_gate_up",
+    "mlp.experts.down_proj": "experts_down"
+  },
+  "keep_float": [
+    "\\.sink_proj$",
+    "\\.sconv\\.weight_proj$",
+    "_message_gate\\.",
+    "mlp\\.gate$"
+  ],
+  "loop": {
+    "start": 6,
+    "end": 18,
+    "passes": 3,
+    "calibrated_on": "first pass"
+  },
+  "calibration": {
+    "chunks": 128,
+    "tokens": 512,
+    "sources": [
+      "wikitext:/workspace/data/wiki.train.raw",
+      "code:/workspace/data/code.txt"
+    ]
+  }
+}
