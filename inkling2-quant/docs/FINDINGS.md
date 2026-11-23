@@ -21,7 +21,7 @@
   per-expert `amax / outer_scale_denominator`); everything else bf16.
   There is no bf16 release. 26.4 B parameters, 24.5 B of them experts.
 - Vision: 23-layer ViT, hidden 1024, 40 x 40 pixel blocks per image token.
-- A DSpark draft (`mtp.safetensors`, 0.64 GB bf16), see section 8.
+- A DSpark draft (`mtp.safetensors`, 0.64 GB bf16), see section 7.
 
 ## 2. The MLX port
 
@@ -119,7 +119,7 @@ and writes the vision tower as an mmproj. Open there as of 2026-11-22:
 perplexity NaN for inkling2_loop on CUDA (#32710), prompts over ~96
 tokens decoding to '?' (#32778). The smoke test sends a longer prompt.
 
-## 8. The DSpark draft (speculative decoding)
+## 7. The DSpark draft (speculative decoding)
 
 `mtp_config` calls it an MTP head; it is a block drafter. transformers has
 no implementation; vLLM has the reference
@@ -159,7 +159,35 @@ recurrence (`rnn_proj`, `hidden_out`) stays bf16, as vLLM keeps it in
 fp32. Not GPTQ: it only decides which tokens are tried, never the output.
 Not in the GGUF: llama.cpp's DSpark support is still a PR.
 
-## 7. Status
+## 8. Results: `mini` (attn 8, experts 3), 2026-11-23
+
+One A100 80 GB (RunPod, secure cloud). Calibration 12 min (about 27 s a
+layer; the looped layers' passes 2-3 a few seconds), assemble 2 min,
+convert + exact codes 8 min, checks 15 min.
+
+| | size | PPL text | PPL code |
+|---|---|---|---|
+| release, transformers (NVFP4 experts) | 19.5 GB | 8.985 | 2.466 |
+| `mini`, MLX | 13.1 GB + 0.34 GB draft | 9.292 (+3.4 %) | 2.526 (+2.4 %) |
+
+- Vision vs transformers: cosine mean 0.9988, min 0.9888; the test image
+  described correctly.
+- GPTQ's codes differ from MLX's own re-quantization in 18.8 % of the
+  packed words (Ornith, 3-bit: 8.3 %).
+- DSpark, greedy, all 7 drafts: 1.80 tokens per verify step on wikitext,
+  3.63 on the Python stdlib. Speed-up on the A100 with mlx[cuda] 1.09x
+  (not a Mac number). The greedy answer with DSpark differed from plain
+  decoding at token 17: a near tie, " This" 29.296 against " Let" 29.248
+  in one forward (bf16 steps near the softcap are 0.125), not a rollback
+  error.
+
+Two failures on the way, both fixed: `layer_kwargs` left `message_input`
+on the CPU (the CPU dry run could not show it), and the fork's `setup.py`
+listed its packages by hand, so a pip install from git had no
+`mlx_lm.models.inkling2` (nor `mlx_lm.kernels` / `mlx_lm.processors`):
+now `find_packages` (fork commit 2c487e1).
+
+## 9. Status
 
 - Done, on a CPU: the port check, the whole pipeline on the tiny
   checkpoint (`poc/smoke_test.sh`), the resume test.
