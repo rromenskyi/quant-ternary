@@ -1,0 +1,15 @@
+{
+ "romanromenskyi/chatterbox-multilingual-v3-ipsupport/other/mlx-8bit": "53cc48c55b4621ec461e1c54f4a1246df6f3846b",
+ "romanromenskyi/nemotron-3-5-bolt-e4b-ipsupport/other/mlx-gptq-jang": "f1e1b4f00a4cccb74b55856bbbd9a8118be26917",
+ "romanromenskyi/nemotron-3-5-bolt-e4b-ipsupport/gguf/mmproj-f16": "f690c570a6466ffc59493a4e835ed99e784adf04",
+ "romanromenskyi/llmtray-components/gguf/bge-m3-q8-0-gguf": "9eba04c5d75ba5a1595e45de734d36bef4e5cb98:0148af7c7eaa",
+ "romanromenskyi/frognano-4b-2609-ipsupport/gguf/jang-imatrix": "ed3622143baabf55ab34410df3308fdb3508642f",
+ "romanromenskyi/inkling-2-mini-ipsupport/other/mlx-gptq-jang": "d2649be34329ca5484ce0c3159a1c56f237f0870",
+ "romanromenskyi/inkling-2-mini-ipsupport/other/mlx-gptq-jang-small": "af61566a4cc66576d2be11dfd35a0781d8eda97c",
+ "romanromenskyi/inkling-2-mini-ipsupport/gguf/jang-imatrix": "18750e7f2eb3f52c4462ac06be034e6d292bfa0c",
+ "romanromenskyi/bge-m3-ipsupport/gguf/q8-0": "1e88ae2ea1a24b135fe1182300fce0a28dc9ac24:61f18c759951",
+ "romanromenskyi/bge-m3-ipsupport/gguf/f16": "1e88ae2ea1a24b135fe1182300fce0a28dc9ac24:3983d61b6e6b",
+ "romanromenskyi/bge-m3-ipsupport/gguf/q6-k": "1e88ae2ea1a24b135fe1182300fce0a28dc9ac24:6a16fd1b2fd2",
+ "romanromenskyi/bge-m3-ipsupport/gguf/q5-k-m": "1e88ae2ea1a24b135fe1182300fce0a28dc9ac24:86506ba49e0b",
+ "romanromenskyi/bge-m3-ipsupport/gguf/q4-k-m": "1e88ae2ea1a24b135fe1182300fce0a28dc9ac24:2230121b0c89"
+}

@@ -61,14 +61,31 @@ long one).
 - llama.cpp `b12751` has no `llama-embedding` binary: embeddings through
   `llama-server`.
 
-## 3. MLX (for LLMTray)
+## 3. MLX (for LLMTray), published as roman220220/bge-m3-mlx-{fp16,8bit,6bit}
 
 LLMTray's runtime (`runtime/llmtray_embed`, xlm-roberta family) loads
 HF-layout `model.safetensors` with one `{"group_size", "bits"}`
-quantization in `config.json`. Its registry: fp16 default, 8-bit allowed
-(memory only), 4-bit refused (min cosine 0.915), reference vectors
-checked at load with min cosine 0.999. Built (mlx_build.py): fp16
-1133 MB, 8-bit 610 MB, 6-bit 471 MB (linear layers and word embeddings
-quantized, group 64), with LLMTray's pinned `tokenizer.json`
-(sha256 `5df1f55d…`). Measured through LLMTray's own `Embedder`
-(eval_mlx.py): pending.
+quantization in `config.json` and quantizes the modules that have
+`.scales`. mlx_build.py: the linear layers and the word embeddings at N
+bits, group 64; position / token-type embeddings and norms fp16;
+LLMTray's pinned `tokenizer.json` (sha256 `5df1f55d…`, mlx-community's,
+no trailing-whitespace token).
+
+Measured through LLMTray's own `Embedder` (eval_mlx.py: its loader,
+tokenizer, batching, CLS pooling, normalization), fp16 compute, on the
+Mac's GPU (Apple M5): 2-2.5 min a build for all 12,039 texts. Results in
+`results/results-mlx.json`.
+
+| build | MB | sentences | code | long | bitext top-1 | code top-1 | top-10 overlap |
+|---|---|---|---|---|---|---|---|
+| fp16 | 1133 | 1.00000 / 1.0000 | 1.00000 / 0.9995 | 0.99998 / 0.9999 | 0.9584 | 0.4970 | 0.9983 |
+| 8-bit | 610 | 0.99986 / 0.9993 | 0.99975 / 0.9990 | 0.99921 / 0.9983 | 0.9585 | 0.4980 | 0.9845 |
+| 6-bit | 471 | 0.99792 / 0.9691 | 0.99642 / 0.9933 | 0.99257 / 0.9894 | 0.9584 | 0.5000 | 0.9443 |
+
+MLX's affine 8-bit (a scale and a bias per 64 values) is closer to the
+original than GGUF Q8_0 (a scale per 32): 98.5 % against 97.1 % top-10
+overlap, 0.9992 against 0.9983 on long texts, 26 MB smaller.
+
+On k2's CPU, mlx[cpu] ran single-threaded: a full run of one build did
+not finish in 3.5 hours (and kured's kernel-update reboot of k2 at 01:26
+ended them all). The Mac did all three in 7 minutes.

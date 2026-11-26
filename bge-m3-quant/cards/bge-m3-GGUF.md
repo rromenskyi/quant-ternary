@@ -23,6 +23,11 @@ tags:
 > and memory. These are GGUF builds for llama.cpp (LLMTray for Windows, or
 > any app that serves embeddings through `llama-server`).
 >
+> On a Mac, use the MLX builds instead —
+> [8-bit](https://huggingface.co/roman220220/bge-m3-mlx-8bit) (610 MB, closer to the original than Q8_0),
+> [fp16](https://huggingface.co/roman220220/bge-m3-mlx-fp16),
+> [6-bit](https://huggingface.co/roman220220/bge-m3-mlx-6bit).
+>
 > [![Download LLMTray](https://img.shields.io/badge/Download-LLMTray%20for%20Mac-2f7d4f?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/ipsupport-llc/llmtray/releases/latest/download/LLMTray-Full.dmg)
 > [![GitHub stars](https://img.shields.io/github/stars/ipsupport-llc/llmtray?style=for-the-badge&logo=github)](https://github.com/ipsupport-llc/llmtray)
 

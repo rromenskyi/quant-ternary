@@ -287,5 +287,26 @@
    "LICENSE"
   ],
   "license": "MIT"
+ },
+ {
+  "hf": "roman220220/bge-m3-mlx-8bit",
+  "model": "bge-m3-ipsupport",
+  "framework": "other",
+  "variation": "mlx-8bit",
+  "license": "MIT"
+ },
+ {
+  "hf": "roman220220/bge-m3-mlx-fp16",
+  "model": "bge-m3-ipsupport",
+  "framework": "other",
+  "variation": "mlx-fp16",
+  "license": "MIT"
+ },
+ {
+  "hf": "roman220220/bge-m3-mlx-6bit",
+  "model": "bge-m3-ipsupport",
+  "framework": "other",
+  "variation": "mlx-6bit",
+  "license": "MIT"
  }
 ]
