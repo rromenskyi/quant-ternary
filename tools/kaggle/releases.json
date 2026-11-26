@@ -227,5 +227,86 @@
   "framework": "gguf",
   "variation": "jang-imatrix",
   "license": "Apache 2.0"
+ },
+ {
+  "hf": "roman220220/bge-m3-GGUF",
+  "model": "bge-m3-ipsupport",
+  "framework": "gguf",
+  "variation": "q8-0",
+  "patterns": [
+   "bge-m3-q8_0.gguf",
+   "README.md",
+   "LICENSE"
+  ],
+  "license": "MIT"
+ },
+ {
+  "hf": "roman220220/bge-m3-GGUF",
+  "model": "bge-m3-ipsupport",
+  "framework": "gguf",
+  "variation": "f16",
+  "patterns": [
+   "bge-m3-f16.gguf",
+   "README.md",
+   "LICENSE"
+  ],
+  "license": "MIT"
+ },
+ {
+  "hf": "roman220220/bge-m3-GGUF",
+  "model": "bge-m3-ipsupport",
+  "framework": "gguf",
+  "variation": "q6-k",
+  "patterns": [
+   "bge-m3-q6_k.gguf",
+   "README.md",
+   "LICENSE"
+  ],
+  "license": "MIT"
+ },
+ {
+  "hf": "roman220220/bge-m3-GGUF",
+  "model": "bge-m3-ipsupport",
+  "framework": "gguf",
+  "variation": "q5-k-m",
+  "patterns": [
+   "bge-m3-q5_k_m.gguf",
+   "README.md",
+   "LICENSE"
+  ],
+  "license": "MIT"
+ },
+ {
+  "hf": "roman220220/bge-m3-GGUF",
+  "model": "bge-m3-ipsupport",
+  "framework": "gguf",
+  "variation": "q4-k-m",
+  "patterns": [
+   "bge-m3-q4_k_m.gguf",
+   "README.md",
+   "LICENSE"
+  ],
+  "license": "MIT"
+ },
+ {
+  "hf": "roman220220/bge-m3-mlx-8bit",
+  "model": "bge-m3-ipsupport",
+  "framework": "other",
+  "variation": "mlx-8bit",
+  "license": "MIT"
+ },
+ {
+  "hf": "roman220220/bge-m3-mlx-fp16",
+  "model": "bge-m3-ipsupport",
+  "framework": "other",
+  "variation": "mlx-fp16",
+  "license": "MIT"
+ },
+ {
+  "hf": "roman220220/bge-m3-mlx-6bit",
+  "model": "bge-m3-ipsupport",
+  "framework": "other",
+  "variation": "mlx-6bit",
+  "license": "MIT"
  }
 ]
