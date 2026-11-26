@@ -17,18 +17,22 @@ context 8192) but for one flag the newer converter writes
 vectors agree at cosine 1.000000; the files differ by 32 bytes.
 
 Measured through `llama-server --embedding` (`/v1/embeddings`) against
-transformers fp32 (CLS, L2-normalized), on 10,240 texts (all of the
-Tatoeba bitext and the first 240 code texts; the long ones were still
-running when the builds were published):
+transformers fp32 (CLS, L2-normalized), on 12,039 texts: Tatoeba bitext
+(5 languages x 1,000 pairs), 1,000 stdlib code pairs, 39 long modules
+(5-6.5k tokens; one over 8192 left out). Cosine mean / min by task:
 
-| build | MB | cos mean | cos min | bitext top-1 | code top-1 | top-10 overlap |
-|---|---|---|---|---|---|---|
-| reference | 2271 | — | — | 0.9583 | 0.7417 | — |
-| F16 | 1158 | 0.999994 | 0.99957 | 0.9583 | 0.7417 | 0.9965 |
-| Q8_0 | 635 | 0.999577 | 0.99792 | 0.9587 | 0.7417 | 0.9718 |
-| Q6_K | 499 | 0.996527 | 0.98360 | 0.9579 | 0.7250 | 0.9281 |
-| Q5_K_M | 468 | 0.993747 | 0.97360 | 0.9579 | 0.7417 | 0.9024 |
-| Q4_K_M | 438 | 0.982555 | 0.92779 | 0.9588 | 0.7583 | 0.8438 |
+| build | MB | sentences | code | long | bitext top-1 | code top-1 | top-10 overlap |
+|---|---|---|---|---|---|---|---|
+| reference | 2271 | — | — | — | 0.9583 | 0.4970 | — |
+| F16 | 1158 | 0.99999 / 0.9999 | 0.99999 / 0.9996 | 0.99994 / 0.9995 | 0.9583 | 0.4970 | 0.9963 |
+| Q8_0 | 635 | 0.99958 / 0.9979 | 0.99931 / 0.9978 | 0.99828 / 0.9967 | 0.9587 | 0.4960 | 0.9712 |
+| Q6_K | 499 | 0.99657 / 0.9836 | 0.99480 / 0.9870 | 0.99030 / 0.9874 | 0.9579 | 0.5000 | 0.9265 |
+| Q5_K_M | 468 | 0.99385 / 0.9736 | 0.98928 / 0.9808 | 0.97942 / 0.9741 | 0.9579 | 0.4960 | 0.8999 |
+| Q4_K_M | 438 | 0.98280 / 0.9278 | 0.97214 / 0.9495 | 0.94611 / 0.9339 | 0.9588 | 0.4890 | 0.8404 |
+
+Ours vs ggml-org's Q8_0 on all texts: cosine mean 1.0000000, min
+0.9999999. Long inputs lose the most: Q4_K_M 0.946 on them against 0.983
+on sentences.
 
 Tatoeba bitext is easy for bge-m3 (95.8 %): its top-1 barely moves even
 at Q4_K_M, while the rankings do (top-10 overlap 84 %). The cosine and

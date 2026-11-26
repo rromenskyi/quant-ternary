@@ -27,6 +27,8 @@ def main() -> None:
     ap.add_argument("--ref", required=True)
     ap.add_argument("--model", action="append", required=True)
     ap.add_argument("--compute-dtype", default="float16", help="LLMTray's; float32 on a CPU without fp16 math")
+    ap.add_argument("--pairs", type=int, default=0,
+                    help="only the first N pairs per bitext language and of code, and N // 60 long texts (0: all)")
     ap.add_argument("--cache-gb", type=float, default=1.0, help="MLX buffer cache limit (a shared host)")
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
@@ -43,9 +45,16 @@ def main() -> None:
     rows = [json.loads(line) for line in open(args.eval, encoding="utf-8")]
     ref = np.load(Path(args.ref) / "dense.npy")
     assert json.load(open(Path(args.ref) / "ids.json")) == [r["id"] for r in rows]
+    tokens = json.load(open(Path(args.ref) / "tokens.json"))
+    # transformers truncated these at 8192 tokens: out, as in eval_gguf.py
+    keep = [i for i, r in enumerate(rows) if len(tokens.get(r["id"], [])) < 8192]
+    if args.pairs:
+        long_rows = [i for i in keep if rows[i]["task"] == "long"][: max(1, args.pairs // 60)]
+        keep = [i for i in keep if (rows[i]["task"] != "long" and rows[i]["pair"] < args.pairs) or i in long_rows]
+    rows, ref = [rows[i] for i in keep], ref[keep]
     langs = sorted({r["lang"] for r in rows if r["task"] == "bitext"})
     ref_m, ref_tops = eval_gguf.metrics(ref, rows, langs)
-    results = {"reference": ref_m, "builds": {}}
+    results = {"reference": ref_m, "builds": {}, "texts": len(rows), "pairs": args.pairs}
     for model_dir in args.model:
         cfg = json.load(open(Path(model_dir) / "config.json"))
         entry = json.loads(json.dumps(base))

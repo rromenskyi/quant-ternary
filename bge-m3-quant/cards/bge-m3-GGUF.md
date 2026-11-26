@@ -39,38 +39,42 @@ pooling from the file.
 
 ## Which file
 
-| File | Size | Cosine to the original (mean / min) | Translation retrieval | Code retrieval | Top-10 overlap |
+| File | Size | Cosine to the original, mean / min: sentences · code · long texts | Translation retrieval | Code retrieval | Top-10 overlap |
 |---|---|---|---|---|---|
-| original (PyTorch, fp32) | 2.27 GB | — | 95.83 % | 74.2 % | — |
-| `bge-m3-f16.gguf` | 1158 MB | 0.99999 / 0.9996 | 95.83 % | 74.2 % | 99.7 % |
-| **`bge-m3-q8_0.gguf`** | **635 MB** | **0.99958 / 0.998** | **95.87 %** | **74.2 %** | **97.2 %** |
-| `bge-m3-q6_k.gguf` | 499 MB | 0.9965 / 0.984 | 95.79 % | 72.5 % | 92.8 % |
-| `bge-m3-q5_k_m.gguf` | 468 MB | 0.9937 / 0.974 | 95.79 % | 74.2 % | 90.2 % |
-| `bge-m3-q4_k_m.gguf` | 438 MB | 0.9826 / 0.928 | 95.88 % | 75.8 % | 84.4 % |
+| original (PyTorch, fp32) | 2.27 GB | — | 95.83 % | 49.7 % | — |
+| `bge-m3-f16.gguf` | 1158 MB | 0.99999 / 0.9999 · 0.99999 / 0.9996 · 0.99994 / 0.9995 | 95.83 % | 49.7 % | 99.6 % |
+| **`bge-m3-q8_0.gguf`** | **635 MB** | **0.99958 / 0.998 · 0.99931 / 0.998 · 0.9983 / 0.997** | **95.87 %** | **49.6 %** | **97.1 %** |
+| `bge-m3-q6_k.gguf` | 499 MB | 0.9966 / 0.984 · 0.9948 / 0.987 · 0.9903 / 0.987 | 95.79 % | 50.0 % | 92.7 % |
+| `bge-m3-q5_k_m.gguf` | 468 MB | 0.9939 / 0.974 · 0.9893 / 0.981 · 0.9794 / 0.974 | 95.79 % | 49.6 % | 90.0 % |
+| `bge-m3-q4_k_m.gguf` | 438 MB | 0.9828 / 0.928 · 0.9721 / 0.950 · 0.9461 / 0.934 | 95.88 % | 48.9 % | 84.0 % |
 
 **Q8_0 is the one to use**: indistinguishable from the original in
 retrieval, half the size of F16. Q6_K is a fair trade if 136 MB matter.
-Q5_K_M and Q4_K_M keep the retrieval accuracy of this easy test but
-reorder results: a sixth of the top-10 changes at Q4_K_M, and some vectors
-move far (cosine 0.93) — they are here for very tight memory budgets.
+Quantization hurts long inputs most: at Q4_K_M a 5–6k-token text's vector
+is at cosine 0.95 to the original's, and a sixth of every top-10 changes.
+Q5_K_M and Q4_K_M keep the accuracy of these retrieval tests but reorder
+results — they are here for very tight memory budgets, not for indexing
+long documents.
 
 Our Q8_0 has the same tensors as
 [ggml-org/bge-m3-Q8_0-GGUF](https://huggingface.co/ggml-org/bge-m3-Q8_0-GGUF)
-(cosine 1.000000 between their vectors; the file differs by one tokenizer
+(cosine ≥ 0.9999999 between their vectors on every text below; the file differs by one tokenizer
 metadata flag), so an index built with either works with the other.
 
 How it was measured: every build served by `llama-server --embedding`
 (`/v1/embeddings`, as apps use it), against the original in transformers
-(fp32, CLS, L2-normalized), on 10,240 texts: the
+(fp32, CLS, L2-normalized), on 12,039 texts:
 [Tatoeba](https://huggingface.co/datasets/mteb/tatoeba-bitext-mining) test
 pairs for Russian, Ukrainian, Chinese, Japanese and German against English
 (translation retrieval: top-1 of the right translation among 1,000, both
-directions, averaged) and Python standard-library functions (code
-retrieval: a docstring finds its function body). Top-10 overlap: the share
-of each query's ten nearest results that are the original model's. The
-tokenizer was checked too: llama.cpp's token ids equal transformers' on
-519 of the texts (every 25th, and every long one), no difference. Long inputs (5–8k tokens) were still being
-measured when this was published; they will be added here.
+directions, averaged over the ten), 1,000 Python standard-library functions
+(code retrieval: a docstring finds its function body among 1,000), and 39
+whole standard-library modules of 5–6.5k tokens (cosine only; one longer
+than 8192 tokens is left out: llama-server refuses it, transformers
+truncates it). Top-10 overlap: the share of each query's ten nearest
+results that are the original model's. Tokenizer: llama.cpp's ids equal
+transformers' on 519 of the texts (every 25th and every long one), in
+every file.
 
 ## Usage
 
